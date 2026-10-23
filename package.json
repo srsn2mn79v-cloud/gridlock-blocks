@@ -1,0 +1,19 @@
+{
+  "name": "gridlock-blocks",
+  "private": true,
+  "version": "0.1.0",
+  "type": "module",
+  "scripts": {
+    "dev": "vite",
+    "build": "vite build",
+    "build:html": "vite build --config vite.singlefile.config.js",
+    "preview": "vite preview"
+  },
+  "dependencies": {
+    "three": "^0.169.0"
+  },
+  "devDependencies": {
+    "vite": "^5.4.0",
+    "vite-plugin-singlefile": "^2.3.3"
+  }
+}

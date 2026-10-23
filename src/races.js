@@ -1,0 +1,450 @@
+// Street races: drag (straight line), drift (score in a zone), circuit (one lap of the city through checkpoints) and
+// sprint (a one-off path from A to B). Start gates stand on the street, every race has a pin on the map, and the top
+// three get $5000 / $3000 / $1500. Opponents are ghost cars that follow the route (they never collide with you).
+// The route generator is plain data + the road graph, so tools/check.mjs can run it in node (see `planRaces`).
+import * as THREE from 'three';
+
+import { CLASS_REF_SPEED, CLASS_PRIZE_MUL, CLASS_ORDER, CLASS_COLOR, classIndex } from './classes.js';
+const PRIZES = [5000, 3000, 1500];
+export const RACE_KINDS = {
+  drag:    { name: 'Drag',    color: '#ff4d4d', hex: 0xff4d4d, label: 'DR', desc: 'Straight line, fastest to the line' },
+  drift:   { name: 'Drift',   color: '#ff9f1c', hex: 0xff9f1c, label: 'DF', desc: 'Slide for points: long, fast, big angle' },
+  circuit: { name: 'Circuit', color: '#3b82f6', hex: 0x3b82f6, label: 'CI', desc: 'One lap of the city through checkpoints' },
+  sprint:  { name: 'Sprint',  color: '#2ee66b', hex: 0x2ee66b, label: 'SP', desc: 'One path from A to B through checkpoints' }
+};
+
+function mulberry(seed) { let a = seed >>> 0; return () => { a += 0x6D2B79F5; let t = a; t = Math.imul(t ^ (t >>> 15), t | 1); t ^= t + Math.imul(t ^ (t >>> 7), t | 61); return ((t ^ (t >>> 14)) >>> 0) / 4294967296; }; }
+
+// ---- planning (no three.js, runs in node) -----------------------------------------------------------------------------------
+export function planRaces(city, districtName = () => 'City', transit = null) {
+  const nodes = city.roadNodes, edges = city.roadEdges, rand = mulberry(7781);
+  const usable = e => e.structure !== 'tunnel' && !e.ramp;
+  const adj = {};
+  edges.forEach(e => {
+    if (!usable(e)) return;
+    const a = nodes[e.from], b = nodes[e.to], len = Math.hypot(a.x - b.x, a.z - b.z);
+    (adj[e.from] ||= []).push({ to: e.to, len, e });
+    if (!e.oneWay) (adj[e.to] ||= []).push({ to: e.from, len, e });
+  });
+  const flat = id => nodes[id].elevation < 0.5;
+  function path(from, to) {            // Dijkstra over the drivable graph
+    const dist = { [from]: 0 }, prev = {}, done = new Set();
+    for (;;) {
+      let u = null, best = Infinity;
+      for (const n in dist) if (!done.has(n) && dist[n] < best) { best = dist[n]; u = n; }
+      if (u === null || u === to) break;
+      done.add(u);
+      (adj[u] || []).forEach(({ to: v, len }) => { if (dist[u] + len < (dist[v] ?? Infinity)) { dist[v] = dist[u] + len; prev[v] = u; } });
+    }
+    if (dist[to] === undefined) return null;
+    const out = [to]; for (let n = to; n !== from; n = prev[n]) out.unshift(prev[n]);
+    return out;
+  }
+  const polyOf = ids => { const pts = []; ids.forEach(id => { const p = [nodes[id].x, nodes[id].z]; const l = pts[pts.length - 1]; if (!l || Math.hypot(l[0] - p[0], l[1] - p[1]) > 0.5) pts.push(p); }); return pts; };
+  const lenOf = pts => { let l = 0; for (let i = 1; i < pts.length; i++) l += Math.hypot(pts[i][0] - pts[i - 1][0], pts[i][1] - pts[i - 1][1]); return l; };
+  const ids = Object.keys(nodes);
+  const deg = {}; edges.forEach(e => { if (usable(e)) { deg[e.from] = (deg[e.from] || 0) + 1; deg[e.to] = (deg[e.to] || 0) + 1; } });
+  const hubs = ids.filter(id => flat(id) && (deg[id] || 0) >= 3 && adj[id] && adj[id].some(a => a.e.type !== 'highway'));
+  const nearestHub = (x, z, within = 90) => { let b = null, bd = within; hubs.forEach(id => { const d = Math.hypot(nodes[id].x - x, nodes[id].z - z); if (d < bd) { bd = d; b = id; } }); return b; };
+  const races = [], starts = [];
+  // race gates keep well clear of anything you can walk/drive into (apartment doors + garage gates, shops, agents)
+  const keepOut = [];
+  (city.apartments || []).forEach(a => { keepOut.push([a.door.x, a.door.z]); if (a.gate) keepOut.push([a.gate.x, a.gate.z]); });
+  (city.shops || []).forEach(sh => keepOut.push([sh.door.x, sh.door.z]));
+  (city.agents || []).forEach(ag => keepOut.push([ag.door.x, ag.door.z]));
+  (city.stores || []).forEach(st => keepOut.push([st.door.x, st.door.z]));
+  if (transit) { transit.stands.forEach(q => keepOut.push([q.x, q.z])); if (transit.depot) keepOut.push([transit.depot.x, transit.depot.z]); }
+  const clearOfDoors = (x, z) => keepOut.every(k => Math.hypot(k[0] - x, k[1] - z) > 55);
+  const farFromOthers = (x, z, d = 260) => clearOfDoors(x, z) && starts.every(s => Math.hypot(s[0] - x, s[1] - z) > d);
+  const ptAt = (pts, s) => { let acc = 0; for (let i = 1; i < pts.length; i++) { const l = Math.hypot(pts[i][0] - pts[i - 1][0], pts[i][1] - pts[i - 1][1]); if (acc + l >= s || i === pts.length - 1) { const t = Math.min(1, (s - acc) / (l || 1)); return [pts[i - 1][0] + (pts[i][0] - pts[i - 1][0]) * t, pts[i - 1][1] + (pts[i][1] - pts[i - 1][1]) * t]; } acc += l; } return pts[pts.length - 1]; };
+  const checkpointsFor = (pts, every) => { const L = lenOf(pts), n = Math.max(5, Math.round(L / every)), out = []; for (let k = 1; k <= n; k++) out.push(ptAt(pts, L * k / n)); return out; };
+  const label = (x, z) => districtName(x, z);
+
+  // --- drag: the straightest long runs of wide road -------------------------------------------------------------------------
+  const cand = [];
+  edges.forEach(e => {
+    if (!usable(e) || e.width < 15 || e.structure === 'bridge') return;
+    [[e.from, e.to], ...(e.oneWay ? [] : [[e.to, e.from]])].forEach(([a, b]) => {
+      if (!flat(a) || !flat(b)) return;
+      let pts = [[nodes[a].x, nodes[a].z], [nodes[b].x, nodes[b].z]], cur = b, prevN = a, total = Math.hypot(pts[1][0] - pts[0][0], pts[1][1] - pts[0][1]), guard = 0;
+      const dir0 = [(pts[1][0] - pts[0][0]) / total, (pts[1][1] - pts[0][1]) / total];
+      while (total < 470 && guard++ < 14) {
+        let best = null, bd = 0.985;
+        (adj[cur] || []).forEach(o => {
+          if (o.to === prevN || o.e.width < 15 || o.e.structure === 'bridge' || !flat(o.to)) return;
+          const dx = nodes[o.to].x - nodes[cur].x, dz = nodes[o.to].z - nodes[cur].z, l = Math.hypot(dx, dz) || 1;
+          const c = (dx / l) * dir0[0] + (dz / l) * dir0[1];
+          if (c > bd) { bd = c; best = o; }
+        });
+        if (!best) break;
+        pts.push([nodes[best.to].x, nodes[best.to].z]); total += best.len; prevN = cur; cur = best.to;
+      }
+      if (total >= 330) cand.push({ pts, total, e });
+    });
+  });
+  cand.sort((a, b) => (b.e.oneWay ? 1 : 0) - (a.e.oneWay ? 1 : 0) || b.total - a.total);
+  const dragStarts = [];
+  cand.forEach(c => {
+    if (dragStarts.length >= 3) return;
+    const mx = c.pts[0][0], mz = c.pts[0][1];
+    if (dragStarts.some(s => Math.hypot(s[0] - mx, s[1] - mz) < 500) || !clearOfDoors(mx, mz)) return;
+    dragStarts.push([mx, mz]);
+    const L = Math.min(c.total, 420);
+    // start 14 u in so the gate stands on plain road, then run L
+    const pts = [ptAt(c.pts, 14), ...c.pts.slice(1)].filter((p, i, a) => i === 0 || Math.hypot(p[0] - a[i - 1][0], p[1] - a[i - 1][1]) > 1);
+    races.push({ kind: 'drag', id: 'drag' + races.length, name: label(mx, mz) + ' Drag', pts, length: Math.min(lenOf(pts), L), width: c.e.width, checkpoints: [] });
+    starts.push([mx, mz]);
+  });
+
+  // --- circuits: a loop through three waypoints around a start hub ---------------------------------------------------------------
+  const order = hubs.slice().sort(() => rand() - 0.5);
+  let nC = 0;
+  for (const h of order) {
+    if (nC >= 3) break;
+    const s = nodes[h]; if (!farFromOthers(s.x, s.z, 380)) continue;
+    const R = 230 + rand() * 90, a0 = rand() * Math.PI * 2, wp = [];
+    for (let k = 0; k < 3; k++) {
+      const a = a0 + k * 2.1 + (rand() - 0.5) * 0.4;
+      const n = nearestHub(s.x + Math.cos(a) * R, s.z + Math.sin(a) * R, 70);
+      if (n && n !== h && !wp.includes(n)) wp.push(n);
+    }
+    if (wp.length < 3) continue;
+    const legs = [h, ...wp, h]; let ids2 = [h], ok = true;
+    for (let i = 1; i < legs.length && ok; i++) { const p = path(legs[i - 1], legs[i]); if (!p) ok = false; else ids2 = ids2.concat(p.slice(1)); }
+    if (!ok) continue;
+    const pts = polyOf(ids2), L = lenOf(pts);
+    if (L < 900 || L > 2600) continue;
+    races.push({ kind: 'circuit', id: 'circuit' + nC, name: label(s.x, s.z) + ' Circuit', pts, length: L, width: 16, checkpoints: checkpointsFor(pts, 150), lap: true });
+    starts.push([s.x, s.z]); nC++;
+  }
+
+  // --- sprints: far apart ends, one shortest path --------------------------------------------------------------------------------
+  let nS = 0;
+  for (const h of order.slice().reverse()) {
+    if (nS >= 3) break;
+    const s = nodes[h]; if (!farFromOthers(s.x, s.z, 300)) continue;
+    for (let tries = 0; tries < 24; tries++) {
+      const a = rand() * Math.PI * 2, D = 1000 + rand() * 700;
+      const e = nearestHub(s.x + Math.cos(a) * D, s.z + Math.sin(a) * D, 90);
+      if (!e || e === h) continue;
+      const p = path(h, e); if (!p) continue;
+      const pts = polyOf(p), L = lenOf(pts);
+      if (L < 1000 || L > 2900) continue;
+      races.push({ kind: 'sprint', id: 'sprint' + nS, name: label(s.x, s.z) + ' Sprint', pts, length: L, width: 16, checkpoints: checkpointsFor(pts, 140) });
+      starts.push([s.x, s.z]); nS++; break;
+    }
+  }
+
+  // --- drift zones: wide junctions ------------------------------------------------------------------------------------------------
+  const wide = hubs.filter(id => adj[id].some(a => a.e.width >= 16)).sort(() => rand() - 0.5);
+  let nD = 0;
+  for (const h of wide) {
+    if (nD >= 2) break;
+    const s = nodes[h]; if (!farFromOthers(s.x, s.z, 260)) continue;
+    const dir = adj[h][0], o = nodes[dir.to], l = Math.hypot(o.x - s.x, o.z - s.z) || 1;
+    races.push({ kind: 'drift', id: 'drift' + nD, name: label(s.x, s.z) + ' Drift', pts: [[s.x, s.z], [s.x + (o.x - s.x) / l * 8, s.z + (o.z - s.z) / l * 8]], length: 0, width: 16, checkpoints: [], zone: { x: s.x, z: s.z, r: 62 }, timeLimit: 75 });
+    starts.push([s.x, s.z]); nD++;
+  }
+  // difficulty class: F (easier, slower rivals, smaller purse) and E (faster rivals, bigger purse) alternate within each kind
+  const seen = {};
+  races.forEach(r => { seen[r.kind] = (seen[r.kind] || 0); r.cls = seen[r.kind]++ % 2 === 0 ? 'F' : 'E'; });
+  return races;
+}
+
+// ---- the game side ---------------------------------------------------------------------------------------------------------------------
+export function createRaces({ city, scene, heightAt, car, world, districtName, transit = null }) {
+  const plan = planRaces(city, districtName, transit);
+  const save = (world.save.races ||= {});
+  const persist = () => world.persist && world.persist();
+  const ptAt = (pts, s) => {
+    if (s <= 0) { const dx = pts[1][0] - pts[0][0], dz = pts[1][1] - pts[0][1], l = Math.hypot(dx, dz) || 1; return { x: pts[0][0] + dx / l * s, z: pts[0][1] + dz / l * s, dx: dx / l, dz: dz / l }; }
+    let acc = 0;
+    for (let i = 1; i < pts.length; i++) {
+      const dx = pts[i][0] - pts[i - 1][0], dz = pts[i][1] - pts[i - 1][1], l = Math.hypot(dx, dz) || 1;
+      if (acc + l >= s || i === pts.length - 1) { const t = (s - acc) / l; return { x: pts[i - 1][0] + dx * t, z: pts[i - 1][1] + dz * t, dx: dx / l, dz: dz / l }; }
+      acc += l;
+    }
+  };
+  plan.forEach(r => {
+    r.cum = [0]; for (let i = 1; i < r.pts.length; i++) r.cum.push(r.cum[i - 1] + Math.hypot(r.pts[i][0] - r.pts[i - 1][0], r.pts[i][1] - r.pts[i - 1][1]));
+    if (r.kind === 'drag') r.length = Math.min(r.length, r.cum[r.cum.length - 1]);
+    const s0 = ptAt(r.pts, 0); r.start = { x: s0.x, z: s0.z, dx: s0.dx, dz: s0.dz, heading: Math.atan2(s0.dx, s0.dz) };
+    if (r.kind === 'drift') r.start = { x: r.zone.x, z: r.zone.z, dx: s0.dx, dz: s0.dz, heading: Math.atan2(s0.dx, s0.dz) };
+    r.cpS = r.checkpoints.map(p => { let bs = 0, bd = 1e9; for (let i = 1; i < r.pts.length; i++) { const ax = r.pts[i - 1][0], az = r.pts[i - 1][1], bx = r.pts[i][0], bz = r.pts[i][1], l2 = (bx - ax) ** 2 + (bz - az) ** 2 || 1; const t = Math.max(0, Math.min(1, ((p[0] - ax) * (bx - ax) + (p[1] - az) * (bz - az)) / l2)); const d = Math.hypot(p[0] - ax - (bx - ax) * t, p[1] - az - (bz - az) * t); if (d < bd) { bd = d; bs = r.cum[i - 1] + (r.cum[i] - r.cum[i - 1]) * t; } } return bs; });
+  });
+
+  // ---- gates in the street ----------------------------------------------------------------------------------------------------
+  const labelTex = (text, color) => {
+    const c = document.createElement('canvas'); c.width = 512; c.height = 128; const g = c.getContext('2d');
+    g.fillStyle = color; g.fillRect(0, 0, 512, 128);
+    g.fillStyle = 'rgba(255,255,255,.18)'; for (let i = 0; i < 16; i++) for (let j = 0; j < 4; j++) if ((i + j) % 2) g.fillRect(i * 32, j * 8, 32, 8);
+    g.fillStyle = '#fff'; g.font = 'bold 74px system-ui, sans-serif'; g.textAlign = 'center'; g.textBaseline = 'middle'; g.fillText(text, 256, 70);
+    const t = new THREE.CanvasTexture(c); t.colorSpace = THREE.SRGBColorSpace; return t;
+  };
+  const postMat = new THREE.MeshStandardMaterial({ color: 0x2b2f36, roughness: 0.6, metalness: 0.4 });
+  plan.forEach(r => {
+    const K = RACE_KINDS[r.kind], gate = new THREE.Group(), hw = Math.min(r.width / 2 + 1.1, 13);
+    const px = -r.start.dz, pz = r.start.dx;      // across the track
+    // local z runs down the track, local x across it
+    // no poles: the banner floats high above the road, so nothing is in the way when you drive past
+    const face = new THREE.MeshBasicMaterial({ map: labelTex(K.name.toUpperCase() + (r.kind === 'drift' ? ' ZONE' : ' RACE'), K.color) });
+    const banner = new THREE.Mesh(new THREE.BoxGeometry(hw * 2, 1.7, 0.18), [postMat, postMat, postMat, postMat, face, face]);
+    banner.position.set(0, 8.2, 0); gate.add(banner);
+    const ring = new THREE.Mesh(new THREE.TorusGeometry(2.2, 0.22, 10, 28), new THREE.MeshBasicMaterial({ color: K.hex }));
+    ring.rotation.x = Math.PI / 2; ring.position.set(0, 0.25, 0); gate.add(ring);
+    gate.rotation.y = Math.atan2(r.start.dx, r.start.dz);
+    gate.position.set(r.start.x, heightAt(r.start.x, r.start.z), r.start.z);
+    scene.add(gate); r.gate = gate;
+    r.solids = [];
+  });
+
+  // ---- checkpoint rings / ghost cars ---------------------------------------------------------------------------------------------
+  const cpMat = (hex, op) => new THREE.MeshBasicMaterial({ color: hex, transparent: true, opacity: op, depthWrite: false });
+  const rings = [0, 1].map(i => { const m = new THREE.Mesh(new THREE.TorusGeometry(4.6, 0.38, 10, 32), cpMat(i ? 0xffffff : 0xffd21f, i ? 0.35 : 0.9)); m.visible = false; scene.add(m); return m; });
+  const beacon = new THREE.Mesh(new THREE.CylinderGeometry(0.7, 0.7, 160, 10, 1, true), cpMat(0xffd21f, 0.4)); beacon.visible = false; scene.add(beacon);
+  // a glowing guide strip laid on the road from you to the next checkpoint
+  const GN = 72, guide = (() => {
+    const g = new THREE.BufferGeometry(); g.setAttribute('position', new THREE.BufferAttribute(new Float32Array(GN * 2 * 3), 3));
+    const idx = []; for (let i = 0; i < GN - 1; i++) idx.push(i * 2, i * 2 + 1, i * 2 + 2, i * 2 + 1, i * 2 + 3, i * 2 + 2); g.setIndex(idx);
+    const m = new THREE.Mesh(g, new THREE.MeshBasicMaterial({ color: 0xffd21f, transparent: true, opacity: 0.55, depthWrite: false, side: THREE.DoubleSide, polygonOffset: true, polygonOffsetFactor: -4, polygonOffsetUnits: -4 }));
+    m.frustumCulled = false; m.visible = false; scene.add(m); return m;
+  })();
+  function updateGuide(r, prog, endS) {
+    const a = guide.geometry.attributes.position, span = Math.max(8, Math.min(endS - prog, 240));
+    for (let i = 0; i < GN; i++) {
+      const p = ptAt(r.pts, prog + 3 + span * i / (GN - 1)), y = heightAt(p.x, p.z, car.y) + 0.35, nx = p.dz * 0.9, nz = -p.dx * 0.9;
+      a.setXYZ(i * 2, p.x - nx, y, p.z - nz); a.setXYZ(i * 2 + 1, p.x + nx, y, p.z + nz);
+    }
+    a.needsUpdate = true; guide.visible = true;
+  }
+  // what the road does next: the first sharp change of direction within ~250 m
+  function nextTurn(r, prog) {
+    const c0 = ptAt(r.pts, prog + 6), h0 = Math.atan2(c0.dx, c0.dz);
+    for (let L = 14; L <= 200; L += 6) {
+      const p = ptAt(r.pts, prog + L); let d = Math.atan2(p.dx, p.dz) - h0; d = Math.atan2(Math.sin(d), Math.cos(d));
+      if (Math.abs(d) > 0.5) return { dir: Math.abs(d) > 2.4 ? 'uturn' : d > 0 ? 'right' : 'left', m: Math.max(10, Math.round((L - 6) * 1.25 / 5) * 5) };
+    }
+    return null;
+  }
+  const zoneRing = new THREE.Mesh(new THREE.RingGeometry(1, 1.012, 96), new THREE.MeshBasicMaterial({ color: 0xff9f1c, side: THREE.DoubleSide, transparent: true, opacity: 0.8, depthWrite: false }));
+  zoneRing.rotation.x = -Math.PI / 2; zoneRing.visible = false; scene.add(zoneRing);
+  const ghostColors = [0xe53935, 0x43a047, 0xfdd835, 0x8e24aa];
+  const ghostMeshes = [0, 1, 2].map(i => {
+    const g = new THREE.Group();
+    const body = new THREE.Mesh(new THREE.BoxGeometry(1.75, 0.6, 3.9), new THREE.MeshStandardMaterial({ color: ghostColors[i], roughness: 0.4, metalness: 0.3, transparent: true, opacity: 0.88 })); body.position.y = 0.55;
+    const cab = new THREE.Mesh(new THREE.BoxGeometry(1.5, 0.5, 1.9), new THREE.MeshStandardMaterial({ color: 0x1b222c, roughness: 0.2 })); cab.position.set(0, 1.05, -0.2);
+    g.add(body, cab); g.visible = false; scene.add(g); return g;
+  });
+
+  // ---- UI -------------------------------------------------------------------------------------------------------------------------------
+  const style = document.createElement('style');
+  style.textContent = `
+    #racehud { position: fixed; top: 46px; left: 50%; transform: translateX(-50%); z-index: 9; display: none; min-width: 260px; text-align: center; padding: 8px 18px; border-radius: 12px;
+      background: rgba(10,14,22,.78); color: #fff; font: 700 15px system-ui, sans-serif; border-bottom: 4px solid var(--race, #ffd21f); pointer-events: none; }
+    #racehud .big { font-size: 28px; letter-spacing: 1px; } #racehud .turn { font-size: 22px; color: #ffd21f; margin: 2px 0; } #racehud small { display: block; font-weight: 600; color: #b7c4d6; margin-top: 2px; }
+    #racecount { position: fixed; inset: 0; z-index: 12; display: none; align-items: center; justify-content: center; font: 900 140px system-ui, sans-serif; color: #fff; text-shadow: 0 6px 30px rgba(0,0,0,.7); pointer-events: none; }
+    #raceres { position: fixed; left: 50%; top: 50%; transform: translate(-50%, -50%); z-index: 13; display: none; width: min(380px, 92vw); padding: 18px 20px; border-radius: 16px; background: rgba(10,14,22,.94); color: #fff; font: 15px system-ui, sans-serif; border-top: 6px solid var(--race, #ffd21f); }
+    #raceres h2 { margin: 0 0 6px; font-size: 26px; } #raceres .row { display: flex; justify-content: space-between; padding: 5px 0; border-bottom: 1px solid rgba(255,255,255,.1); }
+    #raceres .row.me { color: #ffd21f; font-weight: 800; } #raceres button { margin-top: 12px; width: 100%; border: 0; border-radius: 10px; padding: 10px; font: 800 15px system-ui; background: var(--race, #ffd21f); color: #111; cursor: pointer; }
+    #racequit { position: fixed; top: 8px; right: 8px; z-index: 14; display: none; border: 0; border-radius: 8px; padding: 6px 10px; font: 700 12px system-ui; background: rgba(160,30,30,.85); color: #fff; cursor: pointer; }
+    #raceprompt { pointer-events: auto !important; cursor: pointer; position: fixed; left: 50%; bottom: 175px; transform: translateX(-50%); z-index: 8; display: none; padding: 8px 16px; border-radius: 20px; font: 800 14px system-ui, sans-serif; color: #111; background: var(--race, #ffd21f); pointer-events: none; }`;
+  document.head.appendChild(style);
+  const mk = (id) => { const d = document.createElement('div'); d.id = id; document.body.appendChild(d); return d; };
+  const hud = mk('racehud'), countEl = mk('racecount'), resEl = mk('raceres'), promptEl = mk('raceprompt');
+  const quitBtn = document.createElement('button'); quitBtn.id = 'racequit'; quitBtn.textContent = 'Quit race (Backspace)'; document.body.appendChild(quitBtn);
+
+  // ---- state ----------------------------------------------------------------------------------------------------------------------
+  let run = null, cooldown = null, shownNear = null, offer = null;
+  const fmt = t => { const m = Math.floor(t / 60), s = t - m * 60; return m + ':' + (s < 10 ? '0' : '') + s.toFixed(2); };
+  const speedOf = r => CLASS_REF_SPEED[r.cls || 'F'];     // rivals run at their class's pace, not yours
+  const ghostSetup = (r) => {
+    const base = speedOf(r);
+    const lvl = r.kind === 'drag' ? 0.86 : 0.56;
+    return [1.04, 0.97, 0.9].map((m, i) => ({ v: base * lvl * m * (0.97 + (((r.id.length + i) * 37) % 7) / 100), tau: r.kind === 'drag' ? 1.5 + i * 0.25 : 2.6 + i * 0.4, lat: [-3.2, 3.2, -6.4][i], back: [5, 9, 13][i] }));
+  };
+  const gs = (g, t) => g.v * (t - g.tau * (1 - Math.exp(-t / g.tau)));
+  const gTime = (g, L) => { let lo = 0, hi = 600; for (let i = 0; i < 40; i++) { const mid = (lo + hi) / 2; if (gs(g, mid) < L) lo = mid; else hi = mid; } return hi; };
+  const driftTargets = [16000, 10500, 6200];
+
+  function begin(r) {
+    const K = RACE_KINDS[r.kind];
+    run = { r, K, t: -3.2, phase: 'count', cp: 0, ghosts: r.kind === 'drift' ? [] : ghostSetup(r), progress: 0, score: 0, chain: 0, chainT: 0, mult: 1, bank: 0, calm: 0, lost: '', best: 0 };
+    document.documentElement.style.setProperty('--race', K.color);
+    let x = r.start.x, z = r.start.z, h = r.start.heading;
+    if (r.kind === 'drag' || r.kind === 'circuit' || r.kind === 'sprint') { const p = ptAt(r.pts, 0), px = -p.dz; x += px * Math.min(1.6, r.width / 5); z += p.dx * Math.min(1.6, r.width / 5); }
+    car.teleport(x, z, heightAt(x, z), h);
+    car.speed = 0;
+    quitBtn.style.display = 'block'; hud.style.display = 'block'; promptEl.style.display = 'none';
+    world.toast(K.name + ' - ' + r.name);
+  }
+  function end(reason) {
+    if (!run) return;
+    run = null; hud.style.display = 'none'; countEl.style.display = 'none'; quitBtn.style.display = 'none';
+    rings.forEach(m => { m.visible = false; }); beacon.visible = false; guide.visible = false; zoneRing.visible = false; ghostMeshes.forEach(m => { m.visible = false; });
+    if (reason) world.toast(reason);
+  }
+  function results(rows, mine, title, time, prize, r) {
+    resEl.innerHTML = `<h2>${title}</h2>` + rows.map((x, i) => `<div class="row${x.me ? ' me' : ''}"><span>${i + 1}. ${x.name}</span><span>${x.val}</span></div>`).join('') +
+      `<div class="row"><span>Prize</span><b>${prize ? '$' + prize.toLocaleString('en-US') : '-'}</b></div><button>Continue</button>`;
+    resEl.style.display = 'block';
+    resEl.querySelector('button').onclick = () => { resEl.style.display = 'none'; };
+  }
+  function finish(timeOrScore) {
+    const { r } = run, K = run.K;
+    let rows, place;
+    if (r.kind === 'drift') {
+      const mineScore = Math.round(run.bank);
+      const opp = driftTargets.map((s, i) => ({ name: ['Rival A', 'Rival B', 'Rival C'][i], val: Math.round(s * (r.cls === 'E' ? 1 : 0.65) * (0.9 + ((r.id.length * 13 + i * 7) % 20) / 100)) }));
+      rows = opp.concat([{ name: 'You', val: mineScore, me: true }]).sort((a, b) => b.val - a.val);
+      place = rows.findIndex(x => x.me); rows.forEach(x => { x.val = x.val.toLocaleString('en-US') + ' pts'; });
+      const prev = save[r.id] || {}; if (!prev.best || mineScore > prev.best) save[r.id] = { ...prev, best: mineScore };
+    } else {
+      const t = timeOrScore, g = run.ghosts.map(gh => gTime(gh, r.length));
+      const names = ['Rival A', 'Rival B', 'Rival C'];
+      rows = g.map((tt, i) => ({ name: names[i], tt })).concat([{ name: 'You', tt: t, me: true }]).sort((a, b) => a.tt - b.tt);
+      place = rows.findIndex(x => x.me); rows.forEach(x => { x.val = fmt(x.tt); });
+      const prev = save[r.id] || {}; if (!prev.best || t < prev.best) save[r.id] = { ...prev, best: t };
+    }
+    const prize = place < 3 ? Math.round(PRIZES[place] * CLASS_PRIZE_MUL[r.cls || 'F']) : 0;
+    if (prize) world.reward(prize);
+    save[r.id] = { ...(save[r.id] || {}), plays: ((save[r.id] || {}).plays || 0) + 1, wins: ((save[r.id] || {}).wins || 0) + (place === 0 ? 1 : 0) };
+    persist();
+    results(rows, place, ['WIN!', '2nd place', '3rd place', 'Finished ' + (place + 1) + 'th'][Math.min(place, 3)], 0, prize, r);
+    cooldown = r;
+    end();
+  }
+  addEventListener('keydown', e => {
+    if (e.code === 'KeyE' && !e.repeat && !run && offer && !world.modal && !world.onFoot && !e.target.closest?.('input,textarea')) { const r = offer; offer = null; begin(r); return; }
+    if (e.code === 'Backspace' && run) { e.preventDefault(); end('Race abandoned'); }
+    if ((e.code === 'Enter' || e.code === 'Space') && resEl.style.display === 'block') resEl.style.display = 'none';
+  });
+  promptEl.addEventListener('click', () => { if (offer && !run) { const r = offer; offer = null; begin(r); } });
+  quitBtn.addEventListener('click', () => end('Race abandoned'));
+
+  // player progress along the route (projected, monotone within a window)
+  function progressOf(r, hint) {
+    let bs = hint, bd = 1e9;
+    for (let i = 1; i < r.pts.length; i++) {
+      if (r.cum[i] < hint - 60 || r.cum[i - 1] > hint + 260) continue;
+      const ax = r.pts[i - 1][0], az = r.pts[i - 1][1], bx = r.pts[i][0], bz = r.pts[i][1], l2 = (bx - ax) ** 2 + (bz - az) ** 2 || 1;
+      const t = Math.max(0, Math.min(1, ((car.x - ax) * (bx - ax) + (car.z - az) * (bz - az)) / l2)), d = Math.hypot(car.x - ax - (bx - ax) * t, car.z - az - (bz - az) * t);
+      if (d < bd) { bd = d; bs = r.cum[i - 1] + (r.cum[i] - r.cum[i - 1]) * t; }
+    }
+    return bs;
+  }
+
+  function update(dt) {
+    // ---- idle: gates, prompt, trigger ----
+    if (!run) {
+      let near = null, nd = 1e9;
+      plan.forEach(r => { const d = Math.hypot(r.start.x - car.x, r.start.z - car.z); r.gate.visible = d < 260; if (d < nd) { nd = d; near = r; } });
+      if (cooldown && Math.hypot(cooldown.start.x - car.x, cooldown.start.z - car.z) > 45) cooldown = null;
+      const canStart = !world.onFoot && !world.modal && !(window.__noRace);
+      offer = null;
+      if (near && nd < 60 && canStart && resEl.style.display !== 'block') {
+        const K = RACE_KINDS[near.kind], b = save[near.id] || {};
+        promptEl.style.setProperty('--race', K.color);
+        const mine = world.carClassInfo ? world.carClassInfo().cls : 'F', tooGood = classIndex(mine) > classIndex(near.cls);
+        if (nd < 8 && !tooGood) offer = near;
+        promptEl.textContent = `[Class ${near.cls}] ${near.name} - ${tooGood ? 'your class ' + mine + ' car is too fast for this race (needs class ' + near.cls + ' or slower)' : nd < 8 ? 'press E to start' : 'drive to the ring'}${b.best ? ' (best ' + (near.kind === 'drift' ? b.best.toLocaleString('en-US') + ' pts' : fmt(b.best)) + ')' : ''}`;
+        promptEl.style.display = 'block';
+      } else promptEl.style.display = 'none';
+      return;
+    }
+    // ---- running ----
+    const { r, K } = run;
+    run.t += dt;
+    const t = run.t;
+    plan.forEach(p => { if (p !== r) p.gate.visible = false; });
+    if (run.phase === 'count') {
+      car.speed = 0;
+      const n = Math.ceil(-t);
+      countEl.style.display = 'flex'; countEl.textContent = n > 0 ? String(n) : 'GO!'; countEl.style.color = n > 0 ? '#fff' : K.color;
+      hud.innerHTML = `<div class="big">${K.name.toUpperCase()}</div><small>${r.name}</small>`;
+      if (t >= 0) { run.phase = 'go'; setTimeout(() => { if (!run || run.phase !== 'go') countEl.style.display = 'none'; else if (run.t > 0.8) countEl.style.display = 'none'; }, 900); }
+      if (t < 0) { placeGhosts(r, 0, true); return; }
+    }
+    if (t > 0.9) countEl.style.display = 'none';
+    if (r.kind === 'drift') return driftStep(dt);
+    // ghosts
+    placeGhosts(r, t, false);
+    // progress / checkpoints
+    run.progress = progressOf(r, run.progress);
+    let posN = 1; run.ghosts.forEach(gh => { if (gs(gh, t) > run.progress) posN++; });
+    if (r.kind === 'drag') {
+      hud.innerHTML = `<div class="big">${fmt(t)}</div><small>POS ${posN}/4 &middot; ${Math.max(0, Math.round((r.length - run.progress) * 1.25))} m to go</small>`;
+      if (run.progress >= r.length - 0.5 && t > 1) finish(t);
+      else if (t > 120) end('Too slow - race over');
+      const fin = ptAt(r.pts, r.length); rings[0].visible = true; rings[0].position.set(fin.x, heightAt(fin.x, fin.z) + 3.2, fin.z); rings[0].rotation.set(0, Math.atan2(fin.dx, fin.dz), 0); rings[0].scale.setScalar(Math.min(1.9, r.width / 8)); rings[1].visible = false;
+      beacon.visible = true; beacon.position.set(fin.x, heightAt(fin.x, fin.z) + 20, fin.z);
+      return;
+    }
+    const cps = r.checkpoints, c = cps[run.cp];
+    if (c) {
+      const d = Math.hypot(car.x - c[0], car.z - c[1]);
+      if (d < 11) { run.cp++; if (run.cp >= cps.length) { finish(t); return; } }
+    }
+    const n0 = cps[run.cp], n1 = cps[run.cp + 1];
+    const setRing = (m, p, vis) => { m.visible = vis && !!p; if (!p) return; const y = heightAt(p[0], p[1]); m.position.set(p[0], y + 3, p[1]); m.rotation.set(0, Math.atan2(p[0] - car.x, p[1] - car.z) + Math.PI / 2, 0); };
+    setRing(rings[0], n0, true); setRing(rings[1], n1, true);
+    if (n0) { beacon.visible = true; beacon.position.set(n0[0], heightAt(n0[0], n0[1]) + 80, n0[1]); }
+    const tgt = r.cpS && r.cpS[run.cp] != null ? r.cpS[run.cp] : run.progress + 120;
+    updateGuide(r, run.progress, tgt);
+    const turn = nextTurn(r, run.progress), G = { left: '⬅', right: '➡', uturn: '⮌' };
+    const cue = turn ? `<div class="turn">${G[turn.dir]} ${turn.dir === 'uturn' ? 'U-turn' : 'Turn ' + turn.dir} in ${turn.m} m</div>` : '<div class="turn">⬆ Straight on</div>';
+    hud.innerHTML = `<div class="big">${fmt(t)}</div>${cue}<small>POS ${posN}/4 &middot; checkpoint ${Math.min(run.cp + 1, cps.length)}/${cps.length}${n0 ? ' &middot; ' + Math.round(Math.hypot(car.x - n0[0], car.z - n0[1]) * 1.25) + ' m away' : ''}</small>`;
+    if (t > 900) end('Race timed out');
+  }
+
+  function placeGhosts(r, t, grid) {
+    run.ghosts.forEach((gh, i) => {
+      const m = ghostMeshes[i];
+      const s = grid ? -gh.back : gs(gh, t) - gh.back * Math.max(0, 1 - t / 6);
+      if (s >= r.length + 80) { m.visible = false; return; }
+      const p = ptAt(r.pts, Math.max(-30, s));
+      const rx = -p.dz, rz = p.dx, lat = (r.kind === 'drag' ? gh.lat : gh.lat * 0.25) * Math.min(1, Math.max(0.5, (r.width - 6) / 12));
+      const x = p.x + rx * (lat + 1.4), z = p.z + rz * (lat + 1.4);
+      m.visible = true; m.position.set(x, heightAt(x, z), z); m.rotation.y = Math.atan2(p.dx, p.dz);
+    });
+  }
+
+  function driftStep(dt) {
+    const { r } = run, t = run.t, left = r.timeLimit - t;
+    zoneRing.visible = true; zoneRing.position.set(r.zone.x, heightAt(r.zone.x, r.zone.z) + 0.2, r.zone.z); zoneRing.scale.setScalar(r.zone.r);
+    const sp = Math.hypot(car.vx, car.vz), inZone = Math.hypot(car.x - r.zone.x, car.z - r.zone.z) < r.zone.r;
+    let slip = 0;
+    if (sp > 6) { const fx = Math.sin(car.heading), fz = Math.cos(car.heading), vx = car.vx / sp, vz = car.vz / sp; slip = Math.abs(Math.atan2(fx * vz - fz * vx, fx * vx + fz * vz)); if (car.speed < -1) slip = 0; }
+    const sliding = sp > 8 && slip > 0.2 && inZone && !car.airborne;
+    if ((car.impactSpeed || 0) > 2.5) { car.impactSpeed = 0; if (run.chain > 0) run.lost = 'Crash! chain lost'; run.chain = 0; run.chainT = 0; run.mult = 1; }
+    if (sliding) {
+      run.calm = 0; run.chainT += dt;
+      run.mult = 1 + Math.min(4, run.chainT * 0.35);
+      run.chain += dt * 55 * Math.min(1.6, slip / 0.6) * Math.min(2, sp / 16) * (1 + Math.min(1, run.chainT / 6));
+      run.lost = '';
+    } else {
+      run.calm += dt;
+      if (run.chain > 0 && (run.calm > 0.7 || !inZone)) {
+        if (inZone) { run.bank += run.chain * run.mult; run.lost = '+' + Math.round(run.chain * run.mult); } else run.lost = 'Left the zone - chain lost';
+        run.chain = 0; run.chainT = 0; run.mult = 1;
+      }
+    }
+    hud.innerHTML = `<div class="big">${Math.round(run.bank + (run.chain * run.mult)).toLocaleString('en-US')} pts</div><small>${run.chain > 0 ? 'chain ' + Math.round(run.chain) + ' &times; ' + run.mult.toFixed(1) : (run.lost || 'drift: handbrake + steer')} &middot; ${Math.max(0, Math.ceil(left))} s${inZone ? '' : ' &middot; GET BACK IN THE RING'}</small>`;
+    if (left <= 0) { if (run.chain > 0) run.bank += run.chain * run.mult; finish(run.bank); }
+  }
+
+  return {
+    update,
+    frozen: () => !!run && run.phase === 'count',
+    active: () => !!run,
+    offering: () => !!offer && !run,
+    abort: reason => end(reason),
+    markers: () => {
+      const out = plan.map(r => ({ x: r.start.x, z: r.start.z, color: RACE_KINDS[r.kind].color, label: RACE_KINDS[r.kind].label }));
+      if (run && run.r.checkpoints.length) { const c = run.r.checkpoints[run.cp], c2 = run.r.checkpoints[run.cp + 1]; if (c2) out.push({ x: c2[0], z: c2[1], color: '#ffffff', label: '2' }); if (c) out.push({ x: c[0], z: c[1], color: '#ffd21f', label: '▶' }); }
+      return out;
+    },
+    route: () => (run && run.r.kind !== 'drift' ? run.r.pts.concat() : null),
+    solids: plan.flatMap(r => r.solids),
+    plan
+  };
+}

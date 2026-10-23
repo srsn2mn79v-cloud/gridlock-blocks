@@ -1,0 +1,39 @@
+import * as THREE from 'three';
+
+// How much of the car's own roll/pitch the chase camera inherits. Kept well under 1 so
+// banked corners and bridge ramps read without making the view queasy.
+const ROLL_FACTOR = 0.35;
+
+// 0 on the surface, 1 underground — eased, so the camera glides down into a tunnel instead
+// of snapping. Underground (a tunnel, or a ramp that's dipped below the ground plane) the
+// camera drops low and close: at its normal height it ended up above the tunnel roof, with
+// the roof sitting between the camera and the car.
+let underground = 0;
+let camBlock = 0;
+const UNDERGROUND_HEIGHT = 2.4, UNDERGROUND_DISTANCE = 7.2;
+
+export function updateFollowCamera(camera, car, offset, dt, blocked) {
+  const isUnder = car.y < -0.6 ? 1 : 0;
+  underground += (isUnder - underground) * Math.min(1, dt * 3);
+  let h = offset.y + (UNDERGROUND_HEIGHT - offset.y) * underground;
+  let d = offset.z + (UNDERGROUND_DISTANCE - offset.z) * underground;
+  // A wall behind the car: the camera comes in and climbs, and with the car against the wall it looks straight down on it.
+  if (blocked) {
+    const bx = -Math.sin(car.heading), bz = -Math.cos(car.heading);
+    let free = d;
+    for (let t = 1.0; t <= d; t += 0.6) if (blocked(car.x + bx * t, car.z + bz * t)) { free = Math.max(0, t - 0.9); break; }
+    const k = Math.max(0, Math.min(1, 1 - free / d));
+    camBlock += (k - camBlock) * Math.min(1, dt * 6);
+    d = Math.max(1.4, d * (1 - camBlock * 0.92));
+    h = h + (15 - h) * Math.pow(camBlock, 1.3);
+  }
+  const behind = new THREE.Vector3(
+    car.x - Math.sin(car.heading) * d,
+    car.y + h,
+    car.z - Math.cos(car.heading) * d
+  );
+  camera.position.lerp(behind, 1 - Math.pow(0.001, dt));
+  const roll = (car.roll || 0) * ROLL_FACTOR;
+  camera.up.set(Math.sin(roll), Math.cos(roll), 0);
+  camera.lookAt(car.x, car.y + 1.2, car.z);
+}
