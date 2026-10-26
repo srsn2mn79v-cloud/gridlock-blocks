@@ -81,13 +81,14 @@ async function checkTraffic(cars = 40, minutes = 5) {
   const { buildTransit } = await imp('src/transit.js'); const transit = buildTransit(city);
   const dt = 1 / 15, tr = createTrafficSystem(city, new THREE.Scene(), heightAt, cars, cars, transit);
   const player = { x: 9999, z: 9999, y: 0, heading: 0, speed: 0 };
-  const still = new Map(), seen = new Map(); let longest = 0, overlaps = 0, ghosts = 0;
+  const still = new Map(), seen = new Map(); let longest = 0, overlaps = 0, ghosts = 0, stopSec = 0, inBox = 0, whyH = {}, carSec = 0, boxSec = 0, travelled = 0;
   const bad = [], lanes = [0, 0, 0], changes = { n: 0 }, offLine = new Set(), busSeen = new Map(), stopsServed = new Set();
   for (let k = 0; k < 15 * 60 * minutes; k++) {
     T += dt * 1000; tr.update(dt, player);
     if (k % 15 === 0) tr.cars.forEach(c => { if (c.active && c.edge && c.edge.type === 'highway' && c.lanes === 3 && !c.conn) lanes[c.laneIndex]++; });
     tr.cars.forEach((c, i) => {
       if (!c.active) return;
+      carSec += dt; travelled += c.speed * dt; if (c.speed < 0.3 && c.conn) inBox += dt; if (c.speed < 0.3) { stopSec += dt; if (c.why === 'box') boxSec += dt; whyH[c.why || (c.blockedBy ? 'car' : '-')] = (whyH[c.why || (c.blockedBy ? 'car' : '-')] || 0) + dt; }
       if (c.speed < 0.05 && c.crashTimer <= 0) {
         const v = (still.get(i) || 0) + dt; still.set(i, v); longest = Math.max(longest, v);
         if (v > 25 && !seen.has(i + ':' + c.to)) { seen.set(i + ':' + c.to, 1); bad.push('car ' + i + ' (' + c.type + ') stuck >25 s on edge ' + c.edge.id + ' toward ' + c.to + ' (' + c.why + ')'); }
@@ -109,7 +110,7 @@ async function checkTraffic(cars = 40, minutes = 5) {
   if (minutes >= 3 && stopsServed.size < lineBuses) bad.push('buses served only ' + stopsServed.size + ' stops in ' + minutes + ' min');
   const tot = lanes[0] + lanes[1] + lanes[2];
   if (tot > 40 && lanes[2] / tot < 0.55) bad.push('highway traffic should keep right: lane shares left/middle/right = ' + lanes.map(v => Math.round(v / tot * 100)).join('/') + ' %');
-  return { name: 'traffic', count: cars + ' cars, ' + minutes + ' min (longest stop ' + Math.round(longest) + ' s, ghost frames ' + ghosts + ', overlap samples ' + overlaps + ', highway lanes L/M/R ' + lanes.join('/') + '; ' + transit.lines.length + ' bus lines, ' + lineBuses + ' buses, ' + stopsServed.size + ' stops served, ' + transit.stops.length + ' stops, ' + transit.stands.length + ' cab stands)', bad };
+  return { name: 'traffic', count: cars + ' cars, ' + minutes + ' min (stopped ' + Math.round(stopSec / carSec * 100) + ' % of car-time, ' + Math.round(boxSec / carSec * 1000) / 10 + ' % held by full exits, ' + Math.round(inBox / carSec * 1000) / 10 + ' % stopped inside a junction [' + Object.entries(whyH).map(([k, v]) => k + ':' + Math.round(v / carSec * 1000) / 10).join(' ') + '], avg speed ' + (travelled / carSec).toFixed(1) + ' u/s, longest stop ' + Math.round(longest) + ' s, ghost frames ' + ghosts + ', overlap samples ' + overlaps + ', highway lanes L/M/R ' + lanes.join('/') + '; ' + transit.lines.length + ' bus lines, ' + lineBuses + ' buses, ' + stopsServed.size + ' stops served, ' + transit.stops.length + ' stops, ' + transit.stands.length + ' cab stands)', bad };
 }
 
 async function checkBuildings() {

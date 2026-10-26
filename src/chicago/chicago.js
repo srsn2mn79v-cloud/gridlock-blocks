@@ -3,12 +3,12 @@
 // shops hidden in alleys, and apartments to buy. Deterministic (seeded) so every load is the same city.
 import { generateRoads } from './gen_network.js';
 import { buildEdgesByNode, intersectionClearance } from '../roadMath.js';
-import { S, T, TP, fromWorld, LAKE_N, LAKE_S, PIER, RIVERS, PARKS, LANDMARKS, STADIUM, districtAt } from './map.js';
+import { S, T, TP, fromWorld, LAKE_N, LAKE_S, PIER, RIVERS, PARKS, LANDMARKS, STADIUM, districtAt, DISTRICTS } from './map.js';
 import { rng, dist, distToSeg, pointInPoly, ribbonPoly, nearestOnPoly, atLen, polyLen } from './geom.js';
 
 const r2 = v => Math.round(v * 100) / 100;
 // 4 s of all-red between one direction turning red and the other turning green, so busy junctions clear
-const GREEN = 7000, YELLOW = 2000, CLEAR = 4000, HALF = GREEN + YELLOW + CLEAR, RED = 2 * HALF - GREEN - YELLOW;
+const GREEN = 8500, YELLOW = 2500, CLEAR = 2000, HALF = GREEN + YELLOW + CLEAR, RED = 2 * HALF - GREEN - YELLOW;
 
 export const SHOP_KINDS = {
   dealer:  { name: 'Car Dealership',   color: '#17d6c8', hex: 0x17d6c8, desc: 'Buy new cars' },
@@ -174,6 +174,13 @@ export function buildChicago() {
     { kind: 'tuning', at: [440, 1180], r: 90 },     // Chinatown
     { kind: 'body',   at: [130, 780], r: 70 }       // Industrial north
   ];
+  // emergency services: a hospital, police stations and fire stations, each at the end of its own short side street like the shops
+  const stations = [];
+  const STATION_SPECS = [
+    { kind: 'hospital', at: [300, 660], r: 120 },
+    { kind: 'police', at: [450, 760], r: 100 }, { kind: 'police', at: [230, 1060], r: 100 }, { kind: 'police', at: [180, 540], r: 100 },
+    { kind: 'fire', at: [350, 1010], r: 100 }, { kind: 'fire', at: [430, 590], r: 100 }
+  ];
   function findAlley(spec) {
     const c = T(spec.at[0], spec.at[1]), cands = [];
     edges.forEach(e => {
@@ -196,7 +203,7 @@ export function buildChicago() {
         const x = k.mx + k.nx * d + k.ux * w, z = k.mz + k.nz * d + k.uz * w;
         if (inWater(x, z, 6) || parkAt(x, z) || outsideHW(x, z, 12)) ok = false;
         else if (d > 3 && roadClear(x, z) < 4.5) ok = false;
-        else if (shops.some(s => dist([s.x, s.z], [x, z]) < 26)) ok = false;
+        else if (shops.some(s => dist([s.x, s.z], [x, z]) < 26) || stations.some(s => dist([s.x, s.z], [x, z]) < 30)) ok = false;
       }
       if (!ok) continue;
       return k;
@@ -216,6 +223,31 @@ export function buildChicago() {
     blockedRects.push(Math.abs(k.nx) > Math.abs(k.nz)
       ? [Math.min(k.mx, k.mx + k.nx * 36), k.mz - 11, Math.max(k.mx, k.mx + k.nx * 36), k.mz + 11]
       : [k.mx - 11, Math.min(k.mz, k.mz + k.nz * 36), k.mx + 11, Math.max(k.mz, k.mz + k.nz * 36)]);
+  });
+
+  const STATION_INFO = {
+    hospital: { name: 'City Hospital', color: 0xeaf0f4, h: 26, w: 22, d: 15, neon: 'HOSPITAL', neonCol: 0xff3b3b },
+    police:   { name: 'Police Station', color: 0x2c4a86, h: 11, w: 18, d: 12, neon: 'POLICE', neonCol: 0x3b7bff },
+    fire:     { name: 'Fire Station', color: 0xb2301f, h: 9, w: 19, d: 12, neon: 'FIRE', neonCol: 0xff7a1a }
+  };
+  STATION_SPECS.forEach((spec, i) => {
+    const k = findAlley(spec);
+    if (!k) { warnings.push('no alley found for ' + spec.kind + ' station'); return; }
+    const info = STATION_INFO[spec.kind];
+    const sx = k.mx + k.nx * 27, sz = k.mz + k.nz * 27;
+    const rot = Math.round(Math.atan2(-k.nx, -k.nz) * 180 / Math.PI);
+    // parked emergency vehicles on the apron between the street and the building: two rows, nose out
+    const bays = [];
+    const nb = spec.kind === 'hospital' ? 3 : 2;
+    for (let b = 0; b < nb; b++) {
+      const lat = (b - (nb - 1) / 2) * 6.2, dep = 12 + (spec.kind === 'fire' ? 0 : 0);
+      bays.push({ x: r2(k.mx + k.nx * dep + k.ux * lat), z: r2(k.mz + k.nz * dep + k.uz * lat), rotation: rot, type: spec.kind === 'hospital' ? 'ambulance' : spec.kind === 'police' ? 'police' : 'fire' });
+    }
+    stations.push({ id: 'svc' + i, kind: spec.kind, name: info.name, x: r2(sx), z: r2(sz), door: { x: r2(sx - k.nx * (info.d / 2 + 1.5)), z: r2(sz - k.nz * (info.d / 2 + 1.5)), rotation: rot },
+      mouth: { x: r2(k.mx + k.nx * 3), z: r2(k.mz + k.nz * 3) }, nx: k.nx, nz: k.nz, ux: k.ux, uz: k.uz, bays });
+    blockedRects.push(Math.abs(k.nx) > Math.abs(k.nz)
+      ? [Math.min(k.mx, k.mx + k.nx * 36), k.mz - 12, Math.max(k.mx, k.mx + k.nx * 36), k.mz + 12]
+      : [k.mx - 12, Math.min(k.mz, k.mz + k.nz * 36), k.mx + 12, Math.max(k.mz, k.mz + k.nz * 36)]);
   });
 
   // ---------------------------------------------------------------- buildings
@@ -312,6 +344,17 @@ export function buildChicago() {
     props.push({ type: 'shopsign', shop: s.kind, x: s.door.x, z: s.door.z, rotation: s.door.rotation });
   });
 
+  stations.forEach(st => {
+    const info = STATION_INFO[st.kind], along = Math.abs(st.nx) > Math.abs(st.nz) ? 'x' : 'z';
+    const hw = info.w / 2, hd = info.d / 2;
+    const x0 = along === 'x' ? st.x - hd : st.x - hw, x1 = along === 'x' ? st.x + hd : st.x + hw, z0 = along === 'x' ? st.z - hw : st.z - hd, z1 = along === 'x' ? st.z + hw : st.z + hd;
+    parcels.push({ type: 'building', station: st.id, height: info.h, color: info.color, roof: 'flat', footprint: rectFp(r2(x0), r2(z0), r2(x1), r2(z1)) });
+    // a big lit sign over the entrance, facing the street (projecting neon, same instanced sign pool)
+    const px = st.door.x, pz = st.door.z;
+    props.push({ type: 'neonsign', x: r2(px - st.nx * 1.0), z: r2(pz - st.nz * 1.0), y: 4.2, rotation: Math.round(Math.atan2(st.nz, -st.nx) * 180 / Math.PI), w: 3.6, h: 1.6, blade: false, word: info.neon, color: info.neonCol });
+    props.push({ type: 'shoplamp', shop: st.kind === 'fire' ? 'paint' : st.kind === 'police' ? 'perf' : 'dealer', x: st.mouth.x, z: st.mouth.z, rotation: Math.round(Math.atan2(-st.nx, -st.nz) * 180 / Math.PI) });
+  });
+
   // ---- apartments: the nicer the district the bigger the flat
   const apartments = [], agents = [], stores = [];
   const aptCandidates = parcels.filter(p => p.type === 'building' && !p.shop && !p.landmark && p.height >= 10 && p.district)
@@ -341,24 +384,24 @@ export function buildChicago() {
         const f = frontOf(c); if (f.d >= 14) continue;
         const [sx, sz, nx, nz, along, depth] = f.s;
         const W = Math.min(t.W, along - 3), D = Math.min(t.D, depth - 1.8);
-        if (W < t.W * 0.72 || D < t.D * 0.72 || along < Math.max(15, t.W * 0.8 + 3)) continue;
+        if (W < t.W * 0.72 || D < t.D * 0.72 || along < Math.max(26, t.W * 0.8 + 3) || depth < 24) continue;     // the ramp (10 u wide, 20 u long) runs under the building, so it needs room
         const maxFloor = Math.floor((c.p.height - 3.2) / FLOOR_H);
         if (maxFloor < Math.max(1, t.floor - 4)) continue;
         if (!farFromDoors(sx, sz, 80)) continue;
-        chosen = { c, s: f.s, W, D, floor: Math.min(t.floor, maxFloor) }; break;
+        chosen = { c, s: f.s, W, D, depth, floor: Math.min(t.floor, maxFloor) }; break;
       }
       if (!chosen) continue;
-      const { c, s, W, D, floor } = chosen; c.used = true; pool = pool.filter(x => x !== c);
+      const { c, s, W, D, depth, floor } = chosen; c.used = true; pool = pool.filter(x => x !== c);
       const [sx, sz, nx, nz, along] = s;
       const ux = -nz, uz = nx;                                  // along the wall
-      const g = (along / 2 - 3.0) * (rand() < 0.5 ? 1 : -1);    // the garage door sits near the far end of the front
+      const g = Math.max(6.5, along / 2 - 7.2) * (rand() < 0.5 ? 1 : -1);    // the garage door sits toward one end of the front, with the whole ramp inside the building's width
       const F = { x: sx - nx * 3.5, z: sz - nz * 3.5 };
       doorsTaken.push([sx, sz]);
       apartments.push({ id: 'apt' + apartments.length, type: t.key, tier: tierIdx, label: t.label, name: (aptNames[district] || 'Central') + ' ' + t.label, price: t.price, garage: t.garage, district,
         floor, rooms: 1 + t.beds, beds: t.beds, baths: t.baths, w: r2(W), d: r2(D), surface: Math.round(W * D * 1.5625), region: regionOf(sx, sz), height: c.p.height,
         door: { x: r2(sx), z: r2(sz), rotation: Math.round(Math.atan2(-nx, -nz) * 180 / Math.PI) },
         facade: { x: r2(F.x), z: r2(F.z), nx, nz },
-        gate: { x: r2(F.x + ux * g), z: r2(F.z + uz * g), nx, nz, ux, uz } });
+        depth: r2(depth), gate: { x: r2(F.x + ux * g), z: r2(F.z + uz * g), nx, nz, ux, uz } });
     }
   });
   // real estate agents: one office per region of the city, on a building front near the middle of that region
@@ -500,25 +543,27 @@ export function buildChicago() {
   props.push(...parked);
 
   // neon signs: glowing words and blade signs on the street-facing walls of the taller buildings (drawn as a few instanced quads, props.js)
-  const NEON_WORDS = ['BAR', 'CLUB', 'OPEN', 'RAMEN', 'PIZZA', 'ARCADE', 'HOTEL', 'TUNE', 'LIVE', '24H', 'DINER', 'SUSHI'];
+  const NEON_WORDS = ['BAR', 'CLUB', 'OPEN', 'RAMEN', 'PIZZA', 'ARCADE', 'HOTEL', 'TUNE', 'LIVE', '24H', 'DINER', 'SUSHI'];   // (stations add HOSPITAL / POLICE / FIRE)
   const NEON_COLS = [0xff2fa8, 0x20e8ff, 0xff7a1a, 0x38ff6a, 0xa14bff, 0xff3b3b, 0xffe14a];
   let nNeon = 0;
   parcels.forEach(q => {
-    if (q.type !== 'building' || q.height < 12 || q.landmark || rand() > 0.3 || nNeon > 900) return;
+    const NEON_P = { 'Neon Strip': 0.95, Chinatown: 0.6, 'River North': 0.4, Downtown: 0.3, 'Loop Edge': 0.3, 'Gold Coast': 0.25, 'Old Town': 0.3, Industrial: 0.05 };
+    if (q.type !== 'building' || q.height < (q.district === 'Neon Strip' ? 8 : 12) || q.landmark || rand() > (NEON_P[q.district] ?? 0.2) || nNeon > 1700) return;
     const f = q.footprint, x0 = Math.min(f[0][0], f[2][0]), x1 = Math.max(f[0][0], f[2][0]), z0 = Math.min(f[0][1], f[2][1]), z1 = Math.max(f[0][1], f[2][1]);
     const sides = [[0, -1, z0, x0, x1, true], [0, 1, z1, x0, x1, true], [-1, 0, x0, z0, z1, false], [1, 0, x1, z0, z1, false]];
     let best = null, bd = 1e9;
     sides.forEach(sd => { const [nx, nz, c, a0, a1, alongX] = sd, m = (a0 + a1) / 2, px = alongX ? m : c, pz = alongX ? c : m; const d = roadClear(px + nx * 5, pz + nz * 5); if (d < bd) { bd = d; best = sd; } });
     if (!best || bd > 9) return;
     const [nx, nz, c, a0, a1, alongX] = best, span = a1 - a0; if (span < 9) return;
-    const count = 1 + (span > 26 && rand() < 0.6 ? 1 : 0);
+    const count = q.district === 'Neon Strip' ? 2 + (span > 22 ? 1 : 0) : 1 + (span > 26 && rand() < 0.6 ? 1 : 0);
     for (let k = 0; k < count; k++) {
-      const blade = rand() < 0.4, w = blade ? 2.0 : 4.6 + rand() * 4, h = blade ? 6 : 2.0 + rand() * 1.1;
-      const t = a0 + 3 + (span - 6) * (count === 1 ? rand() : (k + 0.5) / count), y = blade ? 6 + rand() * 4 : 4.5 + rand() * (Math.min(q.height - 5, 16) - 4.5);
+      // projecting signs: the board sticks out from the wall (perpendicular to it) with its bottom edge 3-5 m above the street
+      const blade = rand() < 0.4, w = blade ? 1.5 : 2.6 + rand() * 1.6, h = blade ? 3.6 : 1.4 + rand() * 0.8;
+      const t = a0 + 3 + (span - 6) * (count === 1 ? rand() : (k + 0.5) / count), y = 3 + rand() * 2;
       if (y + h > q.height - 0.5) continue;
-      const px = alongX ? t : c + nx * 0.2, pz = alongX ? c + nz * 0.2 : t;
-      if (roadClear(px + nx * 3, pz + nz * 3) < 0) continue;
-      props.push({ type: 'neonsign', x: r2(px), z: r2(pz), y: r2(y), rotation: Math.round(Math.atan2(nx, nz) * 180 / Math.PI), w: r2(w), h: r2(h), blade, word: pick(NEON_WORDS), color: pick(NEON_COLS) }); nNeon++;
+      const px = alongX ? t : c + nx * (0.25 + w / 2), pz = alongX ? c + nz * (0.25 + w / 2) : t;
+      if (roadClear(px + nx * (w / 2 + 1.2), pz + nz * (w / 2 + 1.2)) < 0.5) continue;
+      props.push({ type: 'neonsign', x: r2(px), z: r2(pz), y: r2(y), rotation: Math.round(Math.atan2(-nz, nx) * 180 / Math.PI), w: r2(w), h: r2(h), blade, word: pick(NEON_WORDS), color: pick(NEON_COLS), bracket: 1 }); nNeon++;
     }
   });
   // keep every garage entrance clear: nothing stands on the driveway
@@ -549,7 +594,8 @@ export function buildChicago() {
   const gameplay = [{ type: 'spawn', x: sp.x, z: sp.z, heading: Math.atan2(so.x - sp.x, so.z - sp.z) }];
 
   edges.forEach(e => { delete e.cls; });
-  const city = { roadNodes: nodes, roadEdges: edges, parcels, props, signals, gameplay, shops, apartments, agents, stores, warnings, hwSigns, hwLine: R.H.map(p => [r2(p[0]), r2(p[1])]),
+  const districts = DISTRICTS.map(d => { const poly = d.poly.map(([X, Y]) => T(X, Y).map(r2)); return { name: d.name, color: d.color || '#9aa7b8', blurb: d.blurb || '', poly, cx: r2(poly.reduce((a, p) => a + p[0], 0) / poly.length), cz: r2(poly.reduce((a, p) => a + p[1], 0) / poly.length) }; }).filter(d => d.color !== '#9aa7b8' || true);
+  const city = { districts, roadNodes: nodes, roadEdges: edges, parcels, props, signals, gameplay, shops, stations, apartments, agents, stores, warnings, hwSigns, hwLine: R.H.map(p => [r2(p[0]), r2(p[1])]),
     bounds: (() => { let x0 = 1e9, x1 = -1e9, z0 = 1e9, z1 = -1e9; Object.values(nodes).forEach(n => { x0 = Math.min(x0, n.x); x1 = Math.max(x1, n.x); z0 = Math.min(z0, n.z); z1 = Math.max(z1, n.z); }); return [x0 - 90, z0 - 90, x1 + 90, z1 + 90]; })() };
   return city;
 }

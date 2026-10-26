@@ -13,7 +13,7 @@ let camBlock = 0;
 const UNDERGROUND_HEIGHT = 2.4, UNDERGROUND_DISTANCE = 7.2;
 
 export function updateFollowCamera(camera, car, offset, dt, blocked) {
-  const isUnder = car.y < -0.6 ? 1 : 0;
+  const isUnder = (car.y < -0.6 || car.inGarage) ? 1 : 0;
   underground += (isUnder - underground) * Math.min(1, dt * 3);
   let h = offset.y + (UNDERGROUND_HEIGHT - offset.y) * underground;
   let d = offset.z + (UNDERGROUND_DISTANCE - offset.z) * underground;

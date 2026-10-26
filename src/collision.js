@@ -161,8 +161,10 @@ export function resolveCarCollisions(car, colliders, dt = 1 / 60) {
   const destroyedNow = [];
   const carRadius = car.collisionRadius || 1.1;
 
+  const exempt = colliders.exempt;        // set by the world: underground (a garage) the city's walls and props are not there; at an open garage door the building lets the car in
   for (const c of colliders) {
     if (c.destroyed || !c.blocksCar) continue;
+    if (exempt && exempt(car, c)) continue;
 
     if (c.kind === 'parcel') {
       if (c.ymax !== undefined && (car.y || 0) > c.ymax) continue;     // a deck above you is not a wall

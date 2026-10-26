@@ -13,8 +13,10 @@
 // specific road, gated by that approach's traffic signal if one exists (signals.js) —
 // otherwise they just pause briefly ("look both ways") before crossing. They
 // occasionally detour to a nearby bus stop prop and stand there for a while — a
-// placeholder for an actual bus/transit system later. And when the car passes close by,
-// they sidestep off their path and ease back once it's clear.
+// placeholder for an actual bus/transit system later. When the car actually drives up onto the
+// pavement towards them they turn to look, brace, and (only if it keeps coming) jump clear;
+// if it never gets close they relax and walk on. A car merely passing on the road never
+// triggers anything.
 import * as THREE from 'three';
 import { mergeGeometries } from 'three/examples/jsm/utils/BufferGeometryUtils.js';
 import { buildSidewalkSegments } from './sidewalks.js';
@@ -43,6 +45,20 @@ function animate(p, dt, moving, speed) {
   r.body.position.y = Math.abs(Math.cos(p.phase)) * 0.035 * a;
   r.body.rotation.z = sw * 0.035 * a;
   r.body.rotation.y = -sw * 0.08 * a;
+  // reactions: brace (arms up, weight back, knees bent) and the jump itself
+  const b = p.brace || 0;
+  if (b > 0.01) {
+    r.armL.rotation.x = r.armL.rotation.x * (1 - b) + (-1.35) * b; r.armR.rotation.x = r.armR.rotation.x * (1 - b) + (-1.2) * b;
+    r.armL.rotation.z = r.armL.rotation.z * (1 - b) + 0.5 * b; r.armR.rotation.z = r.armR.rotation.z * (1 - b) + (-0.5) * b;
+    r.legL.rotation.x = r.legL.rotation.x * (1 - b) + 0.3 * b; r.legR.rotation.x = r.legR.rotation.x * (1 - b) - 0.25 * b;
+    r.body.rotation.x = -0.16 * b; r.body.position.y -= 0.04 * b;
+  } else r.body.rotation.x = 0;
+  const j = p.jumpPose || 0;
+  if (j > 0.01) {
+    r.armL.rotation.x = -2.3 * j + r.armL.rotation.x * (1 - j); r.armR.rotation.x = -2.0 * j + r.armR.rotation.x * (1 - j);
+    r.legL.rotation.x = -0.9 * j + r.legL.rotation.x * (1 - j); r.legR.rotation.x = 0.55 * j + r.legR.rotation.x * (1 - j);
+    r.body.rotation.z = (p.jumpDir || 1) * 0.35 * j; r.body.rotation.x = 0.12 * j;
+  }
 }
 
 function dist(x1, z1, x2, z2) { return Math.hypot(x1 - x2, z1 - z2); }
@@ -146,6 +162,11 @@ function makeVariant() {
   else if (bag < 0.42) {
     parts.push(box(bagCol, 0.3 * build, 0.82, 0.02, 0.07, 0.2, 0.22));
   }
+  // extra variety: sunglasses, scarf, hood, shoulder strap, tall/short builds
+  if (Math.random() < 0.18) parts.push(box(0x0c0c10, 0, hy + 0.012 * hs, 0.108 * hs, 0.17 * hs, 0.03, 0.02));
+  if (!child && Math.random() < 0.14) parts.push(cyl(pick([0xc94a3a, 0x2e2e36, 0xe0b73a, 0x3a6fb0]), tw * 0.75, tw * 0.8, 0.09, 0, 1.4, 0, 0, 8));
+  if (!child && jacket && Math.random() < 0.4) parts.push(ball(topCol, 0, 1.42, -0.07, 0.11, 0.07, 0.08));
+  if (!child && Math.random() < 0.12) parts.push(box(pick([0x2a2a30, 0xb03a2a, 0x5a3a24]), 0.04, 1.2, 0, 0.03, 0.55, 0.3 * build));
   const body = merge(parts);
 
   // Limbs: origin at the pivot (shoulder / hip), hanging down -Y.
@@ -180,7 +201,7 @@ const pedMaterial = new THREE.MeshStandardMaterial({ vertexColors: true, roughne
 let variants = null;
 
 function personMesh() {
-  if (!variants) { variants = []; for (let i = 0; i < 28; i++) variants.push(makeVariant()); }
+  if (!variants) { variants = []; for (let i = 0; i < 72; i++) variants.push(makeVariant()); }
   const v = pick(variants);
   const root = new THREE.Group();
   const body = new THREE.Mesh(v.body, pedMaterial);
@@ -191,7 +212,7 @@ function personMesh() {
   root.add(body);
   const lite = new THREE.Mesh(v.lite, pedMaterial); lite.visible = false; root.add(lite);
   // modelled ~1.75 u tall; 1 u = 1.25 m, so a man is ~1.8 m (scale .82), a woman ~1.65 m (.75), a child ~1.2-1.4 m
-  const h = v.child ? 0.52 + Math.random() * 0.1 : (v.female ? 0.75 : 0.82) * (0.96 + Math.random() * 0.08);
+  const h = v.child ? 0.5 + Math.random() * 0.14 : (v.female ? 0.74 : 0.81) * (0.93 + Math.random() * 0.15);
   root.scale.setScalar(h);
   root.userData.rig = { body, legL, legR, armL, armR, lite };
   return root;
@@ -326,7 +347,9 @@ export function createPedestrianSystem(cityData, scene, count = 14, maxCount = c
     scene.add(mesh);
     const p = {
       mesh, active, from: start, to: link0.to, link: link0, t: Math.random(),
-      speed: 0.55 + Math.random() * 0.4,
+      speed: 0.42 + Math.random() * 0.62 + (Math.random() < 0.08 ? 0.5 : 0),   // dawdlers to hurried joggers
+      lat: (Math.random() - 0.5) * 1.0 + 0.12, wobble: Math.random() * 6.28, wobAmp: 0.04 + Math.random() * 0.1, pace: 0.9 + Math.random() * 0.2, pause: 0,
+      react: 'none', reactT: 0, ox: 0, oz: 0, vox: 0, voz: 0, jy: 0, brace: 0, jumpPose: 0, jumpDir: 1, yaw: 0,
       state: 'walk',   // 'walk' | 'waitSignal' | 'waitLook' | 'waitStop'
       busStopTimer: 0, lookTimer: 0, renderX: undefined, renderZ: undefined, lod: 0,
       rig: mesh.userData.rig, phase: Math.random() * 6.28, amp: 0, gait: 0
@@ -349,7 +372,7 @@ export function createPedestrianSystem(cityData, scene, count = 14, maxCount = c
         const d = Math.hypot(w.x - car.x, w.z - car.z);
         if (d < 35 || d > 260 || !w.links.length) continue;
         const l = w.links[Math.floor(Math.random() * w.links.length)];
-        p.from = i; p.to = l.to; p.link = l; p.t = Math.random(); p.state = 'walk'; p.renderX = undefined; p.renderZ = undefined;
+        p.from = i; p.to = l.to; p.link = l; p.t = Math.random(); p.state = 'walk'; p.renderX = undefined; p.renderZ = undefined; p.react = 'none'; p.ox = p.oz = p.jy = 0;
         break;
       }
     }
@@ -365,8 +388,8 @@ export function createPedestrianSystem(cityData, scene, count = 14, maxCount = c
   }
 
   function update(dt, car) {
-    const now = performance.now();
-    if (car && car.x < 4000) recyclePeds(car);
+    const now = performance.now(), tNow = now / 1000;
+    if (car && car.x < 4000 && car.y > -1.2) recyclePeds(car);
 
     peds.forEach(p => {
       if (!p.active) return;
@@ -382,6 +405,10 @@ export function createPedestrianSystem(cityData, scene, count = 14, maxCount = c
       // as this used to, froze anyone who'd just been shoved off the curb by a passing car
       // wherever they landed, so they'd stand waiting in the middle of the street.
       let waiting = false;
+      const onCross = p.link && p.link.kind === 'cross';
+      const spd = onCross ? Math.max(p.speed, CROSS_SPEED) : p.speed * p.pace;
+      if (p.pause > 0) { p.pause -= dt; waiting = true; }
+      if (p.react === 'look' || p.react === 'brace') waiting = true;
       if (p.state === 'waitSignal') {
         const sig = findSignalForApproach(cityData, p.link.nodeId, p.link.otherNodeId);
         if (!sig || (isApproachClear(sig, now) && redRemainingMs(sig, now) >= crossMs(p.link))) p.state = 'walk';
@@ -397,7 +424,7 @@ export function createPedestrianSystem(cityData, scene, count = 14, maxCount = c
         const len = Math.max(0.5, dist(
           waypoints[p.from].x, waypoints[p.from].z, waypoints[p.to].x, waypoints[p.to].z
         ));
-        p.t += ((p.link && p.link.kind === 'cross' ? Math.max(p.speed, CROSS_SPEED) : p.speed) * dt) / len;
+        p.t += (spd * (p.link && p.link.kind === 'cross' ? 1 : 0.9 + 0.1 * Math.sin(p.wobble * 3 + tNow * 0.35)) * dt) / len;
 
         if (p.t >= 1) {
           const arrivedAt = p.to;
@@ -413,6 +440,7 @@ export function createPedestrianSystem(cityData, scene, count = 14, maxCount = c
             }
           }
 
+          if (Math.random() < 0.07) p.pause = 1 + Math.random() * 3.5;   // window-shopping / checking a phone
           const next = pickNextLink(waypoints, arrivedAt, p.from);
           if (!next) { p.t = 1; } else {
             p.from = arrivedAt; p.to = next.to; p.link = next; p.t = 0;
@@ -432,33 +460,73 @@ export function createPedestrianSystem(cityData, scene, count = 14, maxCount = c
       }
 
       const base = posOnLink(waypoints, p.from, p.to, Math.min(1, p.t));
+      const ldx = waypoints[p.to].x - waypoints[p.from].x, ldz = waypoints[p.to].z - waypoints[p.from].z, llen = Math.hypot(ldx, ldz) || 1;
+      const fx = ldx / llen, fz = ldz / llen;                       // walking direction; right-hand side is (fz, -fx)
 
-      // Cosmetic sidestep away from a nearby car, eased back onto the intended path —
-      // see the safety note at the top of this file for why this can't affect hits.
-      // Deliberately *not* capped to the sidewalk's width any more — a real pedestrian
-      // diving clear of a car bearing down on them jumps however far it takes, curb or
-      // no curb, so this is allowed to carry them off the sidewalk and onto the grass/
-      // road shoulder. Bigger trigger range and a much bigger push than before, since
-      // the previous, sidewalk-capped version barely read as a reaction at all.
-      let targetX = base.x, targetZ = base.z;
-      if (car) {
-        const d = dist(base.x, base.z, car.x, car.z);
-        if (d < 5.5) {
-          const push = (5.5 - d) / 5.5;
-          const invD = 1 / Math.max(d, 0.001);
-          targetX += (base.x - car.x) * invD * push * 2.8;
-          targetZ += (base.z - car.z) * invD * push * 2.8;
+      // ---- reaction to a car that has come up onto the pavement ------------------------------
+      // The car only counts as "on the pavement" when its centre is within ~1.9 u of this
+      // walker's sidewalk centre line (a car driving along the kerb on the road is >= 2.3 u away).
+      // Purely cosmetic: nothing here is ever fed back to the car (see header).
+      let threat = 0, tx = 0, tz = 0, ttc = 9;
+      if (car && !onCross && car.x < 4000 && car.y > -1.2 && p.state !== 'waitStop') {
+        const rx = base.x - car.x, rz = base.z - car.z, d = Math.hypot(rx, rz);
+        if (d < 17) {
+          const sp = Math.hypot(car.vx || 0, car.vz || 0);
+          // car distance from the sidewalk line of this link (perpendicular), clamped to the segment
+          const cx = car.x - waypoints[p.from].x, cz = car.z - waypoints[p.from].z, al = cx * fx + cz * fz;
+          const lat = Math.abs(cx * fz - cz * fx);
+          const onWalk = al > -2 && al < llen + 2 && lat < 1.9;
+          if (onWalk && sp > 1.2) {
+            const vx = (car.vx || 0) / sp, vz = (car.vz || 0) / sp;
+            const toward = (rx * vx + rz * vz) / Math.max(d, 0.01);   // >0 when the car heads at the walker
+            if (toward > 0.35) { threat = 1; tx = vx; tz = vz; ttc = d / Math.max(sp, 0.1); }
+          }
         }
       }
+      if (threat) {
+        if (p.react === 'none' || p.react === 'recover') { p.react = 'look'; p.reactT = 0; }
+        p.reactT += dt;
+        if (p.react === 'look' && p.reactT > 0.3) { p.react = 'brace'; p.reactT = 0; }
+        if (p.react === 'brace' && ttc < 0.85 && Math.hypot(base.x + p.ox - car.x, base.z + p.oz - car.z) < 6.5) {
+          // jump sideways, away from the car's line of travel (to whichever side of it the walker is already on)
+          const side = Math.sign((base.x - car.x) * -tz + (base.z - car.z) * tx) || 1;
+          const jx = -tz * side, jz = tx * side;
+          p.vox = jx * 11; p.voz = jz * 11; p.jumpDir = side; p.react = 'jump'; p.reactT = 0; p.jy = 0;
+        }
+      } else if (p.react === 'look' || p.react === 'brace') { p.react = 'recover'; p.reactT = 0; }   // false alarm: relax, walk on
+      if (p.react === 'jump') {
+        p.reactT += dt;
+        p.ox += p.vox * dt; p.oz += p.voz * dt; p.vox *= Math.pow(0.02, dt); p.voz *= Math.pow(0.02, dt);
+        p.jy = Math.max(0, Math.sin(Math.min(1, p.reactT / 0.5) * Math.PI)) * 0.55;
+        if (p.reactT > 0.5) { p.jy = 0; p.react = 'down'; p.reactT = 0; }
+      } else if (p.react === 'down') {
+        p.reactT += dt; if (p.reactT > 1.1) { p.react = 'recover'; p.reactT = 0; }
+      } else if (p.react === 'recover') {
+        p.reactT += dt; if (p.reactT > 0.4) p.react = 'none';
+      }
+      // after a jump the walker eases back to the path; after a false alarm nothing was displaced
+      if (p.react !== 'jump') { const k = Math.pow(0.35, dt); p.ox *= k; p.oz *= k; }
+      if (p.react === 'down') waiting = true;
+      p.brace += ((p.react === 'brace' ? 1 : 0) - p.brace) * Math.min(1, dt * 9);
+      p.jumpPose += ((p.react === 'jump' ? 1 : 0) - p.jumpPose) * Math.min(1, dt * 14);
+
+      // ---- own line on the pavement + a little weave, so a crowd never walks in single file --------
+      const w = onCross ? 0.25 : p.lat + Math.sin(tNow * 0.6 + p.wobble) * p.wobAmp;
+      const targetX = base.x + fz * w + p.ox, targetZ = base.z - fx * w + p.oz;
       const ease = 1 - Math.pow(0.0008, dt);
       p.renderX = p.renderX === undefined ? targetX : p.renderX + (targetX - p.renderX) * ease;
       p.renderZ = p.renderZ === undefined ? targetZ : p.renderZ + (targetZ - p.renderZ) * ease;
 
-      if (p.lod < 2) animate(p, dt, !waiting, p.link && p.link.kind === 'cross' ? Math.max(p.speed, CROSS_SPEED) : p.speed);
-      p.mesh.position.set(p.renderX, base.elevation, p.renderZ);
+      if (p.lod < 2) animate(p, dt, !waiting, spd);
+      p.mesh.position.set(p.renderX, base.elevation + p.jy, p.renderZ);
       if (car) setLod(p, Math.hypot(p.renderX - car.x, p.renderZ - car.z));
-      const dx = waypoints[p.to].x - waypoints[p.from].x, dz = waypoints[p.to].z - waypoints[p.from].z;
-      if (dx || dz) p.mesh.rotation.y = Math.atan2(dx, dz);
+      // heading: along the path, or turned to face the oncoming car while looking / bracing
+      let want = Math.atan2(fx, fz);
+      if (car && (p.react === 'look' || p.react === 'brace')) want = Math.atan2(car.x - p.renderX, car.z - p.renderZ);
+      else if (p.react === 'jump') want = p.yaw;
+      let dyaw = want - p.yaw; dyaw = Math.atan2(Math.sin(dyaw), Math.cos(dyaw));
+      p.yaw += dyaw * Math.min(1, dt * (p.react === 'look' ? 12 : 7));
+      p.mesh.rotation.y = p.yaw;
     });
   }
 

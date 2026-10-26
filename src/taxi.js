@@ -212,6 +212,7 @@ export function createTaxi({ city, scene, heightAt, snowing = () => false }) {
     #taxi .t1 { font-weight: 700; font-size: 14px; }
     #taxi .t2 { opacity: .85; font-size: 12px; }
     #taxi .t3 { opacity: .7; font-size: 11px; }
+    #taxi.idle .skip { display: none; }
     #taxi button { pointer-events: auto; border: 0; border-radius: 8px; background: rgba(255,255,255,.14); color: #fff; font-size: 14px; padding: 4px 8px; }
     html.touch #taxi { top: 40px; }
     #cash { position: fixed; top: 34px; left: 12px; z-index: 6; font: 700 15px system-ui, sans-serif; color: #7dffa9; text-shadow: 0 1px 3px #000; display: none; margin-top: 52px; }
@@ -236,7 +237,7 @@ export function createTaxi({ city, scene, heightAt, snowing = () => false }) {
   const hud = document.createElement('div');
   hud.id = 'taxi';
   hud.innerHTML = `<div class="arrow"><svg viewBox="-50 -50 100 100"><path d="M0 -40 L30 25 L0 12 L-30 25 Z" fill="#ffd400" stroke="#fff" stroke-width="5" stroke-linejoin="round"/></svg></div>
-    <div><div class="t1"></div><div class="t2"></div><div class="t3"></div></div><button title="Skip this fare">✕</button>`;
+    <div><div class="t1"></div><div class="t2"></div><div class="t3"></div></div><button class="skip" title="Skip this fare">✕</button><button class="off" title="Stop taxi duty">Off duty</button>`;
   document.body.appendChild(hud);
   const cashEl = document.createElement('div'); cashEl.id = 'cash'; document.body.appendChild(cashEl);
   const cardEl = document.createElement('div'); cardEl.id = 'fareCard'; document.body.appendChild(cardEl);
@@ -256,8 +257,9 @@ export function createTaxi({ city, scene, heightAt, snowing = () => false }) {
   }
   profEl.addEventListener('click', ev => { if (ev.target === profEl) profEl.style.display = 'none'; });
   const toastEl = document.createElement('div'); toastEl.id = 'toast'; document.body.appendChild(toastEl);
+  hud.querySelector('.off').addEventListener('click', () => { api.setEnabled(false); toast('Off duty – no more fares'); });
   const arrowSvg = hud.querySelector('svg'), t1 = hud.querySelector('.t1'), t2 = hud.querySelector('.t2'), t3 = hud.querySelector('.t3');
-  hud.querySelector('button').addEventListener('click', () => { if (state !== 'off') { clearFare(); state = 'wait'; wait = 0.5; toast('Fare skipped', true); } });
+  hud.querySelector('.skip').addEventListener('click', () => { if (state !== 'off') { clearFare(); state = 'wait'; wait = 0.5; toast('Fare skipped', true); } });
 
   // ---- driver profile (kept in localStorage) ------------------------------------------------------
   let prof = { fares: 0, earned: 0, best: 0, ratings: [], red: 0, stop: 0, crashes: 0 };
@@ -387,11 +389,12 @@ export function createTaxi({ city, scene, heightAt, snowing = () => false }) {
 
     if (state === 'wait') {
       wait -= dt;
-      hud.style.display = 'none';
+      hud.style.display = 'flex'; hud.classList.add('idle');
+      t1.textContent = '🚕 Waiting for a fare…'; t2.textContent = ''; t3.textContent = ''; arrowSvg.style.display = 'none';
       if (wait <= 0) newFare(car);
       return;
     }
-    hud.style.display = 'flex';
+    hud.style.display = 'flex'; hud.classList.remove('idle'); arrowSvg.style.display = '';
     const spot = state === 'pickup' ? fare.pick : fare.drop;
     routeT -= dt;
     if (routeT <= 0) { replan(car, spot); routeT = 0.35; }
@@ -447,7 +450,7 @@ export function createTaxi({ city, scene, heightAt, snowing = () => false }) {
     } else boardT = 0;
   }
 
-  return {
+  const api = {
     update,
     get active() { return state !== 'off'; },
     get debug() { return { state, fare, route, cash }; },
@@ -455,7 +458,7 @@ export function createTaxi({ city, scene, heightAt, snowing = () => false }) {
     addCash(v) { setCash(Math.max(0, cash + v)); },
     setEnabled(on, car) {
       if (on && state === 'off') { state = 'wait'; wait = 1.5; setCash(cash); cashEl.style.display = 'block'; }
-      if (!on && state !== 'off') { clearFare(); state = 'off'; hud.style.display = 'none'; }
+      if (!on && state !== 'off') { clearFare(); state = 'off'; hud.style.display = 'none'; cashEl.style.display = 'none'; }
     },
     // for the minimap
     mapExtras() {
@@ -466,4 +469,5 @@ export function createTaxi({ city, scene, heightAt, snowing = () => false }) {
       return { markers, route };
     }
   };
+  return api;
 }

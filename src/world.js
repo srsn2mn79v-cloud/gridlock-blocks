@@ -4,11 +4,12 @@
 // Everything is saved to localStorage ('gridlock.world'); money is the taxi wallet (taxi.getCash()).
 import * as THREE from 'three';
 import { CAR_STYLES, buildCarModel } from './carModels.js';
+import { createShowroom } from './showroom.js';
 import { dressAvatar, createStage, SLOTS, CLOTHES, DEFAULT_OUTFIT, itemOf, startOwned } from './wardrobe.js';
 import { carClass, zeroTo100, classIndex, CLASS_ORDER } from './classes.js';
 import { SHOP_KINDS, APARTMENT_TIERS, AGENT_MARKUP, regionOf } from './chicago/chicago.js';
 import { createFlatLights } from './flatlight.js';
-import { buildInterior, buildStoreInterior, buildGarage, buildGateMesh, garageLayout, garageHeight, pocketOrigin, inPocket, RAMP, bayAt, FINE_SECS } from './estate.js';
+import { buildInterior, buildStoreInterior, buildGarage, buildGateMesh, garageLayout, garageHeight, RAMP, bayAt, FINE_SECS } from './estate.js';
 import { createGroundGlow } from './glow.js';
 import { buildKit } from './bodykit.js';
 
@@ -113,12 +114,10 @@ export function createWorld({ city, scene, camera, car, input, heightAt: cityHei
   let arenaH = null;
   function hAt(x, z, refY) {
     if (x < -6000 && arenaH) { const y = arenaH(x, z); hAt.kind = arenaH.kind; return y; }
-    if (inPocket(x)) {
-      hAt.kind = 'road';
-      let G = null; for (const id in garages) if (Math.abs(x - garages[id].o.x) < 160) { G = garages[id]; break; }
-      if (!G) return 0;
-      const h = garageHeight(G.g.lay, x - G.o.x, z - G.o.z);
-      return h == null ? G.g.lay.floorY : h;
+    // inside the garage the floor and ramp are the garage's own (the garage is built in the real city, under the building)
+    if (mode === 'garage' && cur && cur.g) {
+      const p = cur.toL(x, z), h = garageHeight(cur.g.lay, p.x, p.z);
+      if (h != null) { hAt.kind = 'road'; return h; }
     }
     const r = cityHeight(x, z, refY); hAt.kind = cityHeight.kind; return r;
   }
@@ -312,6 +311,7 @@ export function createWorld({ city, scene, camera, car, input, heightAt: cityHei
   const foot = { x: 0, y: 0, z: 0, heading: 0, speed: 0, turn: 0, camH: 0, vx: 0, vz: 0, roll: 0, phase: 0 };
   const avatar = makeAvatar(); avatar.visible = false; scene.add(avatar); dressAvatar(avatar, save.outfit);
   const stage = createStage(scene, makeAvatar);
+  const showroom = createShowroom(scene);
   const BUCKET = 48, grid = new Map();
   const gkey = (i, j) => i + ',' + j;
   const addGrid = (x0, z0, x1, z1, item) => { for (let i = Math.floor(x0 / BUCKET); i <= Math.floor(x1 / BUCKET); i++) for (let j = Math.floor(z0 / BUCKET); j <= Math.floor(z1 / BUCKET); j++) { const k = gkey(i, j); (grid.get(k) || grid.set(k, []).get(k)).push(item); } };
@@ -326,16 +326,18 @@ export function createWorld({ city, scene, camera, car, input, heightAt: cityHei
   const rectHit = (rs, x, z, r) => rs.some(q => x > q.x0 - r && x < q.x1 + r && z > q.z0 - r && z < q.z1 + r);
   const circleHit = (cs, x, z) => cs.some(c => Math.hypot(x - c.x, z - c.z) < c.radius + R * 0.6);
   function pocketBlocked(x, z) {
-    const lx = x - cur.o.x, lz = z - cur.o.z;
-    if (garageHeight(cur.g.lay, lx, lz) == null) return true;
-    if (rectHit(cur.g.solids, lx, lz, R)) return true;
+    const p = cur.toL(x, z);
+    if (p.x < 0) return !(p.x > -14 && Math.abs(p.z) < RAMP.W / 2 + 4);          // out in front of the door is the street: open
+    if (garageHeight(cur.g.lay, p.x, p.z) == null) return true;
+    if (rectHit(cur.g.solids, p.x, p.z, R)) return true;
     if (circleHit(cur.colliders, x, z)) return true;
-    return inPocket(car.x) && onFoot && [-1.15, 1.15].some(o => Math.hypot(x - (car.x + Math.sin(car.heading) * o), z - (car.z + Math.cos(car.heading) * o)) < 1.0 + R * 0.6);
+    return onFoot && Math.abs(car.y - foot.y) < 3 && [-1.15, 1.15].some(o => Math.hypot(x - (car.x + Math.sin(car.heading) * o), z - (car.z + Math.cos(car.heading) * o)) < 1.0 + R * 0.6);
   }
   function flatToWorld(lx, lz) { const F = cur.F; return { x: F.x + lx * F.ux + lz * F.dx, z: F.z + lx * F.uz + lz * F.dz }; }
   function flatBlocked(x, z) {
     const F = cur.F, dx = x - F.x, dz = z - F.z, lx = dx * F.ux + dz * F.uz, lz = dx * F.dx + dz * F.dz, I = cur.flat;
-    if (Math.abs(lx) > I.W / 2 - R - 0.05 || lz < 0.4 + R || lz > I.D - R - 0.1) return true;
+    if (Math.abs(lx) > I.W / 2 - R - 0.05 || lz > I.D - R - 0.1) return true;
+    if (lz < 0.4 + R) { const T = I.terrace; if (!T || lx < T.x0 + R || lx > T.x1 - R || lz < -T.depth + R) return true; }          // the street wall - except through the glass door onto the terrace
     return rectHit(I.solids, lx, lz, R);
   }
   function blockedAt(x, z) {
@@ -345,7 +347,7 @@ export function createWorld({ city, scene, camera, car, input, heightAt: cityHei
     const cell = grid.get(gkey(Math.floor(x / BUCKET), Math.floor(z / BUCKET)));
     if (!cell) return false;
     for (const it of cell) {
-      if (it.poly) { if (pointInPoly(x, z, it.poly) || closestOnPoly(x, z, it.poly).d < R) return true; }
+      if (it.poly) { if (inGateway(x, z)) continue; if (pointInPoly(x, z, it.poly) || closestOnPoly(x, z, it.poly).d < R) return true; }
       else if (!it.c.destroyed && Math.hypot(x - it.c.x, z - it.c.z) < it.c.radius + R * 0.6) return true;
     }
     return false;
@@ -377,7 +379,7 @@ export function createWorld({ city, scene, camera, car, input, heightAt: cityHei
     foot.y += (gy - foot.y) * Math.min(1, dt * 14);
     foot.phase += Math.abs(foot.speed) * dt * 4.2;
     avatar.position.set(foot.x, foot.y, foot.z); avatar.rotation.y = foot.heading;
-    if (mode === 'garage') pocketExit();
+    if (mode === 'garage') garageEdge();
     const sw = Math.min(1, Math.abs(foot.speed) / 3);
     avatar.userData.limbs.forEach(l => { l.rotation.x = Math.sin(foot.phase + l.userData.ph) * 0.7 * sw; });
   }
@@ -439,12 +441,14 @@ export function createWorld({ city, scene, camera, car, input, heightAt: cityHei
     }, 300);
   }
   function ensureGarage(a) {
-    const idx = aptIdx(a);
     if (!garages[a.id]) {
-      const o = pocketOrigin(idx), g = buildGarage(a.garage);
-      g.group.position.set(o.x, 0, o.z); g.group.visible = false; scene.add(g.group);
-      const polys = g.solids.map(r => ({ kind: 'parcel', instance: null, footprint: [[o.x + r.x0, o.z + r.z0], [o.x + r.x1, o.z + r.z0], [o.x + r.x1, o.z + r.z1], [o.x + r.x0, o.z + r.z1]], blocksCar: true, destructible: false, response: 'bounce', destroyed: false }));
-      garages[a.id] = { a, o, g, polys, colliders: [], statics: [] };
+      // the garage is built in the real city, under the building: its frame starts at the gate (local +x runs into the building)
+      const g = buildGarage(a.garage), gt = a.gate, th = Math.atan2(gt.nz, -gt.nx), c = Math.cos(th), sn = Math.sin(th);
+      const toW = (lx, lz) => ({ x: gt.x + lx * c + lz * sn, z: gt.z - lx * sn + lz * c });
+      const toL = (x, z) => { const dx = x - gt.x, dz = z - gt.z; return { x: c * dx - sn * dz, z: sn * dx + c * dz }; };
+      g.group.position.set(gt.x, 0, gt.z); g.group.rotation.y = th; g.group.visible = false; scene.add(g.group);
+      const polys = g.solids.map(r => ({ kind: 'parcel', instance: null, garage: true, footprint: [[r.x0, r.z0], [r.x1, r.z0], [r.x1, r.z1], [r.x0, r.z1]].map(([lx, lz]) => { const w = toW(lx, lz); return [w.x, w.z]; }), blocksCar: true, destructible: false, response: 'bounce', destroyed: false }));
+      garages[a.id] = { a, th, toW, toL, g, polys, colliders: [], statics: [] };
     }
     return garages[a.id];
   }
@@ -462,7 +466,7 @@ export function createWorld({ city, scene, camera, car, input, heightAt: cityHei
       const model = buildCarModel(k); paintStatic(model, k);
       model.position.set(e.x, G.g.lay.floorY, e.z); model.rotation.y = e.h; G.g.group.add(model);
       G.statics.push({ key: k, model, e });
-      [-1.15, 1.15].forEach(o => G.colliders.push({ kind: 'prop', instance: null, x: G.o.x + e.x + Math.sin(e.h) * o, z: G.o.z + e.z + Math.cos(e.h) * o, radius: 1.0, blocksCar: true, destructible: false, destroyed: false }));
+      [-1.15, 1.15].forEach(o => { const w = G.toW(e.x + Math.sin(e.h) * o, e.z + Math.cos(e.h) * o); G.colliders.push({ kind: 'prop', instance: null, garage: true, x: w.x, z: w.z, radius: 1.0, blocksCar: true, destructible: false, destroyed: false }); });
     });
     // the other residents' cars
     (G.npc || []).forEach(m => G.g.group.remove(m)); G.npc = [];
@@ -472,7 +476,7 @@ export function createWorld({ city, scene, camera, car, input, heightAt: cityHei
       model.traverse(q => { if (q.isMesh && q.material.isMeshPhysicalMaterial && q.material.clearcoat > 0.5) { q.material = q.material.clone(); q.material.color.setHex(col); } });
       const h = o.heading + ((o.variant % 7) - 3) * 0.012;
       model.position.set(o.x, G.g.lay.floorY, o.z + ((o.variant % 5) - 2) * 0.12); model.rotation.y = h; G.g.group.add(model); G.npc.push(model);
-      [-1.15, 1.15].forEach(d => G.colliders.push({ kind: 'prop', instance: null, x: G.o.x + o.x + Math.sin(h) * d, z: G.o.z + o.z + Math.cos(h) * d, radius: 1.0, blocksCar: true, destructible: false, destroyed: false }));
+      [-1.15, 1.15].forEach(d => { const w = G.toW(o.x + Math.sin(h) * d, o.z + Math.cos(h) * d); G.colliders.push({ kind: 'prop', instance: null, garage: true, x: w.x, z: w.z, radius: 1.0, blocksCar: true, destructible: false, destroyed: false }); });
     });
     collisionWorld.push(...G.colliders);
   }
@@ -497,10 +501,11 @@ export function createWorld({ city, scene, camera, car, input, heightAt: cityHei
   }
   function parkRecord() {
     const G = cur, lay = G.g.lay; let best = 0, bd = 1e9;
-    lay.spots.forEach((sp, i) => { const d = Math.hypot(G.o.x + sp.x - car.x, G.o.z + sp.z - car.z); if (d < bd) { bd = d; best = i; } });
-    const bay = bayAt(lay, car.x - G.o.x, car.z - G.o.z), banned = !!bay && bay.kind === 'banned';
+    const pl = G.toL(car.x, car.z);
+    lay.spots.forEach((sp, i) => { const d = Math.hypot(sp.x - pl.x, sp.z - pl.z); if (d < bd) { bd = d; best = i; } });
+    const bay = bayAt(lay, pl.x, pl.z), banned = !!bay && bay.kind === 'banned';
     const prev = fleet[car.styleKey];
-    fleet[car.styleKey] = { apt: G.a.id, spot: banned || bd > 3.6 ? -1 : best, x: car.x - G.o.x, z: car.z - G.o.z, h: car.heading, live: true, ...(banned ? { since: prev && prev.since ? prev.since : Date.now(), fined: !!(prev && prev.fined && prev.since) } : {}) };
+    fleet[car.styleKey] = { apt: G.a.id, spot: banned || bd > 3.6 ? -1 : best, x: pl.x, z: pl.z, h: car.heading - G.th, live: true, ...(banned ? { since: prev && prev.since ? prev.since : Date.now(), fined: !!(prev && prev.fined && prev.since) } : {}) };
     persist();
   }
   // a car left in somebody else's bay for FINE_SECS earns a fine (once); it stays where it is
@@ -517,34 +522,57 @@ export function createWorld({ city, scene, camera, car, input, heightAt: cityHei
     if (mode === 'flat' && cur && cur.flat) cur.flat.group.visible = false;
     clearLocal();
   }
-  function toGarage(a, how) {   // how: 'car' (drive in), 'foot' (from the gate on foot), 'lift' (from the flat)
+  // how: 'car' / 'foot' = walked or driven in through the door (nothing moves: the garage is simply where you already are),
+  //      'footAt' = the E shortcut at the door, 'lift' = from the flat upstairs
+  function toGarage(a, how) {
     leaveMode();
     const G = ensureGarage(a); cur = G; mode = 'garage';
     G.g.group.visible = true; collisionWorld.push(...G.polys);
     populateGarage();
     const lay = G.g.lay;
-    if (how === 'car') { car.teleport(G.o.x + 7, G.o.z, hAt(G.o.x + 7, G.o.z), Math.PI / 2); car.speed = 4; onFoot = false; avatar.visible = false; }
+    if (how === 'car') { onFoot = false; avatar.visible = false; }
+    else if (how === 'foot') { onFoot = true; avatar.visible = true; }
     else {
-      const e = how === 'lift' ? { x: lay.lift.x - 2.8, z: 0, h: -Math.PI / 2 } : { x: 6, z: 0, h: Math.PI / 2 };
-      foot.x = G.o.x + e.x; foot.z = G.o.z + e.z; foot.y = hAt(foot.x, foot.z); foot.heading = foot.camH = e.h; foot.speed = 0; foot.turn = 0;
+      const e = how === 'lift' ? { x: lay.lift.x - 2.8, z: 0, h: -Math.PI / 2 } : { x: 3.2, z: 0, h: Math.PI / 2 }, w = G.toW(e.x, e.z);
+      foot.x = w.x; foot.z = w.z; foot.y = hAt(foot.x, foot.z); foot.heading = foot.camH = e.h + G.th; foot.speed = 0; foot.turn = 0;
       onFoot = true; avatar.visible = true; stepFoot(0);
     }
-    setLocal([{ kind: 'lift', name: 'the elevator', x: G.o.x + lay.lift.x, z: G.o.z + lay.lift.z, y: lay.floorY, hex: 0xffd21f, onFootOnly: true }]);
+    const lw = G.toW(lay.lift.x, lay.lift.z);
+    setLocal([{ kind: 'lift', name: 'the elevator', x: lw.x, z: lw.z, y: lay.floorY, hex: 0xffd21f, onFootOnly: true }]);
   }
-  function pocketExit() {
-    // up the ramp: out through the gate
-    const G = cur; if (!G) return;
-    const px = onFoot ? foot.x : car.x, lx = px - G.o.x;
-    if (lx > 1.6) return;
-    if (!onFoot && (car.speed < 0.5 || Math.sin(car.heading) > -0.3)) return;
-    const g = G.a.gate, a = G.a;
-    transition(() => {
-      leaveMode(); mode = 'city'; cur = null;
-      if (onFoot) { foot.x = g.x + g.nx * 3.6; foot.z = g.z + g.nz * 3.6; foot.y = hAt(foot.x, foot.z); foot.heading = foot.camH = Math.atan2(g.nx, g.nz); foot.speed = 0; avatar.visible = true; stepFoot(0); }
-      else { const x = g.x + g.nx * 5.6, z = g.z + g.nz * 5.6; car.teleport(x, z, hAt(x, z), Math.atan2(g.nx, g.nz)); car.speed = 5; const e = fleet[car.styleKey]; if (e && e.live) delete fleet[car.styleKey]; persist(); }
-      gateCool = a;
-    });
+  // back out through the door: the street is simply there again, nothing is moved
+  function garageEdge() {
+    const G = cur; if (mode !== 'garage' || !G || !G.g) return;
+    const p = G.toL(onFoot ? foot.x : car.x, onFoot ? foot.z : car.z);
+    if (p.x > 0.25 || Math.abs(p.z) > 6) return;
+    leaveMode(); mode = 'city'; cur = null; camHold = 1.6;
+    if (!onFoot) { const e = fleet[car.styleKey]; if (e && e.live) delete fleet[car.styleKey]; persist(); }
   }
+  let camHold = 0;
+  // the owned garage door a point is in the doorway of (so the building's own wall does not stop you there)
+  function inGateway(x, z) {
+    if (mode !== 'city') return false;
+    for (const id in gates) {
+      const G = gates[id]; if (G.open < 0.6) continue;
+      const g = G.t.data.gate, rx = x - g.x, rz = z - g.z, along = rx * g.nx + rz * g.nz, lat = rx * g.ux + rz * g.uz;
+      if (along > -3 && along < 6 && Math.abs(lat) < 2.3) return true;
+    }
+    return false;
+  }
+  collisionWorld.exempt = null;
+  function updateExempt() {
+    if (mode === 'garage') { collisionWorld.exempt = EX_GARAGE; return; }
+    if (mode === 'city' && !onFoot) {
+      for (const id in gates) {
+        const G = gates[id]; if (G.open < 0.6) continue;
+        const g = G.t.data.gate, rx = car.x - g.x, rz = car.z - g.z, along = rx * g.nx + rz * g.nz;
+        if (along > -6 && along < 8 && Math.abs(rx * g.ux + rz * g.uz) < 4) { collisionWorld.exempt = EX_GATE; return; }
+      }
+    }
+    collisionWorld.exempt = null;
+  }
+  const EX_GARAGE = (c, k) => !k.garage;                  // underground, the city above does not exist for the car
+  const EX_GATE = (c, k) => k.kind === 'parcel' && !k.garage && inGateway(c.x, c.z);        // at the door the building's wall lets the car in
   function ensureFlat(a) {
     if (!flats[a.id]) {
       const f = a.facade, I = a.store ? buildStoreInterior(a) : buildInterior(a), th = Math.atan2(-f.nx, -f.nz);
@@ -556,7 +584,7 @@ export function createWorld({ city, scene, camera, car, input, heightAt: cityHei
   }
   function toFlat(a, how) {   // how: 'street' | 'lift'
     leaveMode(); mode = 'city';
-    cur = garages[a.id] || { a, o: pocketOrigin(aptIdx(a)), colliders: [], polys: [], statics: [] };
+    cur = garages[a.id] || { a, colliders: [], polys: [], statics: [] };
     ensureFlat(a); mode = 'flat';
     const I = cur.flat, F = cur.F, p = flatToWorld(I.spawn.x, I.spawn.z);
     foot.x = p.x; foot.z = p.z; foot.y = I.floorY; foot.heading = foot.camH = Math.atan2(F.dx, F.dz); foot.speed = 0; foot.turn = 0;
@@ -566,6 +594,7 @@ export function createWorld({ city, scene, camera, car, input, heightAt: cityHei
     if (I.liftAt) list.push(mkT('lift', 'the elevator', I.liftAt, 0xffd21f));
     if (I.bedAt) list.push(mkT('bed', 'bed', I.bedAt, 0x7aa0ff));
     if (I.wardrobeAt) list.push(mkT('wardrobe', 'wardrobe', I.wardrobeAt, 0xff9f43));
+    if (I.deskAt && !a.store) list.push(mkT('desk', 'desk', I.deskAt, 0x4aa3ff));
     if (I.fitAt) list.push(mkT('fitting', a.name, I.fitAt, 0xff5fa8));
     if (!a.store) list.push(mkT('travel', 'the city map', { x: I.W / 2 - 0.9, z: 1.2 }, 0x4aa3ff));
     setLocal(list);
@@ -584,7 +613,7 @@ export function createWorld({ city, scene, camera, car, input, heightAt: cityHei
   function nearStatic() {
     if (mode !== 'garage' || !cur) return null;
     let best = null;
-    cur.statics.forEach(s => { const d = Math.hypot(cur.o.x + s.e.x - foot.x, cur.o.z + s.e.z - foot.z); if (d < 4.2 && (!best || d < best.d)) best = { s, d }; });
+    cur.statics.forEach(s => { const w = cur.toW(s.e.x, s.e.z), d = Math.hypot(w.x - foot.x, w.z - foot.z); if (d < 4.2 && (!best || d < best.d)) best = { s, d }; });
     return best;
   }
   function swapTo(s) {
@@ -593,7 +622,7 @@ export function createWorld({ city, scene, camera, car, input, heightAt: cityHei
     delete fleet[K];
     chooseCar(K);
     reconcileFleet();
-    car.teleport(cur.o.x + e.x, cur.o.z + e.z, cur.g.lay.floorY, e.h);
+    const wp = cur.toW(e.x, e.z); car.teleport(wp.x, wp.z, cur.g.lay.floorY, e.h + cur.th);
     populateGarage();
     onFoot = false; avatar.visible = false; boosting = false;
     toast('Driving the ' + (CAR_STYLES.find(c => c.key === K) || {}).name);
@@ -618,12 +647,8 @@ export function createWorld({ city, scene, camera, car, input, heightAt: cityHei
       const want = (along > -2 && along < 14 && Math.abs(lat) < 6.5) ? 1 : 0;
       G.open += Math.sign(want - G.open) * Math.min(Math.abs(want - G.open), dt * 1.4);
       G.mesh.userData.door.position.y = G.open * 3.1;
-      if (gateCool === a) { if (Math.hypot(rx, rz) > 15) gateCool = null; continue; }
-      if (onFoot && !modal && !trans && G.open > 0.8 && along < 1.9 && along > -0.8 && Math.abs(lat) < 2.3) { transition(() => toGarage(a, 'foot')); return; }
-      if (!onFoot && !modal && !trans && !(blockedFn && blockedFn()) && along < 3.6 && along > -1 && Math.abs(lat) < 2.9) {
-        const fwd = Math.sin(car.heading) * -g.nx + Math.cos(car.heading) * -g.nz;
-        if (fwd > 0.7 && car.speed > 0.3) { transition(() => toGarage(a, 'car')); return; }
-      }
+      // through the open door and in: the garage takes over where you stand (no fade, no jump)
+      if (!modal && !trans && G.open > 0.6 && -along > 0.8 && -along < 5 && Math.abs(lat) < 2.5 && !(blockedFn && blockedFn())) { toGarage(a, onFoot ? 'foot' : 'car'); return; }
     }
   }
 
@@ -661,9 +686,9 @@ export function createWorld({ city, scene, camera, car, input, heightAt: cityHei
   refreshMarkers();
   (city.apartments || []).forEach(a => { if (save.apts[a.id]) ensureGate(a); });
   reconcileFleet();
-  if (save.garageV !== 2) {      // the garage layout changed: put every parked car on its bay in the new one
+  if (save.garageV !== 3) {      // the garage layout changed (v3: built in the real city, shorter ramp): put every parked car on its bay in the new one
     Object.keys(fleet).forEach(k => { const e = fleet[k], a = city.apartments.find(q => q.id === e.apt); if (!a || e.live) { if (e.live) delete fleet[k]; return; } if (e.spot >= 0 && e.spot < a.garage) Object.assign(e, spotPose(a, e.spot)); });
-    save.garageV = 2; reconcileFleet();
+    save.garageV = 3; reconcileFleet();
   }
   let target = null, tAnim = 0;
   function nearestTarget() {
@@ -708,8 +733,8 @@ export function createWorld({ city, scene, camera, car, input, heightAt: cityHei
     if (t.kind === 'apt') { if (save.apts[t.id]) { transition(() => toFlat(t.data, 'street')); return; } openModal(t); return; }
     if (t.kind === 'shop' || t.kind === 'agent') { openModal(t); return; }
     if (t.kind === 'store') { transition(() => toFlat(t.data, 'street')); return; }
-    if (t.kind === 'wardrobe' || t.kind === 'fitting' || t.kind === 'bed') { openModal(t); return; }
-    if (t.kind === 'gate') { transition(() => toGarage(t.data, 'foot')); return; }
+    if (t.kind === 'wardrobe' || t.kind === 'fitting' || t.kind === 'bed' || t.kind === 'desk') { openModal(t); return; }
+    if (t.kind === 'gate') { transition(() => toGarage(t.data, 'footAt')); return; }
     if (t.kind === 'lift') { if (mode === 'garage') garageToFlat(); else flatToGarage(); return; }
     if (t.kind === 'door') { leaveFlat(); return; }
     if (t.kind === 'travel') { openModal(t); return; }
@@ -736,7 +761,10 @@ export function createWorld({ city, scene, camera, car, input, heightAt: cityHei
     });
     const poor = spec.buy && spec.buy.total > cash();
     html += `</div><footer>${spec.buy ? `<button class="buy" ${!spec.buy.count || poor ? 'disabled' : ''}>${poor ? 'Insufficient funds' : !spec.buy.count ? 'Purchase' : spec.buy.total > 0 ? 'Purchase · ' + money(spec.buy.total) : 'Apply (free)'}</button>` : ''}<button class="x">${spec.exit || 'Leave'}</button></footer>`;
+    const oldList = panel.querySelector('.list'), keepScroll = oldList && modal._lastTab === modal.tab && modal._lastKind === modal.kind ? oldList.scrollTop : 0;   // picking an item must not throw you back to the top
+    modal._lastTab = modal.tab; modal._lastKind = modal.kind;
     panel.innerHTML = html;
+    const newList = panel.querySelector('.list'); if (newList && keepScroll) newList.scrollTop = keepScroll;
     panel.querySelectorAll('[data-tab]').forEach(b => b.addEventListener('click', () => { modal.tab = Number(b.dataset.tab); refreshPanel(); }));
     panel.querySelectorAll('[data-i]').forEach(el => el.addEventListener('click', e => {
       const it = items[Number(el.dataset.i)]; if (!it) return;
@@ -801,6 +829,7 @@ export function createWorld({ city, scene, camera, car, input, heightAt: cityHei
     if (modal.kind === 'apt') return aptSpec(modal.target.data);
     if (modal.kind === 'agent') return agentSpec(modal.target.data);
     if (modal.kind === 'travel') return travelSpec();
+    if (modal.kind === 'desk') return deskSpec();
     if (modal.kind === 'wardrobe' || modal.kind === 'fitting') return clothesSpec();
     const shop = modal.target.data, kind = SHOP_KINDS[shop.kind], style = CAR_STYLES.find(s => s.key === car.styleKey);
     const base = { title: kind.name, accent: kind.color, sub: kind.desc, right: style ? style.name : '' };
@@ -950,7 +979,7 @@ export function createWorld({ city, scene, camera, car, input, heightAt: cityHei
     panel.querySelector('.go').addEventListener('click', () => {
       const target = modal.wake, from = env && env.state ? env.state.hour : 22; let slept = target - from; if (slept <= 0) slept += 24;
       closeModal();
-      transition(() => { if (env) env.setHour(target, true); toast('You slept ' + slept.toFixed(1) + ' hours. Good morning!'); });
+      transition(() => { if (sleepHook) sleepHook(slept); else if (env) env.setHour(target, true); toast('You slept ' + slept.toFixed(1) + ' hours. Good morning!'); });
     });
   }
 
@@ -973,6 +1002,38 @@ export function createWorld({ city, scene, camera, car, input, heightAt: cityHei
       const e = fleet[car.styleKey]; if (e && e.live) { delete fleet[car.styleKey]; persist(); }
       car.teleport(d.x, d.z, hAt(d.x, d.z), d.h); onFoot = false; avatar.visible = false; boosting = false;
     });
+  }
+  // ---- the desk: your stats, your cars and your races at a glance ----
+  let raceInfo = () => [], sleepHook = null, statsT = 30;
+  const stats = (save.stats ||= { secs: 0, units: 0 });
+  function deskSpec() {
+    const owned = ownedCars(), races = raceInfo(), rs = save.races || {};
+    const plays = Object.values(rs).reduce((n, r) => n + (r.plays || 0), 0), wins = Object.values(rs).reduce((n, r) => n + (r.wins || 0), 0);
+    const aptN = city.apartments.filter(a => save.apts[a.id]).length, clothesN = save.clothes.length;
+    const done = races.filter(r => rs[r.id] && rs[r.id].wins).length;
+    const parts = [owned.length / CAR_STYLES.length, races.length ? done / races.length : 0, aptN / Math.max(1, city.apartments.length), clothesN / Math.max(1, Object.values(CLOTHES).reduce((n, l) => n + l.length, 0))];
+    const pct = Math.round(parts.reduce((a, b) => a + b, 0) / parts.length * 100);
+    const km = stats.units * 1.25 / 1000, hrs = stats.secs / 3600;
+    const rows = [];
+    if (modal.tab === 0) {
+      rows.push({ hint: 'Progress' });
+      rows.push({ name: pct + '% complete', sub: `${owned.length}/${CAR_STYLES.length} cars · ${done}/${races.length} races won · ${aptN}/${city.apartments.length} flats · ${clothesN} clothes` });
+      rows.push({ hint: 'Career' });
+      rows.push({ name: 'Money', sub: money(cash()) });
+      rows.push({ name: 'Distance driven', sub: km.toFixed(1) + ' km' });
+      rows.push({ name: 'Time played', sub: hrs >= 1 ? hrs.toFixed(1) + ' h' : Math.round(stats.secs / 60) + ' min' });
+      rows.push({ name: 'Races', sub: `${plays} run · ${wins} won` });
+    } else if (modal.tab === 1) {
+      owned.forEach(k => {
+        const cs = CAR_STYLES.find(c => c.key === k); if (!cs) return;
+        const e = fleet[k], ap = e && city.apartments.find(q => q.id === e.apt);
+        rows.push({ name: cs.name, sub: `Class ${cs.cls} · ${Math.round(cs.maxSpeed * 6.2)} km/h · ${k === car.styleKey ? 'driving now' : ap ? 'parked at ' + ap.name : 'waiting nearby'}` });
+      });
+    } else {
+      if (!races.length) rows.push({ hint: 'No races listed.' });
+      races.forEach(r => { const st = rs[r.id] || {}; rows.push({ name: r.name, sub: `${r.kind} · class ${r.cls || '-'} · ${st.plays || 0} run · ${st.wins || 0} won` + (st.best ? ' · best ' + (r.kind === 'drift' ? Math.round(st.best).toLocaleString('en-US') + ' pts' : st.best.toFixed(1) + ' s') : '') }); });
+    }
+    return { title: 'Desk', sub: 'Your records', accent: '#4aa3ff', right: pct + '% complete', tabs: ['Stats', 'Cars', 'Races'], rows, exit: 'Close' };
   }
   function travelSpec() {
     const rows = [{ hint: 'Pick a destination - your car is waiting there.' }];
@@ -1030,10 +1091,10 @@ export function createWorld({ city, scene, camera, car, input, heightAt: cityHei
     modal = { kind: t.kind, target: t, tab: 0, preview: null, cart: new Map() };
     if (t.kind === 'shop') {
       const s = t.data, dx = -s.nx, dz = -s.nz;       // door -> alley mouth
-      const bx = s.door.x + dx * 7.2, bz = s.door.z + dz * 7.2;
-      // the car sits in the bay nose-out, so a camera out in the alley sees its front and one side
-      bay = { x: bx, z: bz, y: heightAt(bx, bz), heading: Math.atan2(dx, dz), dx, dz };
+      // the car is valeted into the shop's showroom (a lit bay far off the map), nose to the camera; closing puts it back in the alley
+      bay = { x: showroom.position.x, z: showroom.position.z, y: showroom.position.y, heading: 0, dx, dz, exitHeading: Math.atan2(dx, dz) };
       cameFootAt = onFoot ? { x: s.door.x + dx * 2.6, z: s.door.z + dz * 2.6 } : null;
+      showroom.show(true, { key: s.kind, ...SHOP_KINDS[s.kind] });
       // the player's car is brought into the bay (valet service, like driving into the shop in NFSU)
       car.teleport(bay.x, bay.z, bay.y, bay.heading);
       if (onFoot) { foot.x = cameFootAt.x; foot.z = cameFootAt.z; avatar.position.set(foot.x, foot.y, foot.z); }
@@ -1065,8 +1126,9 @@ export function createWorld({ city, scene, camera, car, input, heightAt: cityHei
       if (modal.cart && modal.cart.size) { modal.cart.clear(); applyMods(); }
       // the car is put well outside the shop, in the alley, nose toward the street
       const ox = modal.target.data.door.x + bay.dx * 15, oz = modal.target.data.door.z + bay.dz * 15;
-      car.heading = bay.heading; car.speed = 0;
-      car.teleport(ox, oz, heightAt(ox, oz), bay.heading);
+      car.heading = bay.exitHeading; car.speed = 0;
+      car.teleport(ox, oz, heightAt(ox, oz), bay.exitHeading);
+      showroom.show(false);
       shopCool = modal.target;
     }
     const wasStage = modal.kind === 'wardrobe' || modal.kind === 'fitting';
@@ -1117,7 +1179,7 @@ export function createWorld({ city, scene, camera, car, input, heightAt: cityHei
     if (onFoot) {
       const dCar = Math.hypot(foot.x - car.x, foot.z - car.z), st = nearStatic();
       if (st && (dCar > 4.5 || st.d < dCar)) { swapTo(st.s); return; }
-      if (dCar < 4.5 && mode !== 'flat') enterCar(); else toast(mode === 'flat' ? 'Your car is in the garage downstairs' : 'Your car is further away — walk back to it');
+      if (dCar < 4.5 && mode !== 'flat' && Math.abs(car.y - foot.y) < 2.5) enterCar(); else toast(mode === 'flat' ? 'Your car is in the garage downstairs' : 'Your car is further away — walk back to it');
       return;
     }
     if (Math.abs(car.speed) < 3) exitCar(); else toast('Slow down to step out');
@@ -1150,7 +1212,7 @@ export function createWorld({ city, scene, camera, car, input, heightAt: cityHei
     if (mode !== 'city') return [];
     const px = onFoot ? foot.x : car.x, pz = onFoot ? foot.z : car.z, out = [];
     targets.forEach(t => {
-      if (!all && Math.hypot(t.x - px, t.z - pz) > 170) return;
+      if (!all && t.kind !== 'shop' && Math.hypot(t.x - px, t.z - pz) > 170) return;   // shops are always pinned
       if (t.kind === 'gate') { out.push({ x: t.x, z: t.z, color: '#4aa3ff', label: 'P' }); return; }
       if (t.kind === 'agent') { out.push({ x: t.x, z: t.z, color: '#19c6b7', label: 'RE' }); return; }
       if (t.kind === 'store') { out.push({ x: t.x, z: t.z, color: '#ff5fa8', label: 'C' }); return; }
@@ -1158,7 +1220,6 @@ export function createWorld({ city, scene, camera, car, input, heightAt: cityHei
     });
     if (onFoot) {
       let cx = car.x, cz = car.z;
-      if (inPocket(car.x)) { const e = fleet[car.styleKey], a = e && city.apartments.find(q => q.id === e.apt); if (a) { cx = a.gate.x + a.gate.nx * 3.4; cz = a.gate.z + a.gate.nz * 3.4; } else cx = null; }
       if (cx != null && (all || Math.hypot(cx - px, cz - pz) < 170)) out.push({ x: cx, z: cz, color: '#ff8a3d', label: '🚗' });
     }
     return out;
@@ -1171,15 +1232,23 @@ export function createWorld({ city, scene, camera, car, input, heightAt: cityHei
     get onFoot() { return onFoot; },
     get modal() { return !!modal; },
     focus() { return onFoot ? foot : car; },
-    setDestinations: fn => { extraDest = fn; }, heightAt: hAt, setArena: fn => { arenaH = fn; }, get mode() { return mode; }, pocketWall: (x, z) => mode === 'garage' && !!cur && !!cur.g && (garageHeight(cur.g.lay, x - cur.o.x, z - cur.o.z) == null || rectHit(cur.g.solids, x - cur.o.x, z - cur.o.z, 0)), get _dbg() { return { mode, cur, fleet, foot, targets: local.slice() }; },
+    setDestinations: fn => { extraDest = fn; }, setRaceInfo: fn => { raceInfo = fn; }, setSleepHook: fn => { sleepHook = fn; }, heightAt: hAt, setArena: fn => { arenaH = fn; }, get mode() { return mode; }, get inShop() { return !!modal && modal.kind === 'shop'; }, pocketWall: (x, z) => {
+      if (mode !== 'garage' || !cur || !cur.g) return false;
+      const p = cur.toL(x, z);
+      if (p.x < 0) return !(p.x > -14 && Math.abs(p.z) < RAMP.W / 2 + 4);
+      return garageHeight(cur.g.lay, p.x, p.z) == null || rectHit(cur.g.solids, p.x, p.z, 0);
+    }, get _dbg() { return { mode, cur, fleet, foot, targets: local.slice() }; },
     carClassInfo: () => { const st = CAR_STYLES.find(c => c.key === car.styleKey) || CAR_STYLES[0]; return carClass(st.cls, modsOf(car.styleKey)); }, persist, setBlocked: fn => { blockedFn = fn; }, escAt: () => escAt, ownedCars, applyMods, openModal, closeModal, act, updateModal, updateCamera, mapMarkers, beforeCar, save,
     update(dt) {
+      stats.secs += dt; if (!onFoot && mode !== 'flat') stats.units += Math.abs(car.speed || 0) * dt; statsT -= dt; if (statsT <= 0) { statsT = 30; persist(); }
       markerAnim(dt);
       driveInShops();
       gatesUpdate(dt);
+      updateExempt();
+      camHold = Math.max(0, camHold - dt); car.inGarage = mode === 'garage' || camHold > 0;
       if (!onFoot) { const fe = fleet[car.styleKey]; if (fe && fe.since) { delete fe.since; delete fe.fined; } }
       fineT -= dt; if (fineT <= 0) { fineT = 1; checkFines(); }
-      if (mode === 'garage' && !onFoot) pocketExit();
+      if (mode === 'garage' && !onFoot) garageEdge();
       if (mode === 'flat' && cur && flats[cur.a.id]) {
         const F = flats[cur.a.id], hr = env && env.state ? env.state.hour : 12, u = Math.max(0, Math.min(1, (hr - 6) / 12)), ang = Math.PI * u;
         const wx = -60 * Math.cos(ang), wy = -62 * Math.sin(ang), wz = -30, ln = Math.hypot(wx, wy, wz), c = Math.cos(F.th), sn = Math.sin(F.th);
@@ -1194,7 +1263,7 @@ export function createWorld({ city, scene, camera, car, input, heightAt: cityHei
     },
     // an idle control state for the parked car while its owner walks around
     parkedInput(src) { return { parked: true, forward: false, back: false, left: false, right: false, brake: true, boost: false, steerAxis: 0, throttle: 1, lightsOn: src.lightsOn, blinkerLeft: src.blinkerLeft, blinkerRight: src.blinkerRight }; },
-    _dbg: { toFlat, toGarage, activate, get local() { return local; }, openModal, flats, get cur() { return cur; }, get targets() { return targets; }, get stage() { return typeof stage !== "undefined" ? stage : null; } },
+    _dbg: { foot, toFlat, toGarage, activate, get local() { return local; }, openModal, flats, get cur() { return cur; }, get targets() { return targets; }, get stage() { return typeof stage !== "undefined" ? stage : null; } },
     reward(v) { taxi.addCash(v); },
     toast
   };

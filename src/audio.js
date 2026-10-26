@@ -12,8 +12,8 @@ const ENGINES = {
   diesel: { cyl: 4, idle: 650,  red: 3300, am: 0.55, drive: 2.4, saw: 0.5, sub: 0.7,  cut: 0.55, vol: 0.6, name: 'diesel', clatter: 0.5 },
   heavy:  { cyl: 6, idle: 600,  red: 2700, am: 0.62, drive: 2.8, saw: 0.4, sub: 1.0,  cut: 0.45, vol: 0.75, name: 'heavy diesel', clatter: 0.8, turbo: 1 }
 };
-export const ENGINE_FOR = { hatch: 'hatch', taxi: 'i4', sport: 'sport', muscle: 'v8', pickup: 'diesel', van: 'diesel', bus: 'heavy', truck: 'heavy', sedan: 'i4' };
-const HEAVY = { bus: 1, truck: 1, van: 0.5, pickup: 0.35 };
+export const ENGINE_FOR = { hatch: 'hatch', taxi: 'i4', sport: 'sport', muscle: 'v8', pickup: 'diesel', van: 'diesel', bus: 'heavy', truck: 'heavy', sedan: 'i4', police: 'sport', ambulance: 'diesel', fire: 'heavy', plow: 'heavy' };
+const HEAVY = { bus: 1, truck: 1, van: 0.5, pickup: 0.35, fire: 1, plow: 1, ambulance: 0.5 };
 
 export function createAudio({ camera }) {
   const AC = typeof window !== 'undefined' && (window.AudioContext || window.webkitAudioContext);
@@ -29,8 +29,20 @@ export function createAudio({ camera }) {
     master.connect(comp); comp.connect(ctx.destination);
     const len = ctx.sampleRate * 2; noiseBuf = ctx.createBuffer(1, len, ctx.sampleRate);
     const d = noiseBuf.getChannelData(0); for (let i = 0; i < len; i++) d[i] = Math.random() * 2 - 1;
+    // a shared reverb for garages and tunnels (rain, engine and drips are fed into it) and a bus the radio plays through
+    revIn = ctx.createGain(); revOut = ctx.createGain(); revOut.gain.value = 0; conv = ctx.createConvolver(); setIR(1.8);
+    revIn.connect(conv); conv.connect(revOut); revOut.connect(master);
+    radioBus = ctx.createGain(); radioBus.gain.value = 1; radioLP = biquad('lowpass', 18000, 0.5); radioBus.connect(radioLP); radioLP.connect(master); radioSend = gain(0); radioLP.connect(radioSend); radioSend.connect(revIn);
     build();
     ready = true;
+    readyCbs.splice(0).forEach(f => f());
+  }
+  let revIn = null, revOut = null, conv = null, radioBus = null, radioLP = null, radioSend = null, irSec = 0; const readyCbs = [];
+  function setIR(sec) {            // a synthetic room: decaying stereo noise
+    if (irSec === sec) return; irSec = sec;
+    const n = Math.floor(ctx.sampleRate * sec), b = ctx.createBuffer(2, n, ctx.sampleRate);
+    for (let c = 0; c < 2; c++) { const d = b.getChannelData(c); for (let i = 0; i < n; i++) d[i] = (Math.random() * 2 - 1) * Math.pow(1 - i / n, 2.6); }
+    conv.buffer = b;
   }
   const noiseSrc = () => { const s = ctx.createBufferSource(); s.buffer = noiseBuf; s.loop = true; s.loopStart = Math.random(); s.start(0, Math.random() * 1.5); return s; };
   const biquad = (type, f, q = 0.7) => { const b = ctx.createBiquadFilter(); b.type = type; b.frequency.value = f; b.Q.value = q; return b; };
@@ -82,7 +94,7 @@ export function createAudio({ camera }) {
   }
 
   // ---- long-running layers ------------------------------------------------------------------------------------------------------------------
-  let player = null, playerKind = null, traffic = [], layers = null;
+  let player = null, playerKind = null, traffic = [], layers = null, engSend = null;
   function build() {
     const L = layers = {};
     const loop = (type, f, q) => { const s = noiseSrc(), b = biquad(type, f, q), g = gain(0); s.connect(b); b.connect(g); g.connect(master); return { s, b, g }; };
@@ -90,11 +102,15 @@ export function createAudio({ camera }) {
     L.skid = loop('bandpass', 1500, 6); L.skid2 = loop('bandpass', 2400, 10); L.gravel = loop('lowpass', 700, 0.6);
     L.rain = loop('highpass', 1400, 0.5); L.rainLo = loop('lowpass', 7000, 0.5); L.rainBody = loop('bandpass', 400, 0.6);
     L.snow = loop('bandpass', 260, 0.5);
+    L.hum = loop('lowpass', 170, 0.5); L.bed = loop('bandpass', 420, 0.5); L.crowd = loop('bandpass', 1000, 0.7); L.crowd2 = loop('bandpass', 1800, 1.2);
+    L.tun = loop('lowpass', 260, 0.7); L.scrape = loop('bandpass', 2600, 1.5);
+    [L.rain, L.rainLo, L.rainBody].forEach(l => l.g.connect(revIn));
   }
   function setPlayer(kind) {
     if (player && playerKind === kind) return;
     if (player) player.stop();
     player = makeEngine(kind, master, false); playerKind = kind;
+    engSend = engSend || gain(0); engSend.connect(revIn); player.outG.connect(engSend);
   }
   const T = (p, v, tc = 0.06) => p.g.gain.setTargetAtTime(v, ctx.currentTime, tc);
 
@@ -167,11 +183,14 @@ export function createAudio({ camera }) {
   // ---- per-frame --------------------------------------------------------------------------------------------------------------------------------
   const GEARS = [0.17, 0.32, 0.48, 0.64, 0.8, 1.0];
   let rpm = 800, gear = 0, shiftT = 0, blinkSeen = 0, rainAmt = 0, snowAmt = 0, coverSm = 0;
+  let ambT = 0;
+  const sirenVoices = new Map();
   const prevPos = new Map(), passCool = new Map(), stopSeen = new Map();
   function engineRpm(E, speed, vmax, thr, dt) {
     const f = Math.min(1, Math.abs(speed) / vmax);
     let g = GEARS.findIndex(top => f <= top + 0.001); if (g < 0) g = GEARS.length - 1;
-    if (g !== gear) { gear = g; shiftT = 0.22; }
+    if (speed < -0.3) { g = 0; shiftT = 0; gear = 0; }   // reversing: one low gear, no shift dips
+    else if (g !== gear) { gear = g; shiftT = 0.22; }
     const lo = g ? GEARS[g - 1] * 0.62 : 0, hi = GEARS[g];
     const p = Math.max(0, Math.min(1, (f - lo) / Math.max(0.01, hi - lo)));
     let target = E.idle + (E.red * 0.96 - E.idle) * (0.18 + 0.82 * p) * (f < 0.01 ? 0 : 1) + thr * (f < 0.02 ? (E.red - E.idle) * 0.55 : 0);
@@ -183,7 +202,7 @@ export function createAudio({ camera }) {
   function update(dt, S) {
     if (!ready) return;
     if (ctx.state === 'suspended') return;
-    const { car, input, onFoot, wet, rain, snow, covered, surface, cars, paused } = S;
+    const { car, input, onFoot, wet, rain, snow, covered, surface, cars, paused, place = 'open', crowd = 0, density = 0, hour = 12, sirens = [] } = S;
     const live = enabled && !paused;
     master.gain.setTargetAtTime(live ? volume : 0, ctx.currentTime, 0.08);
     if (!live) return;
@@ -191,8 +210,11 @@ export function createAudio({ camera }) {
     setPlayer(kind);
     const speed = Math.abs(car.speed || 0), vmax = Math.max(10, car.maxSpeed || 30);
     const thr = onFoot ? 0 : (input.forward ? 1 : (input.back && car.speed <= 0.3 ? 0.6 : 0)) * (input.throttle == null ? 1 : Math.max(0.3, input.throttle));
-    const r = E0.idle + (E0.red - E0.idle) * Math.max(0, (S.rev ? S.rev.r : 0.14) - 0.14) / 0.86;
-    const load = Math.max(0.12, thr * (car.airborne ? 0.5 : 1));
+    // a burnout: throttle held against the brakes / handbrake (or a standing start with the pedal floored) - the engine screams on the limiter
+    const burnout = !onFoot && !car.airborne && thr > 0.7 && ((input.brake || input.handbrake) && speed < 16 || (speed < 2.5 && thr > 0.95 && car.speed >= 0 && !input.back));
+    let r = E0.idle + (E0.red - E0.idle) * Math.max(0, (S.rev ? S.rev.r : 0.14) - 0.14) / 0.86;
+    if (burnout) r = Math.max(r, E0.red * (0.78 + 0.1 * Math.sin(performance.now() * 0.03)));
+    const load = Math.max(0.12, (burnout ? 1 : thr) * (car.airborne ? 0.5 : 1));
     // the player's engine is heard at its full level in the cabin; on foot it fades with the distance to the car
     const dFoot = onFoot ? Math.hypot(camera.position.x - car.x, camera.position.z - car.z) : 0;
     const vol = (onFoot ? 0.5 / (1 + dFoot / 8) : 1) * (covered ? 1.1 : 1);
@@ -209,7 +231,8 @@ export function createAudio({ camera }) {
     T(L.wind, onFoot ? 0 : Math.pow(Math.max(0, sp01 - 0.3) / 0.7, 2) * 0.32 + speed / vmax * 0.02);
     L.wind.b.frequency.setTargetAtTime(500 + sp01 * 1400, ctx.currentTime, 0.2);
 
-    // tyre squeal / gravel
+    // tyre noise while sliding, braking hard or burning rubber. The surface decides what it sounds like:
+    //   dry tarmac: a high, singing squeal; wet tarmac: lower and hissier; snowy tarmac: a soft scrubbing crunch; grass: dull dirt/rustle, no squeal.
     let slip = 0;
     if (!onFoot && !car.airborne && speed > 5) {
       const side = Math.abs((car.vx || 0) * Math.cos(car.heading) - (car.vz || 0) * Math.sin(car.heading));
@@ -217,24 +240,114 @@ export function createAudio({ camera }) {
       if (input.brake && speed > 14) slip = Math.max(slip, 0.35 * Math.min(1, speed / 24));
       if (car.drifting) slip = Math.max(slip, 0.9);
     }
-    const hard = grass ? 0 : snowy ? 0.4 : 1;
-    T(L.skid, slip * 0.16 * hard, 0.04); T(L.skid2, slip * 0.1 * hard, 0.04);
-    L.skid.b.frequency.setTargetAtTime(1300 + slip * 500 + sp01 * 400, ctx.currentTime, 0.05);
-    T(L.gravel, grass ? slip * 0.35 : snowy ? slip * 0.25 : 0, 0.05);
+    if (burnout) slip = Math.max(slip, 0.95);
+    const onSnow = snowy && !grass, onWet = wet > 0.3 && !grass && !onSnow;
+    const squeal = grass ? 0 : onSnow ? 0.18 : onWet ? 0.62 : 1;
+    const t0 = ctx.currentTime;
+    T(L.skid, slip * 0.16 * squeal, 0.04); T(L.skid2, slip * 0.1 * squeal * (burnout ? 1.2 : 1), 0.04);
+    L.skid.b.frequency.setTargetAtTime((onWet ? 1050 : 1300) + slip * 500 + sp01 * 400 - (burnout ? 250 : 0), t0, 0.05);
+    L.skid2.b.frequency.setTargetAtTime((onWet ? 1700 : 2400) + slip * 300 - (burnout ? 400 : 0), t0, 0.05);
+    T(L.gravel, grass ? slip * 0.4 : onSnow ? slip * 0.3 : 0, 0.05);                 // dirt / rustle on grass, crunch in snow
+    if (onSnow) T(L.snow, Math.max(rollV * 0.3, slip * 0.38), 0.05);                   // scrubbing through the snow
+    if (onWet) T(L.rollHi, Math.max(rollV * 0.12 * Math.min(1, sp01 * 1.6), slip * 0.1), 0.05);   // hiss thrown up from wet asphalt
 
     // indicators
     if (car.blinkEvent) { tick(car.blinkEvent > 0); car.blinkEvent = 0; }
 
+    // where we are: open streets / tunnel / underground garage / inside a flat
+    const open = place === 'open', tunnel = place === 'tunnel', garage = place === 'garage', flat = place === 'flat';
     // weather
     const wantRain = rain ? 1 : 0; rainAmt += (wantRain - rainAmt) * Math.min(1, dt * 1.5);
     coverSm += ((covered ? 1 : 0) - coverSm) * Math.min(1, dt * 4);
-    const rv = rainAmt * (1 - 0.72 * coverSm);
-    T(L.rain, rv * 0.1, 0.2); T(L.rainLo, rv * 0.1, 0.2); T(L.rainBody, rv * 0.14, 0.2);
-    L.rain.b.frequency.setTargetAtTime(coverSm > 0.5 ? 600 : 1400, ctx.currentTime, 0.2);
-    L.rainLo.b.frequency.setTargetAtTime(coverSm > 0.5 ? 900 : 7000, ctx.currentTime, 0.2);
+    const rv = rainAmt * (1 - (garage ? 0.82 : tunnel ? 0.6 : flat ? 0.7 : 0.72) * coverSm);
+    T(L.rain, rv * (garage ? 0.06 : 0.1), 0.2); T(L.rainLo, rv * 0.1, 0.2); T(L.rainBody, rv * (garage ? 0.2 : tunnel ? 0.12 : 0.14), 0.2);
+    L.rain.b.frequency.setTargetAtTime(coverSm > 0.5 ? (garage ? 450 : 700) : 1400, t0, 0.2);
+    L.rainLo.b.frequency.setTargetAtTime(coverSm > 0.5 ? (garage ? 700 : 1100) : 7000, t0, 0.2);
+    // echo: more in the tunnel (long), a short boxy one in the garage; engine, rain and radio ring in it
+    revOut.gain.setTargetAtTime(tunnel ? 1.0 : garage ? 0.8 : flat ? 0.15 : 0, t0, 0.3);
+    setIR(tunnel ? 2.6 : 1.3);
+    engSend.gain.setTargetAtTime(tunnel ? 0.5 : garage ? 0.4 : 0, t0, 0.2);
+    radioSend.gain.setTargetAtTime(tunnel ? 0.3 : garage ? 0.35 : 0, t0, 0.3);
+    // drips in a wet garage / tunnel
+    if (rainAmt > 0.3 && (garage || tunnel) && Math.random() < dt * 0.9) drip();
+
+    // ambience: city hum, distant traffic, crowd murmur, birds. Busier streets and more pedestrians make it livelier; none of it underground.
+    const dens = Math.max(0, Math.min(1, density)), crd = Math.max(0, Math.min(1, crowd));
+    const outdoors = open ? 1 : flat ? 0.18 : 0;
+    const night = hour > 21 || hour < 5.5;
+    T(L.hum, outdoors * (0.035 + 0.1 * dens + 0.03 * crd) * (night ? 0.8 : 1), 0.5);
+    T(L.bed, outdoors * (0.015 + 0.14 * dens) , 0.5);
+    T(L.tun, tunnel ? 0.06 + 0.1 * dens + sp01 * 0.1 : 0, 0.4);
+    L.bed.b.frequency.setTargetAtTime(330 + dens * 280 + 90 * Math.sin(t0 * 0.17), t0, 0.5);
+    ambT -= dt;
+    if (ambT <= 0) {            // the murmur of a crowd swells and falls: re-roll its level a few times a second
+      ambT = 0.25 + Math.random() * 0.3;
+      const m = outdoors * crd * (0.55 + Math.random() * 0.9);
+      L.crowd.g.gain.setTargetAtTime(m * 0.09, t0, 0.25); L.crowd2.g.gain.setTargetAtTime(m * 0.045 * (Math.random() < 0.3 ? 1.8 : 1), t0, 0.15);
+      L.crowd.b.frequency.setTargetAtTime(700 + Math.random() * 500, t0, 0.2);
+    }
+    // birds by day on quiet streets, a distant siren now and then handled by the vehicles themselves
+    if (open && hour > 6 && hour < 18.5 && !rain && !snow && dens < 0.6 && Math.random() < dt * 0.35) chirp();
+
+    // sirens of emergency vehicles that are running them
+    sirenSound(dt, car, sirens, onFoot, tunnel || garage);
 
     // traffic: engines of the nearest cars, passing whooshes, air brakes
     if (cars) trafficSound(dt, car, cars, onFoot);
+  }
+
+  // a water drip falling in a garage or tunnel: a short sine ping fed into the reverb
+  function drip() {
+    if (!ready || !enabled) return;
+    const t = ctx.currentTime, o = ctx.createOscillator(), g = gain(0); o.type = 'sine'; const f = 1200 + Math.random() * 1500;
+    o.frequency.setValueAtTime(f, t); o.frequency.exponentialRampToValueAtTime(f * 0.6, t + 0.08);
+    o.connect(g); g.connect(revIn); const dry = gain(0.05); g.connect(dry); dry.connect(master);
+    g.gain.setValueAtTime(0, t); g.gain.linearRampToValueAtTime(0.18, t + 0.004); g.gain.exponentialRampToValueAtTime(0.0005, t + 0.18); o.start(t); o.stop(t + 0.22);
+  }
+  function chirp() {
+    const t = ctx.currentTime, pan = Math.random() * 2 - 1, n = 2 + Math.floor(Math.random() * 4), base = 2600 + Math.random() * 1600, g = out(pan, 0);
+    for (let i = 0; i < n; i++) {
+      const o = ctx.createOscillator(); o.type = 'sine'; const st = t + i * 0.11;
+      o.frequency.setValueAtTime(base, st); o.frequency.exponentialRampToValueAtTime(base * (1.15 + Math.random() * 0.3), st + 0.07); o.connect(g);
+      o.start(st); o.stop(st + 0.09);
+    }
+    g.gain.setValueAtTime(0, t); g.gain.linearRampToValueAtTime(0.025 + Math.random() * 0.02, t + 0.01); g.gain.setValueAtTime(0.03, t + n * 0.11); g.gain.linearRampToValueAtTime(0, t + n * 0.11 + 0.05);
+    setTimeout(() => { try { g.disconnect(); } catch (e) { /* gone */ } }, (n * 0.11 + 0.4) * 1000);
+  }
+  // Sirens: ambulances and fire engines "hee-haw" / sweep, police cars wail and now and then yelp. Up to 3 nearest are voiced, with Doppler and panning.
+  function sirenSound(dt, car, list, onFoot, enclosed) {
+    const cx = camera.position.x, cz = camera.position.z, want = [];
+    list.forEach(c => { const p = c.mesh.position, d = Math.hypot(p.x - cx, p.z - cz); if (d < 260) want.push({ c, d }); });
+    want.sort((a, b) => a.d - b.d); want.length = Math.min(3, want.length);
+    const keep = new Set(want.map(w => w.c));
+    sirenVoices.forEach((v, c) => { if (!keep.has(c)) { v.g.gain.setTargetAtTime(0, ctx.currentTime, 0.1); v.dead = (v.dead || 0) + dt; if (v.dead > 0.6) { try { v.o1.stop(); v.o2.stop(); v.p.disconnect(); } catch (e) { /* gone */ } sirenVoices.delete(c); } } });
+    const t = ctx.currentTime, now = performance.now() / 1000;
+    want.forEach(({ c, d }) => {
+      let v = sirenVoices.get(c);
+      if (!v) {
+        const o1 = ctx.createOscillator(), o2 = ctx.createOscillator(); o1.type = 'sawtooth'; o2.type = 'square';
+        const bp = biquad('bandpass', 1100, 0.6), g = gain(0), p = ctx.createStereoPanner(), g2 = gain(0.35);
+        o1.connect(bp); o2.connect(g2); g2.connect(bp); bp.connect(g); g.connect(p); p.connect(master); g.connect(revIn);
+        o1.start(); o2.start(); v = { o1, o2, g, p, bp, seed: Math.random() * 10 }; sirenVoices.set(c, v);
+      }
+      v.dead = 0;
+      const pos = c.mesh.position, sp = spatial(pos.x, pos.z, 26);
+      let f;
+      if (c.svc === 'police') {
+        const yelp = ((now + v.seed) % 18) > 12;                       // 12 s of slow wail, then 6 s of fast yelp
+        const ph = yelp ? ((now + v.seed) * 3.2) % 1 : ((now + v.seed) / 3.4) % 1;
+        f = 650 + 800 * (ph < 0.5 ? ph * 2 : 2 - ph * 2);
+      } else if (c.svc === 'ambulance') f = ((now + v.seed) % 1.3) < 0.65 ? 780 : 1040;           // "hee-haw"
+      else f = 600 + 700 * (((now + v.seed) % 4) < 2 ? ((now + v.seed) % 2) / 2 : 1 - (((now + v.seed) % 2) / 2));   // fire engine: slow rise and fall
+      const pv = v.px === undefined ? pos : { x: v.px, z: v.pz };
+      const rad = ((pos.x - pv.x) * (pos.x - cx) + (pos.z - pv.z) * (pos.z - cz)) / Math.max(0.001, dt) / Math.max(1, d);
+      v.px = pos.x; v.pz = pos.z;
+      const doppler = 343 / (343 + Math.max(-60, Math.min(60, rad)) * 1.25 * 1.2);
+      v.o1.frequency.setTargetAtTime(f * doppler, t, 0.03); v.o2.frequency.setTargetAtTime(f * doppler * 2.01, t, 0.03);
+      v.bp.frequency.setTargetAtTime(1000 + f * 0.3, t, 0.1);
+      v.p.pan.setTargetAtTime(sp.pan, t, 0.05);
+      v.g.gain.setTargetAtTime(0.5 * sp.vol * (enclosed ? 0.9 : 1) * (c.svc === 'fire' ? 1.1 : 1), t, 0.06);
+    });
   }
 
   function trafficSound(dt, car, cars, onFoot) {
@@ -294,6 +407,8 @@ export function createAudio({ camera }) {
     unlock() { init(); if (ctx && ctx.state === 'suspended') ctx.resume(); },
     setEnabled(v) { enabled = !!v; if (master) master.gain.setTargetAtTime(enabled ? volume : 0, ctx.currentTime, 0.05); },
     setVolume(v) { volume = Math.max(0, Math.min(1, v)); if (master && enabled) master.gain.setTargetAtTime(volume, ctx.currentTime, 0.05); },
-    update, honk, crash, airBrake, tick, get ready() { return ready; }
+    update, honk, crash, airBrake, tick, get ready() { return ready; },
+    // for the radio: the shared audio context, a bus that plays through the master (with the garage / tunnel echo) and a ready hook
+    get ctx() { return ctx; }, get radioBus() { return radioBus; }, get radioFilter() { return radioLP; }, whenReady(f) { if (ready) f(); else readyCbs.push(f); }
   };
 }

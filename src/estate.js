@@ -49,9 +49,10 @@ export function buildInterior(a) {
   const wwid = rich ? slot - 0.5 : posh ? slot * 0.74 : Math.min(slot - 0.5, 1.5), y0 = rich ? 0.12 : 0.65, y1 = rich ? H - 0.15 : 2.2;
   for (let i = 0; i < nWin; i++) {
     const cx = -W / 2 + slot * (i + 0.5);
-    wall(wwid + 0.2, y0, t, cx, 0, t / 2, false); wall(wwid + 0.2, H - y1, t, cx, y1, t / 2, false);                  // below / above the opening
+    const isDoor = posh && i === Math.floor(nWin / 2);                                                                // that window is the glass door to the terrace
+    if (!isDoor) wall(wwid + 0.2, y0, t, cx, 0, t / 2, false); wall(wwid + 0.2, H - y1, t, cx, y1, t / 2, false);       // below / above the opening
     if (i < nWin - 1 || true) wall(slot - wwid - 0.2, H, t, cx + slot / 2, 0, t / 2, false);                         // pier to the next window
-    bx.add(wwid, 0.06, t + 0.1, cx, y0 - 0.06, t / 2, 0xdedbd2);                                                   // sill
+    if (!isDoor) bx.add(wwid, 0.06, t + 0.1, cx, y0 - 0.06, t / 2, 0xdedbd2);                                       // sill
     glass.push({ x: cx, y: (y0 + y1) / 2, w: wwid, h: y1 - y0 });
     windows.push({ x: cx, y0, y1, w: wwid });
   }
@@ -135,14 +136,64 @@ export function buildInterior(a) {
       else bath(cx, Df, D, c.w);
     });
   }
+  // ---- the touches that make it a home: a desk with a screen (stats), plants, wall art, curtains, a bookshelf and, in the dearer flats, a terrace ----
+  const plantSpots = [];
+  const plant = (x, z, sc = 1, y = 0) => {
+    bx.add(0.3 * sc, 0.28 * sc, 0.3 * sc, x, y, z, 0xb4694a); bx.add(0.34 * sc, 0.03, 0.34 * sc, x, y + 0.28 * sc, z, 0x3a2c22);
+    bx.add(0.04, 0.42 * sc, 0.04, x, y + 0.3 * sc, z, 0x5a4630); plantSpots.push({ x, y: y + 0.28 * sc + 0.62 * sc, z, sc });
+  };
+  const deskX = W / 2 - 1.25, deskAt = { x: deskX, z: 1.55 };
+  bx.add(1.35, 0.05, 0.62, deskX, 0.72, 0.55, 0x8a6a46, {}, true);                                              // desk top
+  bx.add(0.05, 0.72, 0.58, deskX - 0.62, 0, 0.55, 0x5d4630); bx.add(0.05, 0.72, 0.58, deskX + 0.62, 0, 0.55, 0x5d4630);
+  bx.add(0.62, 0.36, 0.04, deskX - 0.1, 0.99, 0.32, 0x101216);                                                    // monitor, screen towards you
+  bx.add(0.56, 0.3, 0.02, deskX - 0.1, 1.02, 0.355, 0x2a6df4, { emissive: 0x2a6df4, emissiveIntensity: 1.5 });
+  bx.add(0.05, 0.2, 0.05, deskX - 0.1, 0.77, 0.32, 0x23262c); bx.add(0.4, 0.015, 0.14, deskX - 0.1, 0.77, 0.66, 0x2d3036);   // stand, keyboard
+  bx.add(0.1, 0.08, 0.1, deskX + 0.45, 0.77, 0.4, 0x23262c); bx.add(0.03, 0.34, 0.03, deskX + 0.45, 0.85, 0.4, 0x23262c); bx.add(0.16, 0.05, 0.12, deskX + 0.45, 1.17, 0.4, WARM, { emissive: WARM, emissiveIntensity: 2.0 });   // desk lamp
+  bx.add(0.46, 0.07, 0.46, deskX, 0.44, 1.2, 0x2d3440, {}, true); bx.add(0.46, 0.5, 0.07, deskX, 0.5, 1.43, 0x2d3440); bx.add(0.06, 0.4, 0.06, deskX, 0, 1.2, 0x15171b);   // chair
+  lamps.push({ x: deskX + 0.45, y: 1.2, z: 0.5, cast: false, k: 0.35 });
+  const nm = a.beds > 0 ? 2 : 1;
+  plant(-W / 2 + 0.35, 0.45, 1.1); if (tier >= 1) plant(W / 2 - 0.4, Df - 0.55, 1.0); if (posh) { plant(-W / 2 + 0.4, Df - 0.5, 1.5); plant(W * 0.28, Df - 0.4, 1.2); }
+  if (rich) { plant(-W * 0.4, D * 0.45, 1.7); plant(W * 0.4, D * 0.78, 1.4); }
+  if (tier >= 1) {                                                                                                  // curtains + a gallery of frames
+    windows.forEach(wn => [-1, 1].forEach(sd => bx.add(0.16, wn.y1 - wn.y0 + 0.32, 0.07, wn.x + sd * (wn.w / 2 + 0.04), wn.y0 - 0.06, 0.2, ACC)));
+    const fr = (x, z, w, h, y, col, rotY) => { const sx = rotY ? 0.04 : w, sz = rotY ? w : 0.04; bx.add(sx + 0.06, h + 0.06, sz + (rotY ? 0.06 : 0.0), x, y, z, 0x2a2420); bx.add(sx, h, sz, x + (rotY ? -0.01 : 0), y + 0.03, z + (rotY ? 0 : -0.01), col, { emissive: col, emissiveIntensity: 0.12 }); };
+    const ART = [0xd2553b, 0x3a74b8, 0xe8c24a, 0x3f9d7a, 0x8a56b8];
+    if (a.beds === 0) { const bxp = bedAt ? bedAt.x : 0; fr(bxp - 0.45, D - 0.07, 0.5, 0.7, 1.15, ART[a.tier % 5]); fr(bxp + 0.35, D - 0.07, 0.4, 0.55, 1.25, ART[(a.tier + 2) % 5]); }
+    else { fr(W / 2 - 0.07, Df * 0.72, 0.9, 0.6, 1.4, ART[a.tier % 5], true); fr(-W / 2 + 0.07, Df * 0.5, 0.7, 0.5, 1.5, ART[(a.tier + 3) % 5], true); }
+  }
+  if (a.beds > 0 && Df > 5.2) {                                                                                     // bookshelf on the left wall of the living area
+    const L = Math.min(2.2, Df - 4.4), zc = Df - 0.7 - L / 2;
+    if (L > 0.8) { bx.add(0.3, 1.9, L, -W / 2 + 0.2, 0, zc, 0x8a6a46, {}, true); for (let k = 0; k < 5; k++) bx.add(0.26, 0.05, L - 0.06, -W / 2 + 0.2, 0.3 + k * 0.38, zc, 0x5d4630); for (let k = 0; k < 4; k++) for (let m = 0; m < 6; m++) bx.add(0.2, 0.26, 0.07, -W / 2 + 0.22, 0.35 + k * 0.38, zc - L / 2 + 0.2 + m * ((L - 0.4) / 5), [0xb23a3a, 0x2f5fa8, 0xd4a72c, 0x3d8f6a, 0x6b4a8f, 0xe8e2d4][(k * 2 + m) % 6]); }
+  }
+  // a terrace for the dearer flats: a glass door in the middle window, a slab out over the street with a railing, a table and plants
+  let terrace = null;
+  if (posh) {
+    const wi = Math.floor(nWin / 2), wn = windows[wi], tw = wn.w + 0.7, td = rich ? 2.4 : 1.7, tx = wn.x;
+    bx.add(tw, 0.3, td + 0.2, tx, -0.3, -td / 2 + 0.1, 0x8d8f93);                                                // slab
+    bx.add(tw, 0.05, 0.07, tx, 1.05, -td, 0xcfd4dc, { metalness: 0.9, roughness: 0.2 });                          // top rails
+    bx.add(0.07, 0.05, td, tx - tw / 2, 1.05, -td / 2, 0xcfd4dc, { metalness: 0.9 }); bx.add(0.07, 0.05, td, tx + tw / 2, 1.05, -td / 2, 0xcfd4dc, { metalness: 0.9 });
+    bx.add(tw, 1.0, 0.03, tx, 0.04, -td, 0xaad4ee, { transparent: true, opacity: 0.22, roughness: 0.1 });         // glass balustrade
+    bx.add(0.03, 1.0, td, tx - tw / 2, 0.04, -td / 2, 0xaad4ee, { transparent: true, opacity: 0.22, roughness: 0.1 }); bx.add(0.03, 1.0, td, tx + tw / 2, 0.04, -td / 2, 0xaad4ee, { transparent: true, opacity: 0.22, roughness: 0.1 });
+    bx.add(0.8, 0.04, 0.8, tx - 0.1, 0.72, -td * 0.55, 0x3a3f46); bx.add(0.08, 0.72, 0.08, tx - 0.1, 0, -td * 0.55, 0x3a3f46);
+    [[-0.75, 0], [0.55, 0]].forEach(([dx]) => { bx.add(0.4, 0.05, 0.4, tx + dx - 0.1, 0.42, -td * 0.55, 0x4b5058); bx.add(0.4, 0.4, 0.05, tx + dx - 0.1, 0.45, -td * 0.55 + (dx < 0 ? -0.2 : 0.2), 0x4b5058); });
+    plant(tx - tw / 2 + 0.3, -td + 0.3, 1.4); plant(tx + tw / 2 - 0.3, -td + 0.3, 1.2);
+    bx.add(tw - 0.2, 0.025, 0.025, tx, 2.6, -td * 0.5, 0x222, {}, false);                                          // wire for fairy lights
+    for (let k = 0; k < 7; k++) bx.add(0.06, 0.06, 0.06, tx - (tw - 0.4) / 2 + k * ((tw - 0.4) / 6), 2.55, -td * 0.5, 0xffe9a8, { emissive: 0xffe9a8, emissiveIntensity: 2.4 });
+    terrace = { x0: tx - tw / 2 + 0.2, x1: tx + tw / 2 - 0.2, depth: td - 0.15, doorIdx: wi };
+  }
   const group = bx.mesh();
   group.children.forEach(m => { m.castShadow = true; m.receiveShadow = true; });
+  // foliage: soft green blobs on the plants (one merged mesh)
+  if (plantSpots.length) {
+    const geos = []; plantSpots.forEach(p => [[0, 0, 0, 1], [0.13, -0.12, 0.06, 0.7], [-0.12, -0.2, -0.05, 0.75]].forEach(([dx, dy, dz, k]) => { const g = new THREE.IcosahedronGeometry(0.26 * p.sc * k, 0).toNonIndexed(); g.translate(p.x + dx * p.sc, p.y + dy * p.sc, p.z + dz * p.sc); g.deleteAttribute('uv'); geos.push(g); }));
+    const fm = new THREE.Mesh(mergeGeometries(geos, false), M(0x3e8f4d, { roughness: 0.9 })); fm.castShadow = true; group.add(fm);
+  }
   // glass panes
   const gm = new THREE.MeshStandardMaterial({ color: 0x9fc4de, roughness: 0.05, metalness: 0.1, transparent: true, opacity: 0.16, depthWrite: false });
-  glass.filter(g => !g.side).forEach(g => { const m = new THREE.Mesh(new THREE.BoxGeometry(g.w, g.h, 0.02), gm); m.position.set(g.x, g.y, 0.08); group.add(m); });
+  glass.filter((g, gi) => !g.side && !(terrace && gi === terrace.doorIdx)).forEach(g => { const m = new THREE.Mesh(new THREE.BoxGeometry(g.w, g.h, 0.02), gm); m.position.set(g.x, g.y, 0.08); group.add(m); });
   BASE_EMI = 0.34;
   return {
-    group, W, D, H, solids: solids(), floorY: a.floor * FLOOR_H, bedAt, lamps, windows, wardrobeAt,
+    group, W, D, H, solids: solids(), floorY: a.floor * FLOOR_H, bedAt, lamps, windows, wardrobeAt, deskAt, terrace,
     exitAt: { x: -W / 2 + 0.75, z: 1.1 }, liftAt: { x: -W / 2 + 0.75, z: Math.min(D - 0.6, 2.7) },
     spawn: { x: -W / 2 + 1.7, z: 1.9 }
   };
@@ -199,7 +250,7 @@ export function buildStoreInterior(a) {
 // ---------------------------------------------------------------------------------------------------------------------------
 // The underground garage. Local frame: x along the ramp (0 = the mouth), z across, y 0 at street level.
 // ---------------------------------------------------------------------------------------------------------------------------
-export const RAMP = { L: 70, W: 9, DROP: 6.5 };
+export const RAMP = { L: 44, W: 9, DROP: 6.5 };       // the ramp is the garage's drive-in from the street: it runs under the building, in the real city
 const hash01 = (a, b) => { let h = (Math.imul(a + 1, 374761393) ^ Math.imul(b + 7, 668265263)) >>> 0; h = Math.imul(h ^ (h >>> 13), 1274126177) >>> 0; return ((h ^ (h >>> 16)) >>> 0) / 4294967296; };
 // Bays are 5.4 u wide with a pillar only every third bay (the old 4.2 u bays with a pillar between each pair were tight to park in).
 // Besides your own n bays the hall has bays for the other residents: some hold a parked car, some stand empty but are NOT yours
@@ -237,8 +288,8 @@ export function buildGarage(n) {
     const key = 'ramp'; (bx.by.get(key) || bx.by.set(key, { hex: 0x35383d, opts: {}, geos: [] }).get(key)).geos.push(g);
     // side walls and ceiling
     [-1, 1].forEach(s => { const w = new THREE.BoxGeometry(len + 0.05, 4.4, 0.5).toNonIndexed(); w.rotateZ(ang); w.translate((xa + xb) / 2, (ya + yb) / 2 + 1.9, s * (W / 2 + 0.25)); w.deleteAttribute('uv'); (bx.by.get('wall') || bx.by.set('wall', { hex: 0x8d8a84, opts: {}, geos: [] }).get('wall')).geos.push(w); });
-    if (xa > 9) { const c = new THREE.BoxGeometry(len + 0.05, 0.4, W + 1).toNonIndexed(); c.rotateZ(ang); c.translate((xa + xb) / 2, (ya + yb) / 2 + 4.0, 0); c.deleteAttribute('uv'); (bx.by.get('ceil') || bx.by.set('ceil', { hex: 0x6b6963, opts: {}, geos: [] }).get('ceil')).geos.push(c); }
-    if (i % 3 === 1 && xa > 10) { const lg = new THREE.BoxGeometry(1.8, 0.1, 0.4).toNonIndexed(); lg.translate((xa + xb) / 2, (ya + yb) / 2 + 3.75, 0); lg.deleteAttribute('uv'); (bx.by.get('strip') || bx.by.set('strip', { hex: 0xfff3d0, opts: { emissive: 0xfff0c0, emissiveIntensity: 2.2 }, geos: [] }).get('strip')).geos.push(lg); }
+    { const c = new THREE.BoxGeometry(len + 0.05, 0.4, W + 1).toNonIndexed(); c.rotateZ(ang); c.translate((xa + xb) / 2, (ya + yb) / 2 + 3.5, 0); c.deleteAttribute('uv'); (bx.by.get('ceil') || bx.by.set('ceil', { hex: 0x6b6963, opts: {}, geos: [] }).get('ceil')).geos.push(c); }
+    if (i % 2 === 1 && xa > 3) { const lg = new THREE.BoxGeometry(1.8, 0.1, 0.4).toNonIndexed(); lg.translate((xa + xb) / 2, (ya + yb) / 2 + 3.25, 0); lg.deleteAttribute('uv'); (bx.by.get('strip') || bx.by.set('strip', { hex: 0xfff3d0, opts: { emissive: 0xfff0c0, emissiveIntensity: 2.2 }, geos: [] }).get('strip')).geos.push(lg); }
   }
   // hall
   const fy = lay.floorY, hx = lay.x0 + lay.HL / 2;
@@ -257,13 +308,30 @@ export function buildGarage(n) {
   for (let j = 0; j * 3 * BAYW <= lay.HL - 12; j++) [-1, 1].forEach(s => bx.add(0.7, 4.6, 0.7, lay.x0 + 7 + (j * 3 - 0.5) * BAYW, fy, s * (lay.AISLE / 2 + 0.15), 0x9a978f, {}, true));
   // ceiling lights down the aisle
   for (let k = 0; k < Math.ceil(lay.HL / 7); k++) bx.add(2.4, 0.1, 0.5, lay.x0 + 4 + k * 7, lay.ceilY - 0.1, 0, 0xfff3d0, { emissive: 0xfff0c0, emissiveIntensity: 2.4 });
-  // elevator doors at the far end
-  bx.add(3.4, 3.1, 0.2, lay.x0 + lay.HL - 0.15, fy, 0, 0x9aa1a8, { metalness: 0.8, roughness: 0.3 }); bx.add(0.1, 3.0, 0.05, lay.x0 + lay.HL - 0.28, fy, 0, 0x2a2e33);
-  bx.add(4.2, 3.6, 0.15, lay.x0 + lay.HL - 0.1, fy, 0, 0x55585e);
-  // the way out: a bright panel at the mouth of the ramp, like daylight at the top of the slope
-  bx.add(0.4, 4.6, W + 1, -0.7, 0, 0, 0xcfe0f5, { emissive: 0xdfeaff, emissiveIntensity: 1.6 });
-  [-1, 1].forEach(sd => bx.add(0.6, 4.6, 0.6, -0.4, 0, sd * (W / 2 + 0.3), 0x8d8a84));
-  bx.add(0.6, 0.5, W + 1.2, -0.4, 4.1, 0, 0x8d8a84);
+  // the lift at the far end: steel surround, two sliding doors with a seam, a floor display, a call panel, a lit sign and a mat
+  const E = lay.x0 + lay.HL;
+  bx.add(4.6, 3.9, 0.3, E - 0.15, fy, 0, 0x30343b, { metalness: 0.6, roughness: 0.45 });                                  // surround
+  bx.add(0.12, 3.2, 0.1, E - 0.33, fy, -1.78, 0xcfd4dc, { metalness: 0.95, roughness: 0.2 }); bx.add(0.12, 3.2, 0.1, E - 0.33, fy, 1.78, 0xcfd4dc, { metalness: 0.95, roughness: 0.2 });
+  bx.add(0.12, 0.12, 3.66, E - 0.33, fy + 3.2, 0, 0xcfd4dc, { metalness: 0.95, roughness: 0.2 });                              // chrome jamb
+  bx.add(0.1, 3.1, 1.72, E - 0.36, fy, -0.87, 0xa9b0b8, { metalness: 0.88, roughness: 0.32 });                                // door panels
+  bx.add(0.1, 3.1, 1.72, E - 0.36, fy, 0.87, 0xa9b0b8, { metalness: 0.88, roughness: 0.32 });
+  bx.add(0.12, 3.1, 0.05, E - 0.37, fy, 0, 0x14161a);                                                                          // seam
+  [-0.87, 0.87].forEach(zz => { for (let k = 0; k < 7; k++) bx.add(0.02, 0.012, 1.5, E - 0.42, fy + 0.35 + k * 0.42, zz, 0x8d949c, { metalness: 0.9, roughness: 0.4 }); });   // brushed lines
+  bx.add(0.12, 0.34, 1.4, E - 0.36, fy + 3.45, 0, 0x0a0b0d); bx.add(0.04, 0.2, 1.1, E - 0.43, fy + 3.52, 0, 0x2dff7a, { emissive: 0x2dff7a, emissiveIntensity: 2.2 });   // floor display
+  bx.add(0.08, 0.7, 0.34, E - 0.34, fy + 1.0, 2.9, 0x20242a, { metalness: 0.5 });                                              // call panel
+  bx.add(0.04, 0.1, 0.1, E - 0.4, fy + 1.45, 2.9, 0xffb020, { emissive: 0xffb020, emissiveIntensity: 2.4 }); bx.add(0.04, 0.1, 0.1, E - 0.4, fy + 1.2, 2.9, 0xffb020, { emissive: 0xffb020, emissiveIntensity: 1.2 });
+  bx.add(2.6, 0.03, 4.8, E - 1.5, fy, 0, 0x575c64);                                                                            // mat in front of the doors
+  for (let k = 0; k < 9; k++) bx.add(0.5, 0.05, 0.3, E - 2.9, fy, -2.4 + k * 0.6, k % 2 ? 0x15161a : 0xf2c500);              // hazard line
+  bx.add(0.06, 0.18, 3.6, E - 0.3, fy + 3.85, 0, 0xfff0c0, { emissive: 0xfff0c0, emissiveIntensity: 2.0 });                // light above the lift
+  {
+    const c = document.createElement('canvas'); c.width = 256; c.height = 64; const q = c.getContext('2d'); q.fillStyle = '#0d0f12'; q.fillRect(0, 0, 256, 64);
+    q.fillStyle = '#7fe3ff'; q.font = 'bold 36px system-ui'; q.textAlign = 'center'; q.textBaseline = 'middle'; q.fillText('▲ LIFT ▼', 128, 34);
+    const t = new THREE.CanvasTexture(c), sg = new THREE.Mesh(new THREE.PlaneGeometry(2.4, 0.6), new THREE.MeshBasicMaterial({ map: t }));
+    sg.position.set(E - 0.5, fy + 4.0, 0); sg.rotation.y = -Math.PI / 2; grp.add(sg);
+  }
+  // the mouth of the ramp, in the building front: a wall with a door-sized opening (the street shows through it), so from inside you look out onto the road
+  [-1, 1].forEach(sd => bx.add(0.6, 5.2, W / 2 + 0.6 - 2.15, 0.3, -0.5, sd * (2.15 + (W / 2 + 0.6 - 2.15) / 2), 0x8d8a84, {}, true));
+  bx.add(0.6, 1.6, 4.3, 0.3, 3.1, 0, 0x8d8a84);
   const mesh = bx.mesh();
   grp.add(mesh);
   // floor decals: a red "no parking" sign (also on the back wall) in bays that are not yours, a green P in yours
@@ -285,7 +353,7 @@ export function buildGarage(n) {
   });
   // solid rects (local) for cars and for walking
   const solids = bx.solid.slice();
-  solids.push({ x0: -6, x1: L, z0: W / 2 + 0.05, z1: W / 2 + 0.6 }, { x0: -6, x1: L, z0: -W / 2 - 0.6, z1: -W / 2 - 0.05 });
+  solids.push({ x0: 0, x1: L, z0: W / 2 + 0.05, z1: W / 2 + 0.6 }, { x0: 0, x1: L, z0: -W / 2 - 0.6, z1: -W / 2 - 0.05 });
   return { group: grp, lay, solids };
 }
 

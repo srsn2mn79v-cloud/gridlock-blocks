@@ -39,6 +39,7 @@ const typeSpeed = { local: 6.3, avenue: 9.5, highway: 15.8 };
 const bodyColors = [0x3a6ea5, 0x8a8a8a, 0x5a9e5a, 0xb5543a, 0xcac35a, 0x6a4a8a];
 
 import { bodyLift } from './bodyLift.js';
+import { addServiceGear, SERVICE_BASE, SERVICE_COLOR, isService } from './serviceVehicles.js';
 import { buildTrafficBody, TRAFFIC_DIMS } from './vehicleModels.js';
 
 // Vehicle classes: size, weight, how fast they cruise relative to the road's pace, how hard
@@ -49,14 +50,19 @@ const VEH = {
   taxi:  { mass: 1500, speedMul: 1.1,  accel: 3.8, brake: 13,  circles: [-0.75, 0.75], r: 1.02 },
   van:   { mass: 2400, speedMul: 0.92, accel: 2.6, brake: 11,  circles: [-1.3, 1.3], r: 1.1 },
   truck: { mass: 7500, speedMul: 0.8,  accel: 1.5, brake: 8.5, circles: [-2.6, 0, 2.6], r: 1.3 },
-  bus:   { mass: 11000, speedMul: 0.74, accel: 1.7, brake: 9,  circles: [-3.8, -1.3, 1.3, 3.8], r: 1.4 }
+  bus:   { mass: 11000, speedMul: 0.74, accel: 1.7, brake: 9,  circles: [-3.8, -1.3, 1.3, 3.8], r: 1.4 },
+  police:    { mass: 1700, speedMul: 1.2,  accel: 4.6, brake: 14, circles: [-0.75, 0.75], r: 1.0 },
+  ambulance: { mass: 2900, speedMul: 1.12, accel: 3.4, brake: 12, circles: [-1.3, 1.3], r: 1.1 },
+  fire:      { mass: 9000, speedMul: 1.0,  accel: 2.2, brake: 9,  circles: [-2.6, 0, 2.6], r: 1.3 },
+  plow:      { mass: 8500, speedMul: 0.5,  accel: 1.6, brake: 9,  circles: [-2.6, 0, 2.6], r: 1.3 }
 };
 // mix that repeats down the pool so any density slider position gets a believable blend
 const TYPE_CYCLE = ['sedan', 'sedan', 'taxi', 'sedan', 'van', 'sedan', 'bus', 'sedan', 'truck', 'sedan', 'taxi', 'van', 'sedan', 'sedan', 'truck', 'bus'];
 
-function trafficCarMesh(type, color) {
+function trafficCarMesh(svcType, color) {
   const g = new THREE.Group();
-  const body = buildTrafficBody(type, color);
+  const type = SERVICE_BASE[svcType] || svcType;      // a police car is built on the sedan body, a plough on the truck...
+  const body = buildTrafficBody(type, isService(svcType) ? SERVICE_COLOR[svcType] : color);
   g.add(body);
   const d = body.userData.dims || TRAFFIC_DIMS[type];
   const hl = d.len / 2;
@@ -96,9 +102,10 @@ function trafficCarMesh(type, color) {
   g.userData.tailHalos = tailHalos;
   g.userData.tailMat = tailMat;
   g.userData.dims = d;
+  if (isService(svcType)) { g.userData.svc = addServiceGear(g, svcType, d); }
   // LOD: everything above moves into `full`; a single-draw-call box model (`lite`) stands in for the car when it is far from the player
   const full = new THREE.Group(); while (g.children.length) full.add(g.children[0]); g.add(full);
-  const lite = new THREE.Mesh(liteGeo(type, d), new THREE.MeshStandardMaterial({ color, roughness: 0.6, metalness: 0.3 }));
+  const lite = new THREE.Mesh(liteGeo(type, d), new THREE.MeshStandardMaterial({ color: isService(svcType) ? SERVICE_COLOR[svcType] : color, roughness: 0.6, metalness: 0.3 }));
   lite.visible = false; g.add(lite);
   g.userData.full = full; g.userData.lite = lite;
   return g;
@@ -127,7 +134,7 @@ export function createTrafficSystem(cityData, scene, heightAt, count = 6, maxCou
   const isWide = e => e.type !== 'local';
   const wideEdges = drivable.filter(isWide);
   const edgeFor = type => {
-    const heavy = type === 'bus' || type === 'truck';
+    const heavy = type === 'bus' || type === 'truck' || type === 'fire' || type === 'plow';
     const list = heavy && wideEdges.length ? wideEdges : drivable;
     return list[Math.floor(Math.random() * list.length)];
   };
@@ -347,7 +354,7 @@ export function createTrafficSystem(cityData, scene, heightAt, count = 6, maxCou
     // solid thing. `ref` lets collision.js exchange momentum with the car (see applyImpact).
     const colliders = veh.circles.map(off => ({ kind: 'traffic', x: 0, z: 0, radius: veh.r, off, blocksCar: true, destructible: false, destroyed: false, ref: null }));
     mesh.rotation.order = 'YXZ';
-    const car = { mesh, type, veh, len: dims.len, wid: dims.wid, mass: veh.mass, collider: colliders[0], colliders, wheels: mesh.userData.wheels, braking: false, active: true, crashTimer: 0, line: opts.line || null };
+    const car = { mesh, type, veh, len: dims.len, wid: dims.wid, mass: veh.mass, collider: colliders[0], colliders, wheels: mesh.userData.wheels, braking: false, active: true, crashTimer: 0, line: opts.line || null, svc: isService(type) ? type : null };
     colliders.forEach(c => { c.ref = car; });
     car.getVelocity = () => {
       if (car.knock) return { x: car.knock.vx, z: car.knock.vz };
@@ -395,6 +402,42 @@ export function createTrafficSystem(cityData, scene, heightAt, count = 6, maxCou
     }
   }
 
+  // Emergency services and winter service: always-present vehicles outside the density slider. Police cars, ambulances and fire engines patrol like
+  // everyone else and now and then run "code 3" (lights + siren, faster). Snowploughs only come out while it snows (setPlows).
+  const svcCars = [];
+  [['police', 3], ['ambulance', 2], ['fire', 1], ['plow', 6]].forEach(([t, n]) => {
+    for (let i = 0; i < n && drivable.length; i++) {
+      const edge = edgeFor(t), c = spawnOn(edge, edge.oneWay ? false : Math.random() < 0.5, { type: t });
+      c.sirenT = 10 + Math.random() * 60;
+      svcCars.push(c);
+      if (t === 'plow') { c.active = false; c.mesh.visible = false; c.colliders.forEach(k => { k.blocksCar = false; k.x = 1e6; k.z = 1e6; }); }
+    }
+  });
+  // vehicles parked on the aprons of the hospital / police / fire stations (solid, not part of the traffic simulation)
+  const stationColliders = [];
+  (cityData.stations || []).forEach(st => (st.bays || []).forEach(b => {
+    const mesh = trafficCarMesh(b.type, 0xffffff), u = mesh.userData, d = u.dims, h = (b.rotation || 0) * Math.PI / 180;
+    const y = heightAt ? heightAt(b.x, b.z, 0) : 0;
+    mesh.position.set(b.x, y, b.z); mesh.rotation.y = h; scene.add(mesh);
+    setGlow(u.headPool, 0); setGlow(u.tailPool, 0); u.tailHalos.forEach(k => { k.visible = false; }); u.tailMat.emissiveIntensity = 0.6;
+    const n = Math.max(2, Math.round(d.len / 2.2));
+    for (let i = 0; i < n; i++) { const o = (i / (n - 1) - 0.5) * (d.len - 2.2); stationColliders.push({ kind: 'prop', instance: { type: 'stationvehicle', x: b.x, z: b.z, mesh }, x: b.x + Math.sin(h) * o, z: b.z + Math.cos(h) * o, radius: 1.15, blocksCar: true, destructible: false, response: 'bounce', destroyed: false }); }
+  }));
+  function setPlows(on) {
+    svcCars.forEach(c => {
+      if (c.type !== 'plow') return;
+      if (on && !c.active) {
+        c.active = true; c.mesh.visible = true; c.colliders.forEach(k => { k.blocksCar = true; });
+        for (let tries = 0; tries < 30; tries++) {
+          const edge = edgeFor('plow'); place(c, edge, edge.oneWay ? false : Math.random() < 0.5);
+          const pos = sampleAt(c.path, c.s), px = lastPlayer ? lastPlayer.x : 1e6, pz = lastPlayer ? lastPlayer.z : 1e6;
+          if (Math.hypot(pos.x - px, pos.z - pz) > 60) break;
+        }
+      } else if (!on && c.active) { c.active = false; c.mesh.visible = false; c.colliders.forEach(k => { k.blocksCar = false; k.x = 1e6; k.z = 1e6; }); }
+      c.plowing = on;
+    });
+  }
+
   // Can this car legally continue onto `edge` starting from `nodeId`? Only false for a
   // one-way edge entered from its `to` end — every other edge is fair game either way.
   function allowedFrom(edge, nodeId) {
@@ -405,7 +448,7 @@ export function createTrafficSystem(cityData, scene, heightAt, count = 6, maxCou
     if (car && car.line) { const e = car.line.next.get(fromNodeId + '>' + nodeId); if (e) return e; }
     const connected = (edgesByNode[nodeId] || []).filter(e => allowedFrom(e, nodeId));
     let options = connected.filter(e => otherEnd(e, nodeId) !== fromNodeId);
-    if (car && (car.type === 'bus' || car.type === 'truck')) {
+    if (car && (car.type === 'bus' || car.type === 'truck' || car.type === 'fire' || car.type === 'plow')) {
       const wide = options.filter(isWide);
       if (wide.length) options = wide;
     }
@@ -611,7 +654,7 @@ export function createTrafficSystem(cityData, scene, heightAt, count = 6, maxCou
       if (!car || !car.active || car.knock || car.wreck || car.line) continue;
       const pos = car.mesh.position;
       if (Math.hypot(pos.x - playerCar.x, pos.z - playerCar.z) < 520) continue;
-      const near = edgeMid.filter(m => { const d = Math.hypot(m.x - playerCar.x, m.z - playerCar.z); return d > 60 && d < 420 && (car.type === 'bus' || car.type === 'truck' ? m.e.type !== 'local' : true); });
+      const near = edgeMid.filter(m => { const d = Math.hypot(m.x - playerCar.x, m.z - playerCar.z); return d > 60 && d < 420 && (car.type === 'bus' || car.type === 'truck' || car.type === 'fire' || car.type === 'plow' ? m.e.type !== 'local' : true); });
       if (!near.length) continue;
       for (let tries = 0; tries < 12; tries++) {
         const m = near[Math.floor(Math.random() * near.length)];
@@ -627,10 +670,11 @@ export function createTrafficSystem(cityData, scene, heightAt, count = 6, maxCou
   function update(dt, playerCar) {
     const now = performance.now();
     lastPlayer = playerCar || lastPlayer;
-    if (playerCar && playerCar.x < 4000) recycleFar(playerCar);
+    const under = !!playerCar && (playerCar.y < -1.2 || playerCar.x > 4000);
+    if (playerCar && !under) recycleFar(playerCar);
     const act = cars.filter(c => c.active);
     if (playerCar) {
-      playerObs.x = playerCar.x; playerObs.z = playerCar.z; playerObs.speed = Math.abs(playerCar.speed || 0);
+      playerObs.x = under ? 1e6 : playerCar.x; playerObs.z = under ? 1e6 : playerCar.z; playerObs.speed = Math.abs(playerCar.speed || 0);
       playerObs.hdg = Math.atan2(Math.cos(playerCar.heading), Math.sin(playerCar.heading));
     }
     // spatial grid (48-unit cells): every neighbour query below only looks at the 3x3 cells around the car, so the cost grows
@@ -645,6 +689,10 @@ export function createTrafficSystem(cityData, scene, heightAt, count = 6, maxCou
     const px = o => (o.isPlayer ? o.x : o.mesh.position.x), pz = o => (o.isPlayer ? o.z : o.mesh.position.z);
 
     act.forEach(car => {
+      if (car.svc && car.svc !== 'plow') {
+        car.sirenT = (car.sirenT ?? 30) - dt;
+        if (car.sirenT <= 0) { car.siren = !car.siren; car.sirenT = car.siren ? 20 + Math.random() * 25 : 35 + Math.random() * 90; car.targetSpeed *= car.siren ? 1.3 : 1 / 1.3; }
+      }
       const nb = car._nb = nearOf(car);
       const nbC = (playerCar && Math.abs(playerObs.x - car.mesh.position.x) < 70 && Math.abs(playerObs.z - car.mesh.position.z) < 70) ? nb.concat([playerObs]) : nb;
       const a = nodes[car.from], b = nodes[car.to];
@@ -719,12 +767,41 @@ export function createTrafficSystem(cityData, scene, heightAt, count = 6, maxCou
       // Don't enter a junction whose exit is clogged (keeps the box clear -> no gridlock).
       if (isJunction && car.nextEdge && car.ghost <= 0) {
         const toStop = distToNode - lineDist;
-        if (toStop > -0.8 && toStop < 14) {
+        if (toStop > -0.8 && toStop < 18) {
           for (const o of nb) {
-            if (o !== car && o.from === car.to && o.edge === car.nextEdge && o.s < 12 && o.speed < 1.5) { hold(toStop, 'box'); break; }
+            if (o !== car && o.from === car.to && o.edge === car.nextEdge && o.s < car.len + 6 + clr * 0.5 && o.speed < 2.2) { hold(toStop, 'box'); break; }
           }
         }
       }
+
+      // Keep the middle of the junction free of conflicts (without touching the signal timing):
+      //  1. don't drive into a box where another car (from a different approach) is sitting slow or stopped inside it;
+      //  2. a left-turner gives way to oncoming straight-through traffic that is about to arrive (but never for more than ~6 s).
+      if (isJunction && car.edge && car.ghost <= 0 && !car.conn) {
+        const toStop = distToNode - lineDist;
+        if (toStop > -0.8 && toStop < 16) {
+          let blockedBox = false, yieldTo = false;
+          const B = nodes[car.to], A = nodes[car.from], C = car.nextEdge && nodes[otherEnd(car.nextEdge, car.to)];
+          const sa = Math.sin(heading), ca = Math.cos(heading);
+          for (const o of nb) {
+            if (o === car || o.isPlayer || o.ghost > 0 || o.to !== car.to || o.from === car.from || !o.edge) continue;
+            if (o.conn && o.speed < 2.5 && o.mesh.position.y - car.mesh.position.y < 3.5) { blockedBox = true; break; }
+          }
+          if (blockedBox) hold(toStop, 'box');
+          else if (B && A && C && turnAngleOf(car) > 0.5 && (car.yieldT || 0) < 6) {
+            const latC = -(C.x - B.x) * sa + (C.z - B.z) * ca;
+            for (const o of nb) {
+              if (o === car || o.ghost > 0 || o.to !== car.to || o.from === car.from || o.conn || !o.edge) continue;
+              if (Math.cos((o.hdg ?? heading) - heading) > -0.6 || turnAngleOf(o) > 0.4) continue;
+              const ox = o.mesh.position.x - B.x, oz = o.mesh.position.z - B.z, dN = Math.hypot(ox, oz), latO = -(o.mesh.position.x - car.mesh.position.x) * sa + (o.mesh.position.z - car.mesh.position.z) * ca;
+              if (Math.sign(latO) !== Math.sign(latC) || dN > 26 || (o.speed < 0.8 && dN > 10)) continue;
+              yieldTo = true; break;
+            }
+            if (yieldTo) { hold(toStop, 'yield'); car.yieldT = (car.yieldT || 0) + dt; }
+          }
+        }
+      } else if (car.yieldT && !car.conn) car.yieldT = 0;
+      if (car.conn) car.yieldT = 0;
 
       // What's physically ahead? (player or other cars; heading-aware so oncoming and crossing
       // traffic don't count as "in my lane"). Look-ahead grows with speed.
@@ -869,7 +946,7 @@ export function createTrafficSystem(cityData, scene, heightAt, count = 6, maxCou
           car.to = otherEnd(next, car.from);
           car.prevType = car.edge && car.edge.type; car.edge = next;
           car.stopCleared = false; car.dwell = 0; car.dwellNeeded = 1.0 + Math.random() * 1.2;
-          car.targetSpeed = (typeSpeed[next.type] || 8) * car.veh.speedMul * (next.type === 'highway' ? (car.pace || 1) : 1);
+          car.targetSpeed = (typeSpeed[next.type] || 8) * car.veh.speedMul * (next.type === 'highway' ? (car.pace || 1) : 1) * (car.siren ? 1.3 : 1);
           car.width = next.width || 9;
           car.lanes = Math.max(1, next.lanes || 1);
           car.oneWay = !!next.oneWay;
@@ -943,6 +1020,7 @@ export function createTrafficSystem(cityData, scene, heightAt, count = 6, maxCou
       const hazardOn = car.crashTimer > 0 && Math.floor(now / 330) % 2 === 0;
       u.hazardMat.emissiveIntensity = hazardOn ? 3 : 0;
       u.hazardHalos.forEach(h => { h.material.opacity = hazardOn ? 0.9 : 0; h.visible = hazardOn; });
+      if (u.svc && !car.far) u.svc.flash(!!car.siren || (car.svc === 'plow' && car.plowing), now / 1000);
 
       syncColliders(car, x, z, mh);
     });
@@ -988,7 +1066,7 @@ export function createTrafficSystem(cityData, scene, heightAt, count = 6, maxCou
   // a random spot well away from the player.
   function setCount(n) {
     n = Math.max(0, Math.min(maxCount, Math.round(n)));
-    const pool = cars.filter(c => !c.line);
+    const pool = cars.filter(c => !c.line && !c.svc);
     // the pool is built on demand (a phone that never raises the slider never pays for the cars)
     while (pool.length < n && drivable.length) {
       const edge = edgeFor(TYPE_CYCLE[cars.length % TYPE_CYCLE.length]);
@@ -1013,9 +1091,9 @@ export function createTrafficSystem(cityData, scene, heightAt, count = 6, maxCou
       }
     });
   }
-  const colliderList = cars.flatMap(c => c.colliders); let sink = null;
-  const activeCount = () => cars.filter(c => c.active && !c.line).length;
-  cars.forEach((c, i) => { if (i >= count && !c.line) { c.active = false; c.mesh.visible = false; c.colliders.forEach(k => { k.blocksCar = false; k.x = 1e6; k.z = 1e6; }); } });
+  const colliderList = cars.flatMap(c => c.colliders).concat(stationColliders); let sink = null;
+  const activeCount = () => cars.filter(c => c.active && !c.line && !c.svc).length;
+  cars.forEach((c, i) => { if (i >= count && !c.line && !c.svc) { c.active = false; c.mesh.visible = false; c.colliders.forEach(k => { k.blocksCar = false; k.x = 1e6; k.z = 1e6; }); } });
 
-  return { update, events, colliders: colliderList, cars, setCount, activeCount, maxCount, setSink(arr) { sink = arr; } };
+  return { update, events, colliders: colliderList, cars, svcCars, setPlows, setCount, activeCount, maxCount, setSink(arr) { sink = arr; } };
 }

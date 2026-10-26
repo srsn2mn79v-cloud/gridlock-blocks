@@ -58,8 +58,8 @@ function dotTexture() {
   return new THREE.CanvasTexture(c);
 }
 
-export function createEnvironment({ scene, camera, hemi, sun, ground, roadsGroup, parcelGroup, propGroup, onNight }) {
-  const state = { hour: 22, targetHour: 22, fog: 0, rain: false, snow: false };
+export function createEnvironment({ scene, camera, hemi, sun, ground, roadsGroup, parcelGroup, propGroup, onNight, bounds }) {
+  const state = { hour: 22, targetHour: 22, fog: 0, rain: false, snow: false, rainLevel: 1, snowLevel: 1, temp: 3 };
   let rainAmt = 0, snowAmt = 0, wet = 0, snowAcc = 0;
   // Effective intensities: the set amounts above multiplied by slow random gusts, so rain and
   // snow swell and ease off while you drive. Fog wobbles ~+-25% around the chosen value.
@@ -87,7 +87,14 @@ export function createEnvironment({ scene, camera, hemi, sun, ground, roadsGroup
   // Snow lying on the road: sparse white dots that appear, hold and fade (the road underneath
   // stays visible). Done in the road material's shader from world position, so it costs no
   // geometry and no extra draw calls; shared uniforms drive all road materials at once.
-  const snowU = { uWet: { value: 0 }, uCover: { value: 0 }, uTime: { value: 0 }, uTunnel: { value: [new THREE.Vector4(1, 1, 0, 0), new THREE.Vector4(1, 1, 0, 0), new THREE.Vector4(1, 1, 0, 0), new THREE.Vector4(1, 1, 0, 0)] } };
+  // Where the snowploughs have been: a coarse top-down mask over the whole city (one byte per ~6 u cell). The road shader reads it and
+  // draws no snow where it is set; the cleared strips slowly fill in again while it keeps snowing.
+  const MASK_N = 512, bb = bounds || [-2500, -2500, 2500, 2500];
+  const maskData = new Uint8Array(MASK_N * MASK_N), maskTex = new THREE.DataTexture(maskData, MASK_N, MASK_N, THREE.RedFormat, THREE.UnsignedByteType);
+  maskTex.magFilter = THREE.LinearFilter; maskTex.minFilter = THREE.LinearFilter; maskTex.needsUpdate = true;
+  const cellX = (bb[2] - bb[0]) / MASK_N, cellZ = (bb[3] - bb[1]) / MASK_N;
+  let maskDirty = false, maskAge = 0;
+  const snowU = { uClear: { value: maskTex }, uClearBox: { value: new THREE.Vector4(bb[0], bb[1], 1 / (bb[2] - bb[0]), 1 / (bb[3] - bb[1])) }, uWet: { value: 0 }, uCover: { value: 0 }, uTime: { value: 0 }, uTunnel: { value: [new THREE.Vector4(1, 1, 0, 0), new THREE.Vector4(1, 1, 0, 0), new THREE.Vector4(1, 1, 0, 0), new THREE.Vector4(1, 1, 0, 0)] } };
   // roofed tunnel stretches get no snow (xz boxes, only below ground level)
   (roadsGroup.userData.mapPaths || []).filter(p => p.structure === 'tunnel').slice(0, 4).forEach((p, i) => {
     let x1 = 1e9, z1 = 1e9, x2 = -1e9, z2 = -1e9;
@@ -98,15 +105,15 @@ export function createEnvironment({ scene, camera, hemi, sun, ground, roadsGroup
   tint.forEach((o, mat) => {
     if (o.kind !== 'road') return;
     mat.onBeforeCompile = shader => {
-      shader.uniforms.uCover = snowU.uCover; shader.uniforms.uWet = snowU.uWet; shader.uniforms.uTime = snowU.uTime; shader.uniforms.uTunnel = snowU.uTunnel; shader.uniforms.uQuality = gfxU.uQuality;
+      shader.uniforms.uCover = snowU.uCover; shader.uniforms.uWet = snowU.uWet; shader.uniforms.uTime = snowU.uTime; shader.uniforms.uTunnel = snowU.uTunnel; shader.uniforms.uClear = snowU.uClear; shader.uniforms.uClearBox = snowU.uClearBox; shader.uniforms.uQuality = gfxU.uQuality;
       shader.vertexShader = shader.vertexShader
         .replace('#include <common>', '#include <common>\nvarying vec3 vSnowW; varying vec3 vGW;')
         .replace('#include <project_vertex>', '#include <project_vertex>\nvSnowW = (modelMatrix * vec4(transformed, 1.0)).xyz;\n' + roadVertex);
       shader.fragmentShader = shader.fragmentShader
         .replace('#include <common>', `#include <common>
           ${roadDecl}
-          varying vec3 vSnowW; uniform float uCover; uniform float uWet; uniform float uTime; uniform vec4 uTunnel[4];
-          float puddleMask;
+          varying vec3 vSnowW; uniform float uCover; uniform sampler2D uClear; uniform vec4 uClearBox; uniform float uWet; uniform float uTime; uniform vec4 uTunnel[4];
+          float puddleMask; float covL = 0.0;
           float sh21(vec2 p){ vec3 p3 = fract(vec3(p.xyx) * .1031); p3 += dot(p3, p3.yzx + 33.33); return fract((p3.x + p3.y) * p3.z); }
           float vn(vec2 p){ vec2 i = floor(p), f = fract(p); f = f*f*(3.0-2.0*f);
             float a = sh21(i), b = sh21(i+vec2(1.0,0.0)), c = sh21(i+vec2(0.0,1.0)), d = sh21(i+vec2(1.0,1.0));
@@ -119,7 +126,7 @@ export function createEnvironment({ scene, camera, hemi, sun, ground, roadsGroup
             float r = length(f - off);
             float ph = fract(uTime * speed + h * 7.0);
             float life = smoothstep(0.0, 0.12, ph) * (1.0 - smoothstep(0.8, 1.0, ph));
-            float present = step(h, min(1.0, uCover * 1.5));
+            float present = step(h, min(1.0, covL * 1.5));
             return smoothstep(0.38, 0.12, r * (0.8 + h3 * 0.6)) * life * present;
           }`)
         .replace('#include <color_fragment>', `#include <color_fragment>
@@ -129,9 +136,12 @@ export function createEnvironment({ scene, camera, hemi, sun, ground, roadsGroup
             vec4 tr = uTunnel[ti];
             if (vSnowW.x > tr.x && vSnowW.x < tr.z && vSnowW.z > tr.y && vSnowW.z < tr.w && vSnowW.y < -0.8) inTun = 1.0;
           }
-          if (uCover > 0.001 && inTun < 0.5) {
+          vec2 cuv = (vSnowW.xz - uClearBox.xy) * uClearBox.zw;
+          float clrM = (cuv.x > 0.0 && cuv.x < 1.0 && cuv.y > 0.0 && cuv.y < 1.0) ? texture2D(uClear, cuv).r : 0.0;
+          covL = uCover * (1.0 - smoothstep(0.15, 0.7, clrM));
+          if (covL > 0.001 && inTun < 0.5) {
             float d = max(snowLayer(vSnowW.xz, 1.1, 0.0, 0.022), snowLayer(vSnowW.xz, 2.3, 41.0, 0.035) * 0.85);
-            float base = smoothstep(0.1, 0.9, uCover) * (0.35 + 0.25 * vn(vSnowW.xz * 0.7));   // a thin even layer under the drifts
+            float base = smoothstep(0.1, 0.9, covL) * (0.35 + 0.25 * vn(vSnowW.xz * 0.7));   // a thin even layer under the drifts
             diffuseColor.rgb = mix(diffuseColor.rgb, vec3(0.93, 0.96, 1.0), clamp(max(d * 0.95, base), 0.0, 0.96));
           }
           // rain puddles: low spots (blotchy noise) go dark and mirror-smooth, the rest only gets damp
@@ -150,7 +160,7 @@ export function createEnvironment({ scene, camera, hemi, sun, ground, roadsGroup
             // wet asphalt mirrors the sky, the sun's glare path and (at night) smears of lit facades and neon
             vec3 rV = normalize(cameraPosition - vSnowW); vec3 rR = reflect(-rV, vec3(0.0, 1.0, 0.0));
             float rF = pow(1.0 - clamp(rV.y, 0.0, 1.0), 3.0) * 0.9 + 0.05;
-            float rK = clamp(uWet * 0.75 + puddleMask * 0.9, 0.0, 1.0) * (1.0 - clamp(uCover * 1.6, 0.0, 1.0));
+            float rK = clamp(uWet * 0.75 + puddleMask * 0.9, 0.0, 1.0) * (1.0 - clamp(covL * 1.6, 0.0, 1.0));
             if (rK > 0.01) {
               vec3 rc = skyBase(rR);
               // the glow of the lit city: soft warm-white streaks (the colour of the street lamps and windows) low over the horizon
@@ -161,7 +171,7 @@ export function createEnvironment({ scene, camera, hemi, sun, ground, roadsGroup
             }
           }`);
     };
-    mat.customProgramCacheKey = () => 'snowroad4';
+    mat.customProgramCacheKey = () => 'snowroad5';
     mat.needsUpdate = true;
   });
   const SNOW_GROUND = C(0xe8eff5), SNOW_ROAD = C(0xbfc7cf), SNOW_ROOF = C(0xdde5ec);
@@ -252,12 +262,20 @@ export function createEnvironment({ scene, camera, hemi, sun, ground, roadsGroup
       const d = state.targetHour - state.hour;
       state.hour += Math.sign(d) * Math.min(Math.abs(d), step);
     }
-    const rr = state.rain ? 1 : 0, ss = state.snow ? 1 : 0;
+    const rr = state.rain ? state.rainLevel : 0, ss = state.snow ? state.snowLevel : 0;
     rainAmt += Math.sign(rr - rainAmt) * Math.min(Math.abs(rr - rainAmt), dt * 0.6);
     snowAmt += Math.sign(ss - snowAmt) * Math.min(Math.abs(ss - snowAmt), dt * 0.5);
     // roads dry slowly after rain; snow builds up over ~45 s of snowfall and melts in ~30 s
     wet += Math.sign(rainAmt - wet) * Math.min(Math.abs(rainAmt - wet), dt * (rainAmt > wet ? 0.4 : 0.03));
-    snowAcc = Math.max(0, Math.min(1, snowAcc + (state.snow ? dt / 28 : -dt / 40)));
+    snowAcc = Math.max(0, Math.min(1, snowAcc + (state.snow ? dt / 28 * (0.4 + 0.6 * state.snowLevel) : -dt / (state.temp > 2 ? 14 : state.temp > 0.5 ? 26 : 70))));
+    // ploughed strips fill in again while it snows; the mask is uploaded a few times a second
+    maskAge += dt;
+    if (maskAge > 0.5) {
+      if (state.snow && snowAcc > 0.05) { const dec = Math.round(maskAge * 3); for (let i = 0; i < maskData.length; i++) if (maskData[i]) { maskData[i] = maskData[i] > dec ? maskData[i] - dec : 0; maskDirty = true; } }
+      else if (snowAcc < 0.03) { maskData.fill(0); maskDirty = true; }
+      maskAge = 0;
+    }
+    if (maskDirty) { maskTex.needsUpdate = true; maskDirty = false; }
     t += dt;
     gRain = noise(t, 1.3); gSnow = noise(t, 4.1);
     const gFog = 0.75 + 0.5 * noise(t, 7.7);
@@ -318,13 +336,25 @@ export function createEnvironment({ scene, camera, hemi, sun, ground, roadsGroup
     setCovered(b) { covered = !!b; },
     get isCovered() { return covered; },
     get snowAccumulation() { return snowAcc; },
+    // a plough (or anything else) clears a disc of road: r in world units
+    clearSnow(x, z, r = 4) {
+      if (snowAcc < 0.04) return;
+      const ix = Math.floor((x - bb[0]) / cellX), iz = Math.floor((z - bb[1]) / cellZ), n = Math.ceil(r / Math.min(cellX, cellZ));
+      for (let a = -n; a <= n; a++) for (let b = -n; b <= n; b++) {
+        const cx = ix + a, cz = iz + b; if (cx < 0 || cz < 0 || cx >= MASK_N || cz >= MASK_N) continue;
+        const d = Math.hypot(a * cellX, b * cellZ); if (d > r) continue;
+        const v = Math.round(255 * Math.min(1, 1.3 - d / r)); const i = cz * MASK_N + cx; if (maskData[i] < v) { maskData[i] = v; maskDirty = true; }
+      }
+    },
+    setTemp(t) { state.temp = t; },
+    get temp() { return state.temp; },
     // road grip: 1 dry, ~0.7 wet, down to ~0.3 once snow has settled
-    get grip() { return Math.max(0.28, 1 - 0.4 * wet - 0.65 * snowAcc); },
+    get grip() { return Math.max(0.28, (1 - 0.4 * wet - 0.65 * snowAcc) * (state.temp < 1.2 && wet > 0.25 && snowAcc < 0.3 ? 0.88 : 1)); },
     setHour(h, immediate = false) { state.targetHour = Math.max(0, Math.min(24, h)); if (immediate) state.hour = state.targetHour; },
     _forceSnowAccumulation(v) { snowAcc = v; },
     _forceWet(v) { wet = v; },
     setFog(v) { state.fog = Math.max(0, Math.min(1, v)); fogEff = state.fog; },
-    setRain(b) { state.rain = !!b; if (b) state.snow = false; },
-    setSnow(b) { state.snow = !!b; if (b) state.rain = false; }
+    setRain(b, level = 1) { state.rain = !!b; state.rainLevel = level; if (b) state.snow = false; },
+    setSnow(b, level = 1) { state.snow = !!b; state.snowLevel = level; if (b) state.rain = false; }
   };
 }

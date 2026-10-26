@@ -41,13 +41,13 @@ export function buildKit(K, { base, heightAtZ, wheels, wheelR = 0.38, frontZ = 1
     add(plate([[-0.97, frontZ - 0.15], [0.97, frontZ - 0.15], [1.02, frontZ + 0.1], [0.62, frontZ + 0.3], [-0.62, frontZ + 0.3], [-1.02, frontZ + 0.1]], 0.035, 0.1), carbon);
   }
   if (K.front >= 2) {   // sport chin: body-coloured lower bumper with a black intake, small canards at the corners
-    add(side([[frontZ - 0.35, 0.1], [frontZ + 0.18, 0.12], [frontZ + 0.22, 0.34], [frontZ + 0.05, 0.52], [frontZ - 0.35, 0.52]], 1.72), paint);
+    add(side([[frontZ - 0.35, 0.1], [frontZ + 0.18, 0.12], [frontZ + 0.22, 0.32], [frontZ + 0.05, 0.43], [frontZ - 0.35, 0.43]], 1.72), paint);
     add(front([[-0.62, 0.0], [0.62, 0.0], [0.56, 0.17], [-0.56, 0.17]], 0.03, frontZ + 0.205), dark, 0, 0.2, 0);
     mirrorX(s => add(side([[0, 0], [0.22, 0], [0.05, 0.18]], 0.025, s * 0.88), carbon, 0, 0.35, frontZ + 0.02));
   }
   if (K.front >= 3) {   // aggressive: huge intake, mesh slats, endplates and stacked canards
-    add(front([[-0.7, 0.0], [0.7, 0.0], [0.62, 0.2], [-0.62, 0.2]], 0.05, frontZ + 0.2), dark, 0, 0.3, 0);
-    for (let i = 0; i < 4; i++) add(new THREE.BoxGeometry(1.22, 0.012, 0.03), chrome, 0, 0.3 + i * 0.045, frontZ + 0.25);
+    add(front([[-0.7, 0.0], [0.7, 0.0], [0.62, 0.14], [-0.62, 0.14]], 0.05, frontZ + 0.2), dark, 0, 0.27, 0);
+    for (let i = 0; i < 3; i++) add(new THREE.BoxGeometry(1.22, 0.012, 0.03), chrome, 0, 0.29 + i * 0.045, frontZ + 0.25);
     mirrorX(s => {
       add(new THREE.BoxGeometry(0.03, 0.2, 0.55), carbon, s * 0.98, 0.2, frontZ + 0.05);
       add(side([[0, 0], [0.3, 0], [0.08, 0.16]], 0.025, s * 0.86), carbon, 0, 0.5, frontZ - 0.1);

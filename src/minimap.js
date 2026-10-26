@@ -163,6 +163,15 @@ export function createMinimap(city, roadsGroup) {
     fctx.drawImage(fbase, 0, 0);
     fctx.setTransform(dp, 0, 0, dp, 0, 0);
     const X = x => ox + (toU(x) - fullRect.x0) * f, Y = z => oy + (toV(z) - fullRect.y0) * f;
+    // districts: a faint tint and a name over each, so you know what part of town is what
+    (city.districts || []).forEach(d => {
+      fctx.beginPath(); d.poly.forEach(([x, z], i) => (i ? fctx.lineTo(X(x), Y(z)) : fctx.moveTo(X(x), Y(z)))); fctx.closePath();
+      fctx.fillStyle = d.color + '26'; fctx.fill(); fctx.strokeStyle = d.color + '88'; fctx.lineWidth = 1.5; fctx.setLineDash([6, 5]); fctx.stroke(); fctx.setLineDash([]);
+    });
+    (city.districts || []).forEach(d => {
+      fctx.font = 'bold 11px system-ui'; fctx.textAlign = 'center'; fctx.textBaseline = 'middle'; fctx.lineWidth = 3; fctx.strokeStyle = 'rgba(0,0,0,.7)'; fctx.fillStyle = d.color;
+      fctx.strokeText(d.name.toUpperCase(), X(d.cx), Y(d.cz)); fctx.fillText(d.name.toUpperCase(), X(d.cx), Y(d.cz));
+    });
     const pin = (x, z, color, label, r) => {
       const px = X(x), py = Y(z);
       fctx.beginPath(); fctx.arc(px, py, r, 0, Math.PI * 2); fctx.fillStyle = color; fctx.fill(); fctx.strokeStyle = '#fff'; fctx.lineWidth = 2; fctx.stroke();

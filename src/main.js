@@ -28,9 +28,13 @@ import { createPuffs } from './puffs.js';
 import { setGlow } from './glow.js';
 import { createEnvironment } from './environment.js';
 import { createMinimap } from './minimap.js';
+import { pointInPoly } from './chicago/geom.js';
 import { createMenu, loadSettings, saveSettings } from './menu.js';
 import { createWorld } from './world.js';
 import { createTaxi } from './taxi.js';
+import { createWeather } from './weather.js';
+import { createPlowFx } from './plowfx.js';
+import { createRadio } from './radio.js';
 import { createAudio } from './audio.js';
 import { createDrivetrain } from './drivetrain.js';
 import { isCovered } from './covered.js';
@@ -427,8 +431,10 @@ const settings = loadSettings();
 sun.shadow.mapSize.set(Number(settings.shadow) || 2048, Number(settings.shadow) || 2048);
 gfx = createGraphics({ renderer, scene, camera, parcelInstances, ground, initial: { ao: settings.ao, bloom: settings.bloom, tone: settings.tone, tex: settings.tex, fx: settings.fx !== false, quality: settings.quality } });
 if (settings.rain && settings.snow) settings.snow = false;
-const env = createEnvironment({ scene, camera, hemi, sun, ground, roadsGroup, parcelGroup, propGroup, onNight });
+const env = createEnvironment({ scene, camera, hemi, sun, ground, roadsGroup, parcelGroup, propGroup, onNight, bounds: city.bounds });
 const minimap = createMinimap(city, roadsGroup);
+const weather = createWeather({ env, settings, save: () => saveSettings(settings) });
+const plowFx = createPlowFx(scene);
 const taxi = createTaxi({ city, scene, heightAt, snowing: () => !!settings.snow });
 let modalPause = false;
 const world = createWorld({ city, scene, camera, car, input, heightAt, collisionWorld, parcelInstances, taxi, env, setModalPause: v => { modalPause = v; },
@@ -440,16 +446,18 @@ const races = createRaces({ city, scene, heightAt, car, world, transit, arena, c
 collisionWorld.push(...races.solids);
 world.setDestinations(() => races.plan.map(r => ({ name: r.name + ' (class ' + r.cls + ')', group: 'Races', sub: ({ drag: 'Drag', drift: 'Drift', circuit: 'Circuit', sprint: 'Sprint' })[r.kind], x: r.start.x - Math.sin(r.start.heading) * 14, z: r.start.z - Math.cos(r.start.heading) * 14, h: r.start.heading })));
 world.setBlocked(() => races.active() || races.offering());
+world.setRaceInfo(() => races.plan);
+world.setSleepHook(h => weather.advance(h));
 // walls the chase camera must not sit inside: building footprints (bucketed) and, in a garage, its concrete
 const parkedCars = createParkedCars({ scene, propInstances, handles: propGroup.userData.parkedHandles, collisionWorld, heightAt, events: traffic.events });
 const camGrid = new Map();
 collisionWorld.forEach(c => {
-  if (c.kind !== 'parcel' || !c.blocksCar || c.ymax !== undefined || !c.footprint || c.footprint[0][0] > 4000) return;
+  if (c.kind !== 'parcel' || !c.blocksCar || c.ymax !== undefined || !c.footprint || c.garage) return;
   let x0 = 1e9, x1 = -1e9, z0 = 1e9, z1 = -1e9; c.footprint.forEach(([x, z]) => { x0 = Math.min(x0, x); x1 = Math.max(x1, x); z0 = Math.min(z0, z); z1 = Math.max(z1, z); });
   for (let i = Math.floor(x0 / 48); i <= Math.floor(x1 / 48); i++) for (let j = Math.floor(z0 / 48); j <= Math.floor(z1 / 48); j++) { const k = i + ',' + j; (camGrid.get(k) || camGrid.set(k, []).get(k)).push(c.footprint); }
 });
 function camBlocked(x, z) {
-  if (x > 4000) return world.pocketWall(x, z);
+  if (world.mode === 'garage') return world.pocketWall(x, z);
   const cell = camGrid.get(Math.floor(x / 48) + ',' + Math.floor(z / 48));
   return !!cell && cell.some(f => pointInPolygon(x, z, f));
 }
@@ -474,7 +482,8 @@ const transitMarkers = all => {
   if (!all) transit.stops.forEach(s => { if (Math.hypot(s.x - car.x, s.z - car.z) < 260) out.push({ x: s.x, z: s.z, color: '#4aa3ff', label: 'b' }); });
   return out;
 };
-const mapExtras = (all) => { const tx = taxi.mapExtras(); return { route: races.route() || (tx && tx.route), markers: spreadMarkers((tx ? tx.markers : []).concat(world.mapMarkers(all), races.markers(), transitMarkers(all))) }; };
+const stationMarkers = (all) => (world.mode !== 'city' ? [] : (city.stations || []).filter(st => all || Math.hypot(st.x - car.x, st.z - car.z) < 260).map(st => ({ x: st.door.x, z: st.door.z, color: st.kind === 'hospital' ? '#ff4d4d' : st.kind === 'police' ? '#4a86ff' : '#ff9a2e', label: st.kind === 'hospital' ? '✚' : st.kind === 'police' ? 'PD' : 'FD' })));
+const mapExtras = (all) => { const tx = taxi.mapExtras(); return { route: races.route() || (tx && tx.route), markers: spreadMarkers((tx ? tx.markers : []).concat(world.mapMarkers(all), races.markers(), transitMarkers(all), stationMarkers(all))) }; };
 
 let autoLights = null;   // headlights follow night/day, but only when it actually crosses
 function syncLights() {
@@ -485,7 +494,8 @@ function syncLights() {
 function applySetting(k, v) {
   if (k === 'traffic') traffic.setCount(v);
   else if (k === 'peds') pedestrians.setCount(v);
-  else if (k === 'hour') env.setHour(v, true);
+  else if (k === 'hour') { env.setHour(v, true); weather.refresh(); }
+  else if (k === 'dynWeather' || k === 'clockRun') weather.refresh();
   else if (k === 'fog') env.setFog(v);
   else if (k === 'rain') env.setRain(v);
   else if (k === 'snow') env.setSnow(v);
@@ -559,6 +569,7 @@ function dashFrame(dt, rev) {
 const skids = createSkidMarks({ scene, heightAt: world.heightAt });
 const puffs = createPuffs({ scene, heightAt: world.heightAt, renderer });
 const audio = createAudio({ camera });
+const radio = createRadio({ audio, weather, settings });
 const unlockAudio = () => audio.unlock();
 ['pointerdown', 'keydown', 'touchstart'].forEach(ev => addEventListener(ev, unlockAudio, { passive: true }));
 audio.setEnabled(settings.sound !== false); audio.setVolume(settings.volume ?? 0.7);
@@ -600,6 +611,21 @@ function fxFrame(dt) {
   gfx.frame({ time: fxClock, speed: fxSp, sunDir: _sd, sunAmt: (1 - env.nightK) * (1 - Math.min(1, env.wetness * 1.2)) * (world.mode === 'city' ? 1 : 0), sunCol: sun.color, shake: fxShake, wet: env.wetness, nightK: env.nightK });
 }
 
+// entering a district shows its name for a moment
+const distEl = document.createElement('div'); distEl.id = 'district';
+distEl.style.cssText = 'position:fixed;top:64px;left:50%;transform:translateX(-50%);z-index:6;font:800 20px system-ui,sans-serif;letter-spacing:.2em;text-transform:uppercase;color:#fff;text-shadow:0 0 12px currentColor,0 2px 4px #000;opacity:0;transition:opacity .8s;pointer-events:none;text-align:center';
+document.body.appendChild(distEl);
+let distName = null, distT = 0, distHide = 0;
+function districtFrame(dt) {
+  distT -= dt; if (distHide > 0) { distHide -= dt; if (distHide <= 0) distEl.style.opacity = '0'; }
+  if (distT > 0) return; distT = 0.6;
+  const px = world.onFoot ? camera.position.x : car.x, pz = world.onFoot ? camera.position.z : car.z;
+  if (world.mode !== 'city' || Math.abs(px) > 3000) { if (distName) { distName = null; distEl.style.opacity = '0'; } return; }
+  const d = (city.districts || []).find(q => pointInPoly(px, pz, q.poly)) || null, name = d ? d.name : null;
+  if (name === distName) return;
+  distName = name;
+  if (d) { distEl.style.color = d.color; distEl.innerHTML = d.name + '<div style="font:600 11px system-ui;letter-spacing:.12em;opacity:.85">' + d.blurb + '</div>'; distEl.style.opacity = '1'; distHide = 3.5; }
+}
 function audioFrame(dt) {
   const thr = (input.forward ? 1 : 0) * (input.throttle == null ? 1 : Math.max(0.3, input.throttle));
   const rev = drive.update(dt, car, world.onFoot ? 0 : thr, world.onFoot);
@@ -611,13 +637,27 @@ function audioFrame(dt) {
   const covered = isCovered(world.onFoot ? camera.position.x : x, world.onFoot ? camera.position.y - 1.5 : car.y, world.mode);
   env.setCovered(covered);
   const gk = heightAt && heightAt.kind;
+  // what the soundscape needs to know: where we are, how busy the street is, who is running a siren
+  audioT -= dt;
+  if (audioT <= 0) {
+    audioT = 0.25;
+    const cx = camera.position.x, cz = camera.position.z;
+    let nc = 0, np = 0;
+    traffic.cars.forEach(c => { if (c.active && !c.svc && Math.abs(c.mesh.position.x - cx) < 90 && Math.abs(c.mesh.position.z - cz) < 90) nc++; });
+    pedestrians.peds.forEach(p => { if (p.active && Math.abs(p.mesh.position.x - cx) < 40 && Math.abs(p.mesh.position.z - cz) < 40) np++; });
+    audioCtx.density = Math.min(1, nc / 16); audioCtx.crowd = Math.min(1, np / 20);
+    audioCtx.sirens = traffic.svcCars.filter(c => c.active && c.siren && c.svc !== 'plow');
+  }
+  const place = world.mode === 'garage' ? 'garage' : world.mode === 'flat' ? 'flat' : (covered ? 'tunnel' : 'open');
   audio.update(dt, { rev, car, input, onFoot: world.onFoot, wet: env.wetness, rain: settings.rain, snow: settings.snow && env.snowAccumulation > 0.15, covered,
-    surface: car.surface, cars: traffic.cars, paused: false });
+    surface: car.surface, cars: traffic.cars, paused: false, place, hour: settings.hour, ...audioCtx });
+  radio.update(dt, { place, onFoot: world.onFoot, dFoot: world.onFoot ? Math.hypot(camera.position.x - car.x, camera.position.z - car.z) : 0 });
   if ((car.impactSpeed || 0) > 2.5 && !car._crashHeard) { audio.crash(car.x, car.z, Math.min(1, car.impactSpeed / 14)); car._crashHeard = true; }
   else if ((car.impactSpeed || 0) <= 0.01) car._crashHeard = false;
 }
 
-let fpsFrames = 0, fpsT = 0;
+let fpsFrames = 0, fpsT = 0, plowT = 0, audioT = 0;
+const audioCtx = { density: 0, crowd: 0, sirens: [] };
 function animate() {
   const rawDt = clock.getDelta();
   input.poll(world.onFoot);
@@ -650,13 +690,25 @@ function animate() {
   if (modalPause) {
     // shopping / apartment menu: the world holds still while the camera shows off the car
     world.updateModal(dt);
+    // inside a shop the radio keeps playing, with the garage acoustics and no street noise or rain
+    distEl.style.opacity = '0'; distName = null;
+    if (world.inShop) { env.setCovered(true); radio.update(dt, { place: 'garage', onFoot: false, dFoot: 0 }); }
     gfx.render();
     requestAnimationFrame(animate);
     return;
   }
   world.update(dt);
   audioFrame(dt);
+  districtFrame(dt);
   cullProps(dt);
+  weather.update(dt);
+  // snowploughs: out while it snows and until the road is clear again; each one clears a strip of snow and throws spray + salt
+  plowT -= dt; if (plowT <= 0) { plowT = 1; traffic.setPlows(!!settings.snow || env.snowAccumulation > 0.12); }
+  const working = traffic.svcCars.filter(c => c.type === 'plow' && c.active && c.plowing);
+  if (working.length) {
+    working.forEach(c => { if (c.speed > 0.5) { const m = c.mesh.position, h = c.mesh.rotation.y, rx = Math.cos(h), rz = -Math.sin(h); [-1.6, 0, 1.6].forEach(o => env.clearSnow(m.x + rx * o, m.z + rz * o, 3.2)); } });
+  }
+  plowFx.update(dt, working, camera.position, env.snowAccumulation > 0.04 || !!settings.snow);
   skids.update(dt, car, { snow: env.snowAccumulation, onFoot: world.onFoot, allow: world.mode === 'city' });
   puffs.update(dt, car, { sliding: skids.sliding, snow: env.snowAccumulation, wet: env.wetness, onFoot: world.onFoot, allow: world.mode === 'city', covered: env.isCovered, raining: !!settings.rain });
   const focus = world.focus();
@@ -735,5 +787,5 @@ function animate() {
   gfx.render();
   requestAnimationFrame(animate);
 }
-window.__game = { puffs, gfx, transit, parkedCars, skids, audio, races, structures, world, renderer, taxi, input, destruction, collisionWorld, lampDefs, signs, propInstances, env, settings, menu, minimap, scene, camera, car, city, traffic, pedestrians, lampPool, reflectors, heightAt, offences: { get wrongWay() { return wrongWayOffences; } } };
+window.__game = { radio, weather, plowFx, puffs, gfx, transit, parkedCars, skids, audio, races, structures, world, renderer, taxi, input, destruction, collisionWorld, lampDefs, signs, propInstances, env, settings, menu, minimap, scene, camera, car, city, traffic, pedestrians, lampPool, reflectors, heightAt, offences: { get wrongWay() { return wrongWayOffences; } } };
 animate();

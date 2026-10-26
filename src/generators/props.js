@@ -385,6 +385,7 @@ function neonTexture(word, blade) {
   const g = c.getContext('2d'); g.textAlign = 'center'; g.textBaseline = 'middle'; g.lineJoin = 'round';
   const draw = (txt, x, y, size) => {
     g.font = '900 ' + size + 'px "Arial Black", system-ui, sans-serif';
+    if (!blade) { const mw = g.measureText(txt).width; if (mw > W - 28) { size = Math.floor(size * (W - 28) / mw); g.font = '900 ' + size + 'px "Arial Black", system-ui, sans-serif'; } }
     g.shadowColor = '#fff'; g.shadowBlur = 14; g.strokeStyle = 'rgba(255,255,255,0.35)'; g.lineWidth = 9; g.strokeText(txt, x, y);
     g.shadowBlur = 0; g.strokeStyle = '#fff'; g.lineWidth = 3; g.strokeText(txt, x, y);
     g.fillStyle = 'rgba(255,255,255,0.5)'; g.fillText(txt, x, y);

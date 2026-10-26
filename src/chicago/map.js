@@ -46,13 +46,14 @@ export const STADIUM = { cx: 718, cy: 1130, rx: 30, ry: 78 };
 
 // the district a point belongs to decides what gets built there
 export const DISTRICTS = [
-  { name: 'Downtown',     poly: [[300, 736], [650, 736], [650, 1000], [300, 1000]], h: [70, 190], style: 'tower' },
+  { name: 'Downtown',     poly: [[300, 736], [650, 736], [650, 1000], [300, 1000]], h: [70, 190], style: 'tower', blurb: 'Central business district: the tallest towers', color: '#5aa9ff' },
+  { name: 'Neon Strip',   poly: [[430, 560], [650, 560], [650, 736], [430, 736]], h: [18, 60], style: 'mid', blurb: 'Bars, clubs and signs on every wall', color: '#ff2fd6' },
   { name: 'Loop Edge',    poly: [[262, 600], [652, 600], [652, 1050], [262, 1050]], h: [28, 80], style: 'mid' },
   { name: 'River North',  poly: [[420, 380], [750, 380], [750, 560], [420, 560]], h: [38, 110], style: 'tower' },
   { name: 'Gold Coast',   poly: [[285, 200], [750, 200], [750, 380], [285, 380]], h: [22, 60], style: 'mid' },
   { name: 'Old Town',     poly: [[200, 300], [430, 300], [430, 570], [200, 570]], h: [10, 24], style: 'low' },
-  { name: 'Industrial',   poly: [[20, 640], [200, 640], [200, 1100], [20, 1100]], h: [8, 18], style: 'warehouse' },
-  { name: 'Chinatown',    poly: [[260, 1050], [640, 1050], [640, 1400], [260, 1400]], h: [9, 22], style: 'china' }
+  { name: 'Industrial',   poly: [[20, 640], [200, 640], [200, 1100], [20, 1100]], h: [8, 18], style: 'warehouse', blurb: 'Warehouses, depots and workshops', color: '#c9a24b' },
+  { name: 'Chinatown',    poly: [[260, 1050], [640, 1050], [640, 1400], [260, 1400]], h: [9, 22], style: 'china', blurb: 'Lanterns, noodle bars and neon', color: '#ff4b3a' }
 ];
 export function districtAt(X, Y) {
   for (const d of DISTRICTS) if (pointInPoly(X, Y, d.poly)) return d;

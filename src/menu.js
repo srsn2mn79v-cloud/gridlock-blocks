@@ -12,7 +12,7 @@ const STORE = 'gridlock-settings-v1';
 const coarse = typeof matchMedia !== 'undefined' && matchMedia('(pointer: coarse)').matches;
 // Graphics defaults are gentler on touch devices (no ambient occlusion, medium textures).
 export const DEFAULT_SETTINGS = {
-  traffic: 40, peds: 100, hour: 22, fog: 0, rain: false, snow: false, car: 'hatch',
+  traffic: 40, peds: 100, hour: 22, day: 0, dynWeather: true, clockRun: true, fog: 0, rain: false, snow: false, car: 'hatch',
   ao: coarse ? 'off' : 'low', bloom: true, tone: true, tex: coarse ? 1 : 2, fx: true, shadow: coarse ? 1024 : 2048, quality: coarse ? 'medium' : 'high',
   taxi: true, sound: true, volume: 0.7, swapSticks: false, res: coarse ? 0.75 : 1, view: coarse ? 0.7 : 1, fps: true
 };
@@ -102,6 +102,8 @@ export function createMenu({ settings, limits, onChange, onOpenChange , ownedCar
       </div>
       <div class="row"><label>Fog</label><input type="range" data-k="fog" min="0" max="1" step="0.01"><output></output></div>
       <div class="toggles">
+        <button class="toggle" data-t="dynWeather">🌦 Dynamic weather</button>
+        <button class="toggle" data-t="clockRun">⏱ Clock running</button>
         <button class="toggle" data-t="rain">🌧 Rain</button>
         <button class="toggle" data-t="snow">❄️ Snow</button>
         <button class="toggle" data-t="sound">🔊 Sound</button>
@@ -161,6 +163,9 @@ export function createMenu({ settings, limits, onChange, onOpenChange , ownedCar
   }
   function set(k, v) {
     settings[k] = v;
+    // choosing rain / snow / fog by hand takes the weather off the forecast; turning "Dynamic weather" on hands it back
+    if ((k === 'rain' || k === 'snow') && settings.dynWeather) { settings.dynWeather = false; onChange('dynWeather', false); }
+    if (k === 'fog' && settings.dynWeather) { settings.dynWeather = false; onChange('dynWeather', false); }
     // rain and snow are mutually exclusive
     const other = k === 'rain' ? 'snow' : k === 'snow' ? 'rain' : null;
     if (v && other && settings[other]) { settings[other] = false; onChange(other, false); }
