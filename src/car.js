@@ -166,7 +166,7 @@ export class Car {
     const accelInput = input.forward ? 1 : (reversing ? -1 : 0);
     const steerInput = (input.steerAxis != null) ? input.steerAxis : (input.left ? 1 : input.right ? -1 : 0);
     const thr = input.throttle == null ? 1 : input.throttle;   // analog gas (touch slider)
-    const braking = !!(input.brake || pedal) && !reversing;
+    const braking = !!(input.brake || input.handbrake || pedal) && !reversing;
 
     const sinH0 = Math.sin(this.heading), cosH0 = Math.cos(this.heading);
     const HALF_TRACK = WK, HALF_WB = 1.25 * Math.min(1.6, (this.dimLen || 3.6) / 3.6 * 0.85 + 0.15);
@@ -210,15 +210,17 @@ export class Car {
     // ---- steering: quick turn-in, relaxes with speed, handbrake slides -----------------------------------
     const steerEase = 1 - Math.pow(0.00002, dt);
     this.steerAngle += (steerInput - this.steerAngle) * steerEase;
-    const hand = !!input.brake && speedAbs > 7 && Math.abs(this.steerAngle) > 0.15 && !air;
-    this.drifting = hand;
+    const hand = !!(input.brake || input.handbrake) && speedAbs > 7 && Math.abs(this.steerAngle) > 0.15 && !air;
+    // drift circuits: a looser tail, so a hard turn at speed breaks traction on its own (the handbrake makes it slide more)
+    const assist = !!this.driftAssist && !hand && speedAbs > 9 && Math.abs(this.steerAngle) > 0.4 && accelInput > 0 && !air;
+    this.drifting = hand || assist;
     const speedFactor = Math.min(1, speedAbs / 4);
     const relax = 1 / (1 + 1.1 * k * k * 2.2);                           // 1 at crawl -> ~0.45 at top speed
     const hm = (this.handlingMul || 1) * Math.pow(1100 / this.mass, 0.25);   // suspension/tyres, and lighter cars turn in quicker
     // a real car's turning circle: about 6.5 m radius at a walking pace (bicycle model: yaw rate <= speed / radius)
-    const rMin = 5.3 * Math.max(1, (this.dimLen || 3.6) / 3.6) * (hand ? 0.75 : 1) / Math.max(0.7, this.handlingMul || 1) ** 0.5;
-    const turnRate = Math.min(2.45 * hm * relax * (hand ? 1.25 : 1), speedAbs / rMin) * (this.speed < 0 ? -1 : 1);
-    const wMax = (58 * hm * Math.pow(g, 1.5) * (hand ? 1.15 : 1)) / Math.max(speedAbs, 1);
+    const rMin = 5.3 * Math.max(1, (this.dimLen || 3.6) / 3.6) * (hand ? 0.75 : assist ? 0.85 : 1) / Math.max(0.7, this.handlingMul || 1) ** 0.5;
+    const turnRate = Math.min(2.45 * hm * relax * (hand ? 1.25 : assist ? 1.15 : 1), speedAbs / rMin) * (this.speed < 0 ? -1 : 1);
+    const wMax = (58 * hm * Math.pow(g, 1.5) * (hand ? 1.15 : assist ? 1.2 : 1)) / Math.max(speedAbs, 1);
     let w = 0;
     if (!air) w = Math.max(-wMax, Math.min(wMax, this.steerAngle * turnRate));
     this.heading += w * dt;
@@ -227,11 +229,11 @@ export class Car {
     // velocity follows the heading; the lag is the slide
     const fx = Math.sin(this.heading), fz = Math.cos(this.heading);
     if (!air) {
-      const kFollow = hand ? 2.6 : 15 * Math.pow(g, 2.2);
+      const kFollow = hand ? (this.driftAssist ? 1.7 : 2.6) : assist ? 2.0 : this.driftAssist ? 5 * Math.pow(g, 2.2) : 15 * Math.pow(g, 2.2);
       const follow = 1 - Math.exp(-kFollow * dt);
       this.vx += (fx * this.speed - this.vx) * follow;
       this.vz += (fz * this.speed - this.vz) * follow;
-      if (hand) this.speed *= Math.exp(-0.28 * dt);
+      if (hand) this.speed *= Math.exp(-(this.driftAssist ? 0.12 : 0.28) * dt); else if (assist) this.speed *= Math.exp(-0.05 * dt);
     }
     this.x += this.vx * dt;
     this.z += this.vz * dt;

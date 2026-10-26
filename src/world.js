@@ -10,6 +10,7 @@ import { SHOP_KINDS, APARTMENT_TIERS, AGENT_MARKUP, regionOf } from './chicago/c
 import { createFlatLights } from './flatlight.js';
 import { buildInterior, buildStoreInterior, buildGarage, buildGateMesh, garageLayout, garageHeight, pocketOrigin, inPocket, RAMP, bayAt, FINE_SECS } from './estate.js';
 import { createGroundGlow } from './glow.js';
+import { buildKit } from './bodykit.js';
 
 const SAVE_KEY = 'gridlock.world';
 const STARTERS = ['hatch'];   // taxi and bus are jobs now (cab stands, bus depot), not cars you can buy
@@ -21,7 +22,7 @@ const NEONS = [['Pink', 0xff2fa8], ['Cyan', 0x20e8ff], ['Green', 0x38ff6a], ['Vi
 const NITRO_SECS = [0, 4, 7, 10];
 
 const defaultMods = () => ({ paint: null, decal: { type: 'none', color: 0xffffff }, neon: null, xenon: false, nitro: 0, hud: 0,
-  perf: { engine: 0, turbo: 0, gearbox: 0, tires: 0, suspension: 0, brakes: 0, weight: 0, seats: 0, limiter: 0 }, kit: { front: 0, rear: 0, skirts: 0, spoiler: 0, fenders: 0 }, own: {} });
+  perf: { engine: 0, turbo: 0, gearbox: 0, tires: 0, suspension: 0, brakes: 0, weight: 0, seats: 0, limiter: 0 }, kit: { front: 0, rear: 0, skirts: 0, spoiler: 0, fenders: 0, hood: 0 }, own: {} });
 
 function loadSave() {
   let s = null;
@@ -99,6 +100,7 @@ export function createWorld({ city, scene, camera, car, input, heightAt: cityHei
   const modsOf = key => {
     const m = (save.mods[key] ||= defaultMods());
     m.perf = Object.assign({ engine: 0, turbo: 0, gearbox: 0, tires: 0, suspension: 0, brakes: 0, weight: 0, seats: 0, limiter: 0 }, m.perf);   // older saves lack the newer parts
+    m.kit = Object.assign({ front: 0, rear: 0, skirts: 0, spoiler: 0, fenders: 0, hood: 0 }, m.kit);
     return m;
   };
   const garageSlots = () => (city.apartments || []).reduce((n, a) => n + (save.apts[a.id] ? a.garage : 0), 0);
@@ -108,7 +110,9 @@ export function createWorld({ city, scene, camera, car, input, heightAt: cityHei
   const garages = {}, flats = {};
   const aptIdx = a => city.apartments.indexOf(a);
   // ground height for everything that drives or walks: the city sampler, or the garage floor / ramp in the pocket world
+  let arenaH = null;
   function hAt(x, z, refY) {
+    if (x < -6000 && arenaH) { const y = arenaH(x, z); hAt.kind = arenaH.kind; return y; }
     if (inPocket(x)) {
       hAt.kind = 'road';
       let G = null; for (const id in garages) if (Math.abs(x - garages[id].o.x) < 160) { G = garages[id]; break; }
@@ -234,7 +238,7 @@ export function createWorld({ city, scene, camera, car, input, heightAt: cityHei
     const meshes = []; model.traverse(o => { if (o.isMesh && !wheelSet.has(o) && !(o.parent && wheelSet.has(o.parent)) && o.geometry.type !== 'PlaneGeometry') meshes.push(o); });
     const down = new THREE.Vector3(0, -1, 0);
     const heightAtZ = (x, z) => { const h = surfaceHit(model, meshes, new THREE.Vector3(x, 4, z), down); return h ? h.y : null; };
-    const kitMat = new THREE.MeshStandardMaterial({ color: base, roughness: 0.4, metalness: 0.4 });
+    const wz0 = () => (model.userData.wheels || []).map(w => w.position);
     const carbon = new THREE.MeshStandardMaterial({ color: 0x15171b, roughness: 0.5, metalness: 0.3 });
     const add = (geo, mat, x, y, z, rx = 0) => { const o = new THREE.Mesh(geo, mat); o.position.set(x, y, z); o.rotation.x = rx; o.castShadow = true; grp.add(o); return o; };
     // decals: vinyl hugging the real surface (heights sampled with rays)
@@ -259,23 +263,8 @@ export function createWorld({ city, scene, camera, car, input, heightAt: cityHei
         });
       }
     }
-    // body kit
-    const K = m.kit, wz = (model.userData.wheels || []).map(w => w.position);
-    const frontZ = 1.8, rearZ = -1.8;
-    if (K.front) { const w = [0, 1.9, 1.95, 2.0][K.front]; add(new THREE.BoxGeometry(w, 0.07, 0.4 + 0.1 * K.front), carbon, 0, 0.17, frontZ + 0.1); if (K.front >= 2) [-1, 1].forEach(s => add(new THREE.BoxGeometry(0.06, 0.22, 0.5), carbon, s * (w / 2 - 0.05), 0.26, frontZ + 0.08)); if (K.front >= 3) add(new THREE.BoxGeometry(1.2, 0.16, 0.2), carbon, 0, 0.3, frontZ + 0.25); }
-    if (K.rear) { add(new THREE.BoxGeometry(1.8, 0.07, 0.35), carbon, 0, 0.2, rearZ - 0.1); if (K.rear >= 2) for (let i = -2; i <= 2; i++) add(new THREE.BoxGeometry(0.04, 0.22, 0.4), carbon, i * 0.28, 0.28, rearZ - 0.1); }
-    if (K.skirts) [-1, 1].forEach(s => { add(new THREE.BoxGeometry(0.09 + 0.04 * K.skirts, 0.14 + 0.05 * K.skirts, 2.05), kitMat, s * 0.99, 0.2, 0); });
-    if (K.fenders) wz.forEach(p => {
-      const s = Math.sign(p.x) || 1, r = (model.userData.wheelR || 0.38) + 0.07 + 0.03 * K.fenders;
-      const arch = new THREE.Mesh(new THREE.TorusGeometry(r, 0.045 * K.fenders + 0.03, 6, 18, Math.PI), kitMat);
-      arch.rotation.y = Math.PI / 2; arch.position.set(s * (Math.abs(p.x) + 0.1 + 0.04 * K.fenders), p.y, p.z); arch.castShadow = true; grp.add(arch);
-    });
-    if (K.spoiler) {
-      const zr = rearZ + 0.28, y0 = heightAtZ(0, zr) ?? 1.0, y = y0 + [0, 0.07, 0.12, 0.4, 0.62][K.spoiler];
-      add(new THREE.BoxGeometry(1.7, 0.05, K.spoiler === 2 ? 0.28 : 0.4), K.spoiler === 1 ? kitMat : carbon, 0, y, zr - 0.05, K.spoiler >= 3 ? -0.12 : 0.15);
-      if (K.spoiler >= 3) [-1, 1].forEach(s => add(new THREE.BoxGeometry(0.06, y - y0 + 0.02, 0.12), carbon, s * 0.6, y0 + (y - y0) / 2, zr));
-      if (K.spoiler >= 3) [-1, 1].forEach(s => add(new THREE.BoxGeometry(0.04, 0.2, 0.46), carbon, s * 0.86, y, zr - 0.05));
-    }
+    // body kit (bodykit.js)
+    grp.add(buildKit(m.kit, { base, heightAtZ, wheels: wz0(), wheelR: model.userData.wheelR || 0.38 }));
     // neon underglow, xenon headlights
     if (m.neon != null) { neonMesh.material.color.setHex(m.neon); neonMesh.material.opacity = 0.9; neonMesh.visible = true; } else neonMesh.visible = false;
     const xen = m.xenon;
@@ -887,7 +876,7 @@ export function createWorld({ city, scene, camera, car, input, heightAt: cityHei
     }
     // body kit shop
     const slots = [['front', 'Front bumper', ['Stock', 'Lip splitter', 'Sport bumper', 'Aggressive bumper'], [0, 350, 600, 900]], ['rear', 'Rear bumper', ['Stock', 'Diffuser', 'Race diffuser'], [0, 400, 700]],
-      ['skirts', 'Side skirts', ['Stock', 'Sport skirts', 'GT skirts'], [0, 300, 550]], ['spoiler', 'Spoiler', ['None', 'Lip', 'Ducktail', 'GT wing', 'Tall wing'], [0, 250, 450, 800, 1100]], ['fenders', 'Fender flares', ['Stock', 'Mild flares', 'Wide body'], [0, 500, 900]]];
+      ['skirts', 'Side skirts', ['Stock', 'Sport skirts', 'GT skirts'], [0, 300, 550]], ['spoiler', 'Spoiler', ['None', 'Lip', 'Ducktail', 'GT wing', 'Tall race wing'], [0, 250, 450, 800, 1100]], ['fenders', 'Fender flares', ['Stock', 'Bolt-on flares', 'Wide body'], [0, 500, 900]], ['hood', 'Hood', ['Stock', 'Louvred vents', 'Power scoop', 'Carbon vented bonnet'], [0, 300, 550, 950]]];
     const rows = [];
     slots.forEach(([slot, label, names, prices]) => {
       rows.push({ hint: label });
@@ -1182,7 +1171,7 @@ export function createWorld({ city, scene, camera, car, input, heightAt: cityHei
     get onFoot() { return onFoot; },
     get modal() { return !!modal; },
     focus() { return onFoot ? foot : car; },
-    setDestinations: fn => { extraDest = fn; }, heightAt: hAt, get mode() { return mode; }, pocketWall: (x, z) => mode === 'garage' && !!cur && !!cur.g && (garageHeight(cur.g.lay, x - cur.o.x, z - cur.o.z) == null || rectHit(cur.g.solids, x - cur.o.x, z - cur.o.z, 0)), get _dbg() { return { mode, cur, fleet, foot, targets: local.slice() }; },
+    setDestinations: fn => { extraDest = fn; }, heightAt: hAt, setArena: fn => { arenaH = fn; }, get mode() { return mode; }, pocketWall: (x, z) => mode === 'garage' && !!cur && !!cur.g && (garageHeight(cur.g.lay, x - cur.o.x, z - cur.o.z) == null || rectHit(cur.g.solids, x - cur.o.x, z - cur.o.z, 0)), get _dbg() { return { mode, cur, fleet, foot, targets: local.slice() }; },
     carClassInfo: () => { const st = CAR_STYLES.find(c => c.key === car.styleKey) || CAR_STYLES[0]; return carClass(st.cls, modsOf(car.styleKey)); }, persist, setBlocked: fn => { blockedFn = fn; }, escAt: () => escAt, ownedCars, applyMods, openModal, closeModal, act, updateModal, updateCamera, mapMarkers, beforeCar, save,
     update(dt) {
       markerAnim(dt);

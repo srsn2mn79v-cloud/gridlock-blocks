@@ -7,6 +7,7 @@
 //   node tools/check.mjs bridges    no bridge pillar stands in a lane; low ramps have walls; freeway lanes are clear
 //   node tools/check.mjs solid      every object a car can see is solid (and a rammed collider really stops the car)
 //   node tools/check.mjs water      no road surface lies under water without a bridge
+//   node tools/check.mjs drift      the three drift circuits: corner radius, walls, start
 //   node tools/check.mjs all
 // Exit code 1 if anything fails. Add new checks to CHECKS below.
 import { fileURLToPath, pathToFileURL } from 'node:url';
@@ -296,7 +297,19 @@ async function checkCovered() {
   return { name: 'covered', count: n + ' sample points', bad };
 }
 
-const CHECKS = { covered: checkCovered,  signs: checkSigns, lamps: checkLamps, buildings: checkBuildings, traffic: () => checkTraffic(+process.argv[3] || 40, +process.argv[4] || 5), markings: checkMarkings, bridges: checkBridges, solid: checkSolid, water: checkWater };
+// drift circuits: corners wide enough to drift (radius >= 35 u), walls clear of the road, tracks far from each other and from the city
+async function checkDrift() {
+  const { createDriftTracks } = await imp('src/driftTrack.js');
+  const d = createDriftTracks({ scene: new THREE.Scene() }), bad = [];
+  d.tracks.forEach(t => {
+    if (t.minR < 35) bad.push(t.id + ' tightest corner ' + t.minR + ' u');
+    let close = 0; t.wall.forEach(w => { if (t.distFrom(w.x, w.z) < t.width / 2 + 3) close++; }); if (close) bad.push(t.id + ': ' + close + ' wall posts inside the track');
+    if (t.length < 700 || t.length > 2200) bad.push(t.id + ' lap ' + t.length + ' m');
+    if (d.heightAt(t.pts[0][0], t.pts[0][1]) !== 0 || d.heightAt.kind !== 'road') bad.push(t.id + ' start is not road');
+  });
+  return { name: 'drift', count: d.tracks.length + ' circuits', bad };
+}
+const CHECKS = { drift: checkDrift, covered: checkCovered,  signs: checkSigns, lamps: checkLamps, buildings: checkBuildings, traffic: () => checkTraffic(+process.argv[3] || 40, +process.argv[4] || 5), markings: checkMarkings, bridges: checkBridges, solid: checkSolid, water: checkWater };
 const which = process.argv[2] || 'all';
 const list = which === 'all' ? Object.keys(CHECKS) : [which];
 let failed = 0;

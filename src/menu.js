@@ -85,7 +85,7 @@ export function createMenu({ settings, limits, onChange, onOpenChange , ownedCar
   root.innerHTML = `
     <div class="panel">
       <h2>Settings</h2>
-      <div class="tabs"><button data-tab="game" class="on">Game</button><button data-tab="gfx">Graphics</button></div>
+      <div class="tabs"><button data-tab="game" class="on">Game</button><button data-tab="gfx">Graphics</button><button data-tab="save">Save</button></div>
       <div class="tab" data-tab="game">
       <div class="carbox">
         <button class="arrow l" data-d="-1">◀</button>
@@ -129,6 +129,14 @@ export function createMenu({ settings, limits, onChange, onOpenChange , ownedCar
           <button class="toggle" data-t="fx">🎬 Cinematic FX (sun shafts, speed blur, grade)</button>
         </div>
         <div class="note">Ambient occlusion is the heaviest option - leave it Off or Low on a phone. Texture quality changes the asphalt, ground and building-window detail. Bloom adds the glow around lights.</div>
+      </div>
+      <div class="tab" data-tab="save" hidden>
+        <div class="note" id="saveInfo"></div>
+        <div class="toggles"><button class="toggle" id="saveExport">⬇️ Download backup</button><button class="toggle" id="saveImport">⬆️ Load backup</button></div>
+        <input type="file" id="saveFile" accept="application/json,.json" hidden>
+        <div class="toggles"><button class="toggle" id="saveReset">🗑 Start over (erase progress)</button></div>
+        <div class="note" id="saveMsg"></div>
+        <div class="note">The game saves by itself every time you buy something, finish a race or earn money. The save lives in this browser on this device: the Safari tab and the home-screen app each keep their own, and clearing website data deletes it. Download a backup to move your progress to another device or keep it safe.</div>
       </div>
       <button class="close">Resume</button>
       <small>M or Esc toggles this menu</small>
@@ -176,6 +184,39 @@ export function createMenu({ settings, limits, onChange, onOpenChange , ownedCar
     root.querySelectorAll('.tabs button').forEach(x => x.classList.toggle('on', x === b));
     root.querySelectorAll('.tab').forEach(t => { t.hidden = t.dataset.tab !== b.dataset.tab; });
   }));
+  // ---- save / backup -------------------------------------------------------------------------------
+  const saveKeys = () => { const k = []; try { for (let i = 0; i < localStorage.length; i++) { const n = localStorage.key(i); if (n && (n.startsWith('gridlock'))) k.push(n); } } catch (e) { /* private mode */ } return k; };
+  function saveInfo() {
+    let w = {}; try { w = JSON.parse(localStorage.getItem('gridlock.world') || '{}'); } catch (e) { /* ignore */ }
+    const cash = Number(localStorage.getItem('gridlock.cash') || 0), races = Object.keys(w.races || {}).filter(k => (w.races[k] || {}).plays).length;
+    $('#saveInfo').textContent = `Saved: $${cash.toLocaleString('en-US')} · ${(w.bought || []).length + 1} car(s) · ${Object.keys(w.apts || {}).length} apartment(s) · ${races} race(s) played`;
+  }
+  const $s = id => root.querySelector(id);
+  $s('#saveExport').addEventListener('click', () => {
+    const data = { game: 'gridlock-blocks', version: 1, saved: new Date().toISOString(), keys: {} };
+    saveKeys().forEach(k => { data.keys[k] = localStorage.getItem(k); });
+    const a = document.createElement('a'); a.href = URL.createObjectURL(new Blob([JSON.stringify(data)], { type: 'application/json' }));
+    a.download = 'gridlock-save-' + new Date().toISOString().slice(0, 10) + '.json'; document.body.appendChild(a); a.click(); a.remove();
+    $s('#saveMsg').textContent = 'Backup downloaded.';
+  });
+  $s('#saveImport').addEventListener('click', () => $s('#saveFile').click());
+  $s('#saveFile').addEventListener('change', e => {
+    const f = e.target.files[0]; if (!f) return;
+    f.text().then(t => {
+      const d = JSON.parse(t); if (d.game !== 'gridlock-blocks' || !d.keys) throw new Error('not a Gridlock save');
+      Object.keys(d.keys).forEach(k => { if (k.startsWith('gridlock') && typeof d.keys[k] === 'string') localStorage.setItem(k, d.keys[k]); });
+      $s('#saveMsg').textContent = 'Backup loaded - restarting...'; setTimeout(() => location.reload(), 600);
+    }).catch(err => { $s('#saveMsg').textContent = 'Could not load that file: ' + err.message; });
+    e.target.value = '';
+  });
+  let resetArmed = 0;
+  $s('#saveReset').addEventListener('click', () => {
+    if (!resetArmed || Date.now() - resetArmed > 5000) { resetArmed = Date.now(); $s('#saveMsg').textContent = 'Tap "Start over" again within 5 seconds to erase your money, cars and race progress.'; return; }
+    saveKeys().filter(k => k !== STORE).forEach(k => localStorage.removeItem(k)); location.reload();
+  });
+  root.querySelectorAll('.tabs button').forEach(b => b.addEventListener('click', () => { if (b.dataset.tab === 'save') saveInfo(); }));
+  try { navigator.storage && navigator.storage.persist && navigator.storage.persist(); } catch (e) { /* ignore */ }
+
   root.querySelectorAll('.arrow').forEach(b => b.addEventListener('click', () => {
     const list = ownedCars ? ownedCars() : CAR_STYLES.map(c => c.key);
     const i = Math.max(0, list.indexOf(settings.car));

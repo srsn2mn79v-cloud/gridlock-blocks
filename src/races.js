@@ -135,15 +135,19 @@ export function planRaces(city, districtName = () => 'City', transit = null) {
     }
   }
 
-  // --- drift zones: wide junctions ------------------------------------------------------------------------------------------------
+  // --- drift events: a gate at a junction; the event itself runs on one of the three circuits outside the city (driftTrack.js) ----
+  const TRACKS = [['rect', 'Block Loop'], ['esses', 'Serpent'], ['tri', 'Delta']];
   const wide = hubs.filter(id => adj[id].some(a => a.e.width >= 16)).sort(() => rand() - 0.5);
+  const rest = hubs.filter(id => !wide.includes(id)).sort(() => rand() - 0.5);
   let nD = 0;
-  for (const h of wide) {
-    if (nD >= 2) break;
-    const s = nodes[h]; if (!farFromOthers(s.x, s.z, 260)) continue;
-    const dir = adj[h][0], o = nodes[dir.to], l = Math.hypot(o.x - s.x, o.z - s.z) || 1;
-    races.push({ kind: 'drift', id: 'drift' + nD, name: label(s.x, s.z) + ' Drift', pts: [[s.x, s.z], [s.x + (o.x - s.x) / l * 8, s.z + (o.z - s.z) / l * 8]], length: 0, width: 16, checkpoints: [], zone: { x: s.x, z: s.z, r: 62 }, timeLimit: 75 });
-    starts.push([s.x, s.z]); nD++;
+  for (const gap of [260, 160, 90]) {
+    for (const h of wide.concat(rest)) {
+      if (nD >= TRACKS.length) break;
+      const s = nodes[h]; if (!farFromOthers(s.x, s.z, gap) || races.some(r => r.kind === 'drift' && Math.hypot(r.zone.x - s.x, r.zone.z - s.z) < gap)) continue;
+      const dir = adj[h][0], o = nodes[dir.to], l = Math.hypot(o.x - s.x, o.z - s.z) || 1;
+      races.push({ kind: 'drift', id: 'drift' + nD, track: TRACKS[nD][0], name: TRACKS[nD][1] + ' Drift', pts: [[s.x, s.z], [s.x + (o.x - s.x) / l * 8, s.z + (o.z - s.z) / l * 8]], length: 0, width: 16, checkpoints: [], zone: { x: s.x, z: s.z, r: 20 }, timeLimit: 90 });
+      starts.push([s.x, s.z]); nD++;
+    }
   }
   // difficulty class: F (easier, slower rivals, smaller purse) and E (faster rivals, bigger purse) alternate within each kind
   const seen = {};
@@ -152,7 +156,7 @@ export function planRaces(city, districtName = () => 'City', transit = null) {
 }
 
 // ---- the game side ---------------------------------------------------------------------------------------------------------------------
-export function createRaces({ city, scene, heightAt, car, world, districtName, transit = null }) {
+export function createRaces({ city, scene, heightAt, car, world, districtName, transit = null, arena = null, collisionWorld = null }) {
   const plan = planRaces(city, districtName, transit);
   const save = (world.save.races ||= {});
   const persist = () => world.persist && world.persist();
@@ -187,7 +191,7 @@ export function createRaces({ city, scene, heightAt, car, world, districtName, t
     const px = -r.start.dz, pz = r.start.dx;      // across the track
     // local z runs down the track, local x across it
     // no poles: the banner floats high above the road, so nothing is in the way when you drive past
-    const face = new THREE.MeshBasicMaterial({ map: labelTex(K.name.toUpperCase() + (r.kind === 'drift' ? ' ZONE' : ' RACE'), K.color) });
+    const face = new THREE.MeshBasicMaterial({ map: labelTex(K.name.toUpperCase() + (r.kind === 'drift' ? ' CIRCUIT' : ' RACE'), K.color) });
     const banner = new THREE.Mesh(new THREE.BoxGeometry(hw * 2, 1.7, 0.18), [postMat, postMat, postMat, postMat, face, face]);
     banner.position.set(0, 8.2, 0); gate.add(banner);
     const ring = new THREE.Mesh(new THREE.TorusGeometry(2.2, 0.22, 10, 28), new THREE.MeshBasicMaterial({ color: K.hex }));
@@ -272,13 +276,22 @@ export function createRaces({ city, scene, heightAt, car, world, districtName, t
     document.documentElement.style.setProperty('--race', K.color);
     let x = r.start.x, z = r.start.z, h = r.start.heading;
     if (r.kind === 'drag' || r.kind === 'circuit' || r.kind === 'sprint') { const p = ptAt(r.pts, 0), px = -p.dz; x += px * Math.min(1.6, r.width / 5); z += p.dx * Math.min(1.6, r.width / 5); }
-    car.teleport(x, z, heightAt(x, z), h);
-    car.speed = 0;
+    if (r.track && arena) {
+      const T = arena.byId(r.track); run.T = T; arena.activate(T, collisionWorld);
+      car.driftAssist = true;
+      x = T.start.x; z = T.start.z; h = T.start.heading;
+      car.teleport(x, z, 0, h);
+    } else car.teleport(x, z, heightAt(x, z), h);
+    car.speed = 0; car.vx = 0; car.vz = 0;
     quitBtn.style.display = 'block'; hud.style.display = 'block'; promptEl.style.display = 'none';
     world.toast(K.name + ' - ' + r.name);
   }
   function end(reason) {
     if (!run) return;
+    if (run.r.track && arena) {      // back to the gate in the city
+      arena.deactivate(collisionWorld); car.driftAssist = false;
+      const g = run.r.start; car.teleport(g.x + g.dx * 12, g.z + g.dz * 12, heightAt(g.x, g.z), g.heading); car.speed = 0; car.vx = 0; car.vz = 0;
+    }
     run = null; hud.style.display = 'none'; countEl.style.display = 'none'; quitBtn.style.display = 'none';
     rings.forEach(m => { m.visible = false; }); beacon.visible = false; guide.visible = false; zoneRing.visible = false; ghostMeshes.forEach(m => { m.visible = false; });
     if (reason) world.toast(reason);
@@ -410,8 +423,9 @@ export function createRaces({ city, scene, heightAt, car, world, districtName, t
 
   function driftStep(dt) {
     const { r } = run, t = run.t, left = r.timeLimit - t;
-    zoneRing.visible = true; zoneRing.position.set(r.zone.x, heightAt(r.zone.x, r.zone.z) + 0.2, r.zone.z); zoneRing.scale.setScalar(r.zone.r);
-    const sp = Math.hypot(car.vx, car.vz), inZone = Math.hypot(car.x - r.zone.x, car.z - r.zone.z) < r.zone.r;
+    const T = run.T;
+    if (T) zoneRing.visible = false; else { zoneRing.visible = true; zoneRing.position.set(r.zone.x, heightAt(r.zone.x, r.zone.z) + 0.2, r.zone.z); zoneRing.scale.setScalar(r.zone.r); }
+    const sp = Math.hypot(car.vx, car.vz), inZone = T ? T.inTrack(car.x, car.z, 3) : Math.hypot(car.x - r.zone.x, car.z - r.zone.z) < r.zone.r;
     let slip = 0;
     if (sp > 6) { const fx = Math.sin(car.heading), fz = Math.cos(car.heading), vx = car.vx / sp, vz = car.vz / sp; slip = Math.abs(Math.atan2(fx * vz - fz * vx, fx * vx + fz * vz)); if (car.speed < -1) slip = 0; }
     const sliding = sp > 8 && slip > 0.2 && inZone && !car.airborne;
@@ -428,7 +442,7 @@ export function createRaces({ city, scene, heightAt, car, world, districtName, t
         run.chain = 0; run.chainT = 0; run.mult = 1;
       }
     }
-    hud.innerHTML = `<div class="big">${Math.round(run.bank + (run.chain * run.mult)).toLocaleString('en-US')} pts</div><small>${run.chain > 0 ? 'chain ' + Math.round(run.chain) + ' &times; ' + run.mult.toFixed(1) : (run.lost || 'drift: handbrake + steer')} &middot; ${Math.max(0, Math.ceil(left))} s${inZone ? '' : ' &middot; GET BACK IN THE RING'}</small>`;
+    hud.innerHTML = `<div class="big">${Math.round(run.bank + (run.chain * run.mult)).toLocaleString('en-US')} pts</div><small>${run.chain > 0 ? 'chain ' + Math.round(run.chain) + ' &times; ' + run.mult.toFixed(1) : (run.lost || (T ? 'drift: turn hard on the gas, tap handbrake' : 'drift: handbrake + steer'))} &middot; ${Math.max(0, Math.ceil(left))} s${inZone ? '' : (T ? ' &middot; BACK ON THE TRACK' : ' &middot; GET BACK IN THE RING')}</small>`;
     if (left <= 0) { if (run.chain > 0) run.bank += run.chain * run.mult; finish(run.bank); }
   }
 

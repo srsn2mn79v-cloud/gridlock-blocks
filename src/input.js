@@ -79,13 +79,15 @@ export function createInput() {
       #touch .wheel .hint { font-size: 11px; opacity: .6; pointer-events: none; }
       #touch .wheel .knob { position: absolute; left: calc(50% - 30px); top: 18px; width: 60px; height: 60px; border-radius: 50%; background: rgba(230,240,255,.55); pointer-events: none; }
       #touch .wheel.down .knob { background: rgba(110,170,240,.9); }
+      #touch .hand { left: max(18px, env(safe-area-inset-left)); bottom: calc(max(22px, env(safe-area-inset-bottom)) + 112px); width: 96px; height: 52px; font-size: 14px; letter-spacing: .5px; }
+      #touch .hand.down { background: rgba(255,150,40,.75); }
       #touch .gas { right: max(18px, env(safe-area-inset-right)); bottom: calc(max(22px, env(safe-area-inset-bottom)) + 74px); width: min(24vw, 110px); min-width: 84px; height: min(40vh, 190px); overflow: hidden; align-items: flex-start; justify-content: center; }
       #touch .gas .fill { position: absolute; left: 0; right: 0; bottom: 0; height: 0; background: rgba(80,200,120,.55); pointer-events: none; }
       #touch .gas .lbl { position: relative; margin-top: 10px; font-size: 16px; text-align: center; pointer-events: none; }
       html.touch #hud small { display: none; }
       #touch .ft { display: none; }
       #touch.foot .ft { display: block; }
-      #touch.foot .tb.wheel, #touch.foot .tb.gas, #touch.foot .tb.pedal { display: none; }
+      #touch.foot .tb.wheel, #touch.foot .tb.gas, #touch.foot .tb.pedal, #touch.foot .tb.hand { display: none; }
       #touch .stick { position: absolute; bottom: max(26px, env(safe-area-inset-bottom)); width: 150px; height: 150px; border-radius: 50%; pointer-events: auto; touch-action: none; background: rgba(20,26,34,0.45); border: 2px solid rgba(190,210,235,0.35); }
       #touch .stick .knob { position: absolute; left: 45px; top: 45px; width: 60px; height: 60px; border-radius: 50%; background: rgba(230,240,255,.6); pointer-events: none; }
       #touch .stick.down { background: rgba(80,150,230,0.4); } #touch .stick .cap { position: absolute; left: 0; right: 0; top: -20px; text-align: center; font-size: 11px; color: #cfe0f5; opacity: .75; pointer-events: none; }
@@ -174,6 +176,8 @@ export function createInput() {
     // Brake/reverse: like the S/Down key, brakes first and only reverses once nearly stopped.
     holdButton('BRAKE', 'back', 'pedal brake', { bottom: 'max(22px, env(safe-area-inset-bottom))', height: 'min(14vw, 84px)', minHeight: '60px' });
 
+    // handbrake: throws the tail out for drifting (the keyboard's Space while on the gas)
+    holdButton('HANDBRAKE', 'handbrake', 'hand', {});
     toggleButton('◀ind', 'blinkerLeft', { top: 'calc(max(12px, env(safe-area-inset-top)) + 58px)', right: 'calc(max(12px, env(safe-area-inset-right)) + 120px)' });
     toggleButton('ind▶', 'blinkerRight', { top: 'calc(max(12px, env(safe-area-inset-top)) + 58px)', right: 'calc(max(12px, env(safe-area-inset-right)) + 60px)' });
     toggleButton('💡', 'lightsOn', { top: 'calc(max(12px, env(safe-area-inset-top)) + 58px)', right: 'max(12px, env(safe-area-inset-right))' });

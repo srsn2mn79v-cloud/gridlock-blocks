@@ -378,6 +378,40 @@ const builders = {
   trafficlight: trafficLightMesh, oneway: onewaySignMesh
 };
 
+// Neon signs: each word is drawn once into a glowing-tube texture; every sign is an instanced quad tinted with its own colour.
+// One draw call per word (12) however many signs there are. main.js fades the whole set in with the night (userData.mats).
+function neonTexture(word, blade) {
+  const c = document.createElement('canvas'), W = blade ? 64 : 256, H = blade ? 256 : 96; c.width = W; c.height = H;
+  const g = c.getContext('2d'); g.textAlign = 'center'; g.textBaseline = 'middle'; g.lineJoin = 'round';
+  const draw = (txt, x, y, size) => {
+    g.font = '900 ' + size + 'px "Arial Black", system-ui, sans-serif';
+    g.shadowColor = '#fff'; g.shadowBlur = 14; g.strokeStyle = 'rgba(255,255,255,0.35)'; g.lineWidth = 9; g.strokeText(txt, x, y);
+    g.shadowBlur = 0; g.strokeStyle = '#fff'; g.lineWidth = 3; g.strokeText(txt, x, y);
+    g.fillStyle = 'rgba(255,255,255,0.5)'; g.fillText(txt, x, y);
+  };
+  if (blade) { const ch = word.split(''); const step = H / (ch.length + 0.6); ch.forEach((t, i) => draw(t, W / 2, step * (i + 0.8), Math.min(52, step * 0.95))); }
+  else draw(word, W / 2, H / 2, 64);
+  g.strokeStyle = '#fff'; g.lineWidth = 4; g.strokeRect(5, 5, W - 10, H - 10);
+  const t = new THREE.CanvasTexture(c); t.colorSpace = THREE.SRGBColorSpace; return t;
+}
+function buildNeonSigns(list) {
+  const g = new THREE.Group(), mats = [], byKey = new Map();
+  list.forEach(p => { const k = p.word + (p.blade ? '|b' : ''); (byKey.get(k) || byKey.set(k, []).get(k)).push(p); });
+  const m = new THREE.Matrix4(), q = new THREE.Quaternion(), sc = new THREE.Vector3(), pos = new THREE.Vector3(), col = new THREE.Color(), up = new THREE.Vector3(0, 1, 0);
+  const geo = new THREE.PlaneGeometry(1, 1);
+  byKey.forEach((arr, k) => {
+    const mat = new THREE.MeshBasicMaterial({ map: neonTexture(arr[0].word, arr[0].blade), transparent: true, blending: THREE.AdditiveBlending, depthWrite: false, toneMapped: false, opacity: 0, side: THREE.DoubleSide });
+    const im = new THREE.InstancedMesh(geo, mat, arr.length);
+    arr.forEach((p, i) => {
+      q.setFromAxisAngle(up, (p.rotation || 0) * Math.PI / 180); sc.set(p.w, p.h, 1); pos.set(p.x, p.y + p.h / 2, p.z);
+      m.compose(pos, q, sc); im.setMatrixAt(i, m); col.setHex(p.color).multiplyScalar(2.2); im.setColorAt(i, col);
+    });
+    im.frustumCulled = false; im.renderOrder = 3; g.add(im); mats.push(mat);
+  });
+  g.userData = { mats };
+  return g;
+}
+
 // Pedestrian path lights: ~2.6 m posts with a warm lantern head, instanced (3 draw calls for all of them) plus a soft glow
 // pool on the ground. main.js sets userData.lensMat.emissiveIntensity / glowMat.opacity from the time of day.
 function buildPathLights(list) {
@@ -412,6 +446,7 @@ export function buildProps(cityData) {
   const parked = [];
   const statics = [];
   const pathLights = [];
+  const neonSigns = [];
   (cityData.props || []).forEach((p, i) => {
     if (p.type === 'parkedcar') {
       // drawn together as instanced meshes below; still gets a collider via the instance record
@@ -421,6 +456,7 @@ export function buildProps(cityData) {
       return;
     }
     if (p.type === 'pathlight') { pathLights.push(p); return; }
+    if (p.type === 'neonsign') { neonSigns.push(p); return; }
     const build = builders[p.type] || treeMesh;
     const mesh = build(p);
     if (COLLAPSE_TYPES.has(p.type)) collapse(mesh);
@@ -443,6 +479,7 @@ export function buildProps(cityData) {
   });
   if (parked.length) { const pg = buildParkedCars(parked); group.add(pg); group.userData.parkedHandles = pg.userData.handles; }
   if (statics.length) group.add(mergeStaticProps(statics));
+  if (neonSigns.length) { const ns = buildNeonSigns(neonSigns); group.add(ns); group.userData.neon = ns.userData; }
   if (pathLights.length) { const pl = buildPathLights(pathLights); group.add(pl); group.userData.pathLights = pl.userData; }
   return { group, instances };
 }

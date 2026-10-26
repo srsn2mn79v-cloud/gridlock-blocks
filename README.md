@@ -720,3 +720,11 @@ function per new type) whenever you want it — say the word and I'll add them.
 ## Batch: signals, spray (2026-10-26)
 - Traffic lights: green 7 s, yellow 2 s, and 4 s of all-red between one direction ending and the other starting (was 1.5 s).
 - Spray: water thrown from the wheels when driving through the rain puddles (same noise as the road shader's puddles), and powder kicked up on snow-covered roads. Not shown under cover.
+
+## Batch: drift circuits, bodykits, night look, save (2026-10-26)
+- **Drift events** now run on three closed circuits outside the city (`src/driftTrack.js`): Block Loop (rectangle), Serpent (S-bends), Delta (triangle). The three drift gates in the city teleport you to the grid; finishing or quitting (Backspace / Quit) puts you back at the gate. Tyre walls (collide only while a track is in use), kerbs, floodlights.
+- **Drift handling** (`car.driftAssist`, only on the circuits): a hard turn at speed on the gas breaks traction by itself (about 25 degrees of slide, was 7), and the handbrake slides further. Phones get a HANDBRAKE button (left, above the steering wheel).
+- **Save**: progress already saved to localStorage (money, cars, mods, race results, flats). Settings -> Save adds a downloadable backup file, loading a backup and a start-over button; the game also asks the browser to keep the data.
+- **Body kits** rebuilt (`src/bodykit.js`): splitter, sport and aggressive front chins with intakes and canards, ground-effect skirts, bolt-on and wide-body arches, vented / scooped / carbon hoods, diffusers with twin pipes, lip, ducktail, GT wing and tall race wing on stands.
+- **Night look**: cool violet shadows, warm highlights, more contrast and saturation, stronger bloom; neon signs on tall buildings (instanced, 12 words), spawn point moved next to apartment garages, puddle spray smaller and greyer.
+- **Performance**: far lamps / signal heads / signs are hidden beyond ~55% of the view distance (about 100 fewer draw calls at the spawn); neon signs and path lights are instanced; defaults on phones are already gentler (no AO, 75% resolution, medium textures).

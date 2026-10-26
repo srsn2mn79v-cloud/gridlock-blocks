@@ -79,13 +79,13 @@ export function createPuffs({ scene, heightAt, renderer }) {
           if (raining || wet > 0.25) {
             const pm = puddleAt(car.x, car.z, wet);
             if (pm > 0.25) {
-              splashAcc += dt * Math.min(140, 18 * mph) * pm;
+              splashAcc += dt * Math.min(200, 26 * mph) * pm;
               while (splashAcc >= 1) {
                 splashAcc -= 1;
                 const side = Math.random() < 0.5 ? 1 : -1, lz = Math.random() < 0.6 ? 1.3 : -1.3, lx = 0.95 * side;
                 const x = car.x + sh * lz + ch * lx, z = car.z + ch * lz - sh * lx, y = heightAt(x, z, car.y) + 0.15;
-                const out = (1.5 + Math.random() * 2.5) * side;
-                smoke.emit({ x, y, z, vx: (car.vx || 0) * 0.5 + ch * out + rnd() * 0.8, vy: 1.8 + Math.random() * 2.6, vz: (car.vz || 0) * 0.5 - sh * out + rnd() * 0.8, life: 0.45 + Math.random() * 0.4, s0: 0.22, s1: 0.9 + Math.random() * 0.5, a: 0.5, r: 0.82, g: 0.9, b: 1.0, drag: 0.965, grav: 11 });
+                const out = (1.2 + Math.random() * 2.0) * side;
+                smoke.emit({ x, y, z, vx: (car.vx || 0) * 0.5 + ch * out + rnd() * 0.8, vy: 1.4 + Math.random() * 2.0, vz: (car.vz || 0) * 0.5 - sh * out + rnd() * 0.8, life: 0.3 + Math.random() * 0.25, s0: 0.07, s1: 0.2 + Math.random() * 0.12, a: 0.38, r: 0.5, g: 0.54, b: 0.58, drag: 0.97, grav: 24 });
               }
             }
           }

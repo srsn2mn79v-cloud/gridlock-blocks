@@ -498,6 +498,29 @@ export function buildChicago() {
     });
   });
   props.push(...parked);
+
+  // neon signs: glowing words and blade signs on the street-facing walls of the taller buildings (drawn as a few instanced quads, props.js)
+  const NEON_WORDS = ['BAR', 'CLUB', 'OPEN', 'RAMEN', 'PIZZA', 'ARCADE', 'HOTEL', 'TUNE', 'LIVE', '24H', 'DINER', 'SUSHI'];
+  const NEON_COLS = [0xff2fa8, 0x20e8ff, 0xff7a1a, 0x38ff6a, 0xa14bff, 0xff3b3b, 0xffe14a];
+  let nNeon = 0;
+  parcels.forEach(q => {
+    if (q.type !== 'building' || q.height < 12 || q.landmark || rand() > 0.3 || nNeon > 900) return;
+    const f = q.footprint, x0 = Math.min(f[0][0], f[2][0]), x1 = Math.max(f[0][0], f[2][0]), z0 = Math.min(f[0][1], f[2][1]), z1 = Math.max(f[0][1], f[2][1]);
+    const sides = [[0, -1, z0, x0, x1, true], [0, 1, z1, x0, x1, true], [-1, 0, x0, z0, z1, false], [1, 0, x1, z0, z1, false]];
+    let best = null, bd = 1e9;
+    sides.forEach(sd => { const [nx, nz, c, a0, a1, alongX] = sd, m = (a0 + a1) / 2, px = alongX ? m : c, pz = alongX ? c : m; const d = roadClear(px + nx * 5, pz + nz * 5); if (d < bd) { bd = d; best = sd; } });
+    if (!best || bd > 9) return;
+    const [nx, nz, c, a0, a1, alongX] = best, span = a1 - a0; if (span < 9) return;
+    const count = 1 + (span > 26 && rand() < 0.6 ? 1 : 0);
+    for (let k = 0; k < count; k++) {
+      const blade = rand() < 0.4, w = blade ? 2.0 : 4.6 + rand() * 4, h = blade ? 6 : 2.0 + rand() * 1.1;
+      const t = a0 + 3 + (span - 6) * (count === 1 ? rand() : (k + 0.5) / count), y = blade ? 6 + rand() * 4 : 4.5 + rand() * (Math.min(q.height - 5, 16) - 4.5);
+      if (y + h > q.height - 0.5) continue;
+      const px = alongX ? t : c + nx * 0.2, pz = alongX ? c + nz * 0.2 : t;
+      if (roadClear(px + nx * 3, pz + nz * 3) < 0) continue;
+      props.push({ type: 'neonsign', x: r2(px), z: r2(pz), y: r2(y), rotation: Math.round(Math.atan2(nx, nz) * 180 / Math.PI), w: r2(w), h: r2(h), blade, word: pick(NEON_WORDS), color: pick(NEON_COLS) }); nNeon++;
+    }
+  });
   // keep every garage entrance clear: nothing stands on the driveway
   apartments.forEach(a => { const g = a.gate; for (let i = props.length - 1; i >= 0; i--) { const q = props[i]; if (q.type === 'trafficlight') continue; const dx = q.x - g.x, dz = q.z - g.z, along = dx * g.nx + dz * g.nz, lat = dx * g.ux + dz * g.uz; if (along > -1.5 && along < 12 && Math.abs(lat) < 3.8) props.splice(i, 1); } });
 
@@ -511,7 +534,16 @@ export function buildChicago() {
   // ---------------------------------------------------------------- gameplay: spawn on Michigan-ish street downtown + checkpoints
   const spawnPt = T(440, 896);
   let spawnNode = null, sd = 1e9;
-  Object.keys(nodes).forEach(id => { const d = dist([nodes[id].x, nodes[id].z], spawnPt); if (d < sd && byNode[id] && byNode[id].length >= 3) { sd = d; spawnNode = id; } });
+  // start at a junction with several apartment garages close by (so the first thing you can do is visit one), still downtown
+  const gateXZ = apartments.map(a => [a.gate.x, a.gate.z]);
+  Object.keys(nodes).forEach(id => {
+    const n = nodes[id]; if (!byNode[id] || byNode[id].length < 3 || n.elevation > 0.5) return;
+    const dd = gateXZ.map(g => dist([n.x, n.z], g)).sort((x, y) => x - y).slice(0, 3);
+    if (dd.length < 3) return;
+    const score = dd.reduce((x, y) => x + y, 0) + dist([n.x, n.z], spawnPt) * 0.05;
+    if (score < sd) { sd = score; spawnNode = id; }
+  });
+  if (!spawnNode) Object.keys(nodes).forEach(id => { const d = dist([nodes[id].x, nodes[id].z], spawnPt); if (d < sd && byNode[id] && byNode[id].length >= 3) { sd = d; spawnNode = id; } });
   const sp = nodes[spawnNode];
   const sedge = byNode[spawnNode][0], so = nodes[other(sedge, spawnNode)];
   const gameplay = [{ type: 'spawn', x: sp.x, z: sp.z, heading: Math.atan2(so.x - sp.x, so.z - sp.z) }];

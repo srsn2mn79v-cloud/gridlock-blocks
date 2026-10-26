@@ -19,6 +19,7 @@ import { spawnDebris, updateEffects } from './effects.js';
 import { createDestruction } from './destruction.js';
 import { createGraphics } from './graphics.js';
 import { createPedestrianSystem } from './pedestrians.js';
+import { createDriftTracks } from './driftTrack.js';
 import { buildSidewalks } from './sidewalks.js';
 import { createTrafficSystem } from './traffic.js';
 import { buildTransit } from './transit.js';
@@ -120,6 +121,7 @@ function onNight(k) {
     l.lens.forEach(m => { m.emissiveIntensity = 0.05 + 1.05 * nightK; });
     l.pools.forEach(pl => setGlow(pl, 0.28));
   });
+  const neon = propGroup.userData.neon; if (neon) neon.mats.forEach(m => { m.opacity = Math.min(1, nightK * 1.15); });
   const pth = propGroup.userData.pathLights;
   if (pth) { pth.lensMat.emissiveIntensity = 0.1 + 1.6 * nightK; pth.glowMat.opacity = 0.75 * nightK; }
 }
@@ -129,6 +131,19 @@ function onNight(k) {
 // player's headlight cone this frame — see the comment on reflectorBaseMats in
 // roads.js for why this is driven directly rather than left to material specular alone.
 const reflectors = roadsGroup.userData.reflectors || [];
+// Far lamps and signal heads are hidden: each is a handful of draw calls and at 150+ units they are a speck.
+// Only what this function hid is shown again, so knocked-down props stay gone.
+const cullSet = propInstances.filter(p => p.mesh && ['light', 'trafficlight', 'shoplamp', 'shopsign', 'sign', 'oneway'].includes(p.type));
+let cullT = 0;
+function cullProps(dt) {
+  cullT -= dt; if (cullT > 0) return; cullT = 0.25;
+  const R = Math.max(90, camera.far * 0.55), R2 = R * R, cx = camera.position.x, cz = camera.position.z;
+  for (const p of cullSet) {
+    const dx = p.x - cx, dz = p.z - cz, far = dx * dx + dz * dz > R2;
+    if (far && p.mesh.visible) { p.mesh.visible = false; p._cull = true; }
+    else if (!far && p._cull) { p.mesh.visible = true; p._cull = false; }
+  }
+}
 const lampXZ = propInstances.filter(p => p.type === 'light').map(p => ({ x: p.mesh.position.x, z: p.mesh.position.z, owner: p }));
 const lampGrid = new Map();
 function lampGridRebuild() {
@@ -419,7 +434,9 @@ let modalPause = false;
 const world = createWorld({ city, scene, camera, car, input, heightAt, collisionWorld, parcelInstances, taxi, env, setModalPause: v => { modalPause = v; },
   chooseCar: key => { settings.car = key; saveSettings(settings); applySetting('car', key); menu.refresh?.(); } });
 if (!world.ownedCars().includes(settings.car)) settings.car = 'hatch';
-const races = createRaces({ city, scene, heightAt, car, world, transit, districtName: (x, z) => { const [X, Y] = fromWorld(x, z); const d = districtAt(X, Y); return d ? d.name : 'City'; } });
+const arena = createDriftTracks({ scene });
+world.setArena(arena.heightAt);
+const races = createRaces({ city, scene, heightAt, car, world, transit, arena, collisionWorld, districtName: (x, z) => { const [X, Y] = fromWorld(x, z); const d = districtAt(X, Y); return d ? d.name : 'City'; } });
 collisionWorld.push(...races.solids);
 world.setDestinations(() => races.plan.map(r => ({ name: r.name + ' (class ' + r.cls + ')', group: 'Races', sub: ({ drag: 'Drag', drift: 'Drift', circuit: 'Circuit', sprint: 'Sprint' })[r.kind], x: r.start.x - Math.sin(r.start.heading) * 14, z: r.start.z - Math.cos(r.start.heading) * 14, h: r.start.heading })));
 world.setBlocked(() => races.active() || races.offering());
@@ -639,6 +656,7 @@ function animate() {
   }
   world.update(dt);
   audioFrame(dt);
+  cullProps(dt);
   skids.update(dt, car, { snow: env.snowAccumulation, onFoot: world.onFoot, allow: world.mode === 'city' });
   puffs.update(dt, car, { sliding: skids.sliding, snow: env.snowAccumulation, wet: env.wetness, onFoot: world.onFoot, allow: world.mode === 'city', covered: env.isCovered, raining: !!settings.rain });
   const focus = world.focus();

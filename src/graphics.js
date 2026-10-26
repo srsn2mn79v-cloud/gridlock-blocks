@@ -20,11 +20,11 @@ const GradeShader = {
   uniforms: {
     tDiffuse: { value: null }, uTime: { value: 0 }, uSpeed: { value: 0 }, uSun: { value: new THREE.Vector2(0.5, 0.5) }, uShaft: { value: 0 },
     uShaftCol: { value: new THREE.Color(1, 0.9, 0.7) }, uVig: { value: 0.3 }, uCA: { value: 0.0014 }, uGrain: { value: 0.008 },
-    uTint: { value: new THREE.Color(1, 1, 1) }, uSat: { value: 1.06 }, uAspect: { value: 1.78 }, uShake: { value: new THREE.Vector2() }
+    uTint: { value: new THREE.Color(1, 1, 1) }, uNite: { value: 0 }, uSat: { value: 1.06 }, uAspect: { value: 1.78 }, uShake: { value: new THREE.Vector2() }
   },
   vertexShader: 'varying vec2 vUv; void main(){ vUv = uv; gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0); }',
   fragmentShader: `
-    uniform sampler2D tDiffuse; uniform float uTime, uSpeed, uShaft, uVig, uCA, uGrain, uSat, uAspect; uniform vec2 uSun, uShake; uniform vec3 uShaftCol, uTint;
+    uniform sampler2D tDiffuse; uniform float uTime, uSpeed, uShaft, uVig, uCA, uGrain, uSat, uAspect, uNite; uniform vec2 uSun, uShake; uniform vec3 uShaftCol, uTint;
     varying vec2 vUv;
     float hash(vec2 p){ vec3 p3 = fract(vec3(p.xyx) * .1031); p3 += dot(p3, p3.yzx + 33.33); return fract((p3.x + p3.y) * p3.z); }
     void main() {
@@ -48,6 +48,14 @@ const GradeShader = {
       }
       col *= uTint;
       float l = dot(col, vec3(0.3, 0.59, 0.11));
+      // night look: cool blue-violet shadows, warm orange highlights, punchier contrast (the Need for Speed Underground palette)
+      if (uNite > 0.001) {
+        float sh = 1.0 - smoothstep(0.0, 0.45, l), hi = smoothstep(0.3, 1.4, l);
+        col *= mix(vec3(1.0), vec3(0.74, 0.86, 1.3), sh * uNite * 0.85);
+        col *= mix(vec3(1.0), vec3(1.22, 1.02, 0.78), hi * uNite * 0.7);
+        col = max((col - 0.14) * (1.0 + 0.22 * uNite) + 0.14, 0.0);
+        col += vec3(0.010, 0.008, 0.028) * uNite;
+      }
       col = mix(vec3(l), col, uSat);
       col *= 1.0 - uVig * smoothstep(0.3, 0.95, r * 1.15);
       col += (hash(vUv * vec2(1280.0, 720.0) + fract(uTime) * 91.7) - 0.5) * uGrain * (0.4 + 0.6 * (1.0 - clamp(l, 0.0, 1.0)));
@@ -113,7 +121,7 @@ export function createGraphics({ renderer, scene, camera, parcelInstances, groun
     gfxU.uNight.value = night;
     scene.environmentIntensity = 0.06 + 0.2 * (1 - night);
     renderer.toneMappingExposure = 1.35 - 0.1 * night;
-    if (bloom) { bloom.threshold = 1.9 - 0.3 * night; bloom.strength = 0.12 + 0.1 * night; }
+    if (bloom) { bloom.threshold = 1.9 - 0.7 * night; bloom.strength = 0.12 + 0.28 * night; bloom.radius = 0.55 + 0.25 * night; }
   }
 
   build();
@@ -148,7 +156,7 @@ export function createGraphics({ renderer, scene, camera, parcelInstances, groun
       // warm in the evening, cool at night, slightly desaturated in rain
       const low = Math.max(0, 1 - Math.abs(sunDir.y - 0.15) * 2.6) * (1 - nightK);
       u.uTint.value.setRGB(1 + 0.08 * low - 0.06 * nightK, 1 + 0.01 * low - 0.01 * nightK, 1 - 0.08 * low + 0.07 * nightK);
-      u.uSat.value = 1.08 - 0.18 * wet - 0.05 * nightK;
+      u.uSat.value = 1.08 - 0.18 * wet + 0.2 * nightK * (1.0 - wet * 0.5); u.uNite.value = nightK * (1.0 - 0.35 * wet);
       u.uVig.value = 0.28 + 0.12 * nightK;
     },
     resize(w, h) { if (composer) composer.setSize(w, h); },
