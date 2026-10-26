@@ -39,12 +39,25 @@ function makePool(scene, max, additive, renderer) {
   };
 }
 
+// same blotchy noise the road shader uses for its rain puddles (environment.js), so spray appears exactly where a puddle is drawn
+const h21 = (x, y) => { let a = (x * 0.1031) % 1, b = (y * 0.1031) % 1, c = (x * 0.1031) % 1; if (a < 0) a += 1; if (b < 0) b += 1; if (c < 0) c += 1;
+  const d = a * (b + 33.33) + b * (c + 33.33) + c * (a + 33.33); a += d; b += d; c += d; const r = (a + b) * c; return r - Math.floor(r); };
+const vnoise = (x, y) => { const ix = Math.floor(x), iy = Math.floor(y); let fx = x - ix, fy = y - iy; fx = fx * fx * (3 - 2 * fx); fy = fy * fy * (3 - 2 * fy);
+  const a = h21(ix, iy), b = h21(ix + 1, iy), c = h21(ix, iy + 1), d = h21(ix + 1, iy + 1);
+  return (a + (b - a) * fx) * (1 - fy) + (c + (d - c) * fx) * fy; };
+const sstep = (a, b, x) => { const t = Math.min(1, Math.max(0, (x - a) / (b - a))); return t * t * (3 - 2 * t); };
+export function puddleAt(x, z, wet) {
+  if (wet <= 0.25) return 0;
+  const n = vnoise(x * 0.16, z * 0.16) * 0.6 + vnoise(x * 0.45 + 9, z * 0.45 + 9) * 0.4;
+  return sstep(0.62 - 0.12 * wet, 0.7 - 0.1 * wet, n) * sstep(0.25, 0.8, wet);
+}
+
 export function createPuffs({ scene, heightAt, renderer }) {
   const smoke = makePool(scene, 420, false), sparks = makePool(scene, 120, true);
-  let acc = 0, prevImpact = 0, scrapeAcc = 0;
+  let acc = 0, prevImpact = 0, scrapeAcc = 0, splashAcc = 0, powderAcc = 0;
   const rnd = () => Math.random() - 0.5;
   return {
-    update(dt, car, { sliding = false, snow = 0, wet = 0, onFoot = false, allow = true } = {}) {
+    update(dt, car, { sliding = false, snow = 0, wet = 0, onFoot = false, allow = true, covered = false, raining = false } = {}) {
       const scale = (renderer.domElement.height || 600) * 0.9;
       if (allow && !onFoot) {
         const sh = Math.sin(car.heading), ch = Math.cos(car.heading);
@@ -57,6 +70,33 @@ export function createPuffs({ scene, heightAt, renderer }) {
             const x = car.x + sh * lz + ch * lx, z = car.z + ch * lz - sh * lx, y = heightAt(x, z, car.y) + 0.2;
             const g = 0.97 - 0.2 * wet;
             smoke.emit({ x, y, z, vx: (car.vx || 0) * 0.25 + rnd() * 0.8, vy: 0.7 + Math.random() * 1.0, vz: (car.vz || 0) * 0.25 + rnd() * 0.8, life: 1.5 + Math.random() * 1.0, s0: 0.9, s1: 4.2 + Math.random() * 1.6, a: 0.62, r: g, g: g, b: g * 1.02, drag: 0.985 });
+          }
+        }
+        // spray: wheels throwing water out of puddles, and powder kicked up off snow-covered road
+        const mph = speed;
+        if (!covered && mph > 3.5 && !car.airborne) {
+          const lat = (car.vx || 0) * ch - (car.vz || 0) * sh;
+          if (raining || wet > 0.25) {
+            const pm = puddleAt(car.x, car.z, wet);
+            if (pm > 0.25) {
+              splashAcc += dt * Math.min(140, 18 * mph) * pm;
+              while (splashAcc >= 1) {
+                splashAcc -= 1;
+                const side = Math.random() < 0.5 ? 1 : -1, lz = Math.random() < 0.6 ? 1.3 : -1.3, lx = 0.95 * side;
+                const x = car.x + sh * lz + ch * lx, z = car.z + ch * lz - sh * lx, y = heightAt(x, z, car.y) + 0.15;
+                const out = (1.5 + Math.random() * 2.5) * side;
+                smoke.emit({ x, y, z, vx: (car.vx || 0) * 0.5 + ch * out + rnd() * 0.8, vy: 1.8 + Math.random() * 2.6, vz: (car.vz || 0) * 0.5 - sh * out + rnd() * 0.8, life: 0.45 + Math.random() * 0.4, s0: 0.22, s1: 0.9 + Math.random() * 0.5, a: 0.5, r: 0.82, g: 0.9, b: 1.0, drag: 0.965, grav: 11 });
+              }
+            }
+          }
+          if (snow > 0.2) {
+            powderAcc += dt * Math.min(90, 8 * mph) * Math.min(1, snow * 1.3);
+            while (powderAcc >= 1) {
+              powderAcc -= 1;
+              const side = Math.random() < 0.5 ? 1 : -1, lz = -1.2 + Math.random() * 0.4, lx = 0.95 * side;
+              const x = car.x + sh * lz + ch * lx, z = car.z + ch * lz - sh * lx, y = heightAt(x, z, car.y) + 0.2;
+              smoke.emit({ x, y, z, vx: (car.vx || 0) * 0.3 + ch * side * (0.8 + Math.random()) + rnd() * 0.8, vy: 1.0 + Math.random() * 1.6, vz: (car.vz || 0) * 0.3 - sh * side * (0.8 + Math.random()) + rnd() * 0.8, life: 0.8 + Math.random() * 0.7, s0: 0.5, s1: 2.2 + Math.random() * 1.0, a: 0.55, r: 0.96, g: 0.98, b: 1.0, drag: 0.97 });
+            }
           }
         }
         // sparks: a hard hit, or grinding along something at speed

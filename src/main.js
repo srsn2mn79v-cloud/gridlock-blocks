@@ -640,7 +640,7 @@ function animate() {
   world.update(dt);
   audioFrame(dt);
   skids.update(dt, car, { snow: env.snowAccumulation, onFoot: world.onFoot, allow: world.mode === 'city' });
-  puffs.update(dt, car, { sliding: skids.sliding, snow: env.snowAccumulation, wet: env.wetness, onFoot: world.onFoot, allow: world.mode === 'city' });
+  puffs.update(dt, car, { sliding: skids.sliding, snow: env.snowAccumulation, wet: env.wetness, onFoot: world.onFoot, allow: world.mode === 'city', covered: env.isCovered, raining: !!settings.rain });
   const focus = world.focus();
 
   if (sinking) {

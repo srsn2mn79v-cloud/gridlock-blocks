@@ -716,3 +716,7 @@ function per new type) whenever you want it — say the word and I'll add them.
 - Roads: cracks, oil/tyre stains, tar repair strips and patched squares (Textures medium+).
 - Street lamps ~1.7x as many (about every 35-70 m per side); instanced park path lights that glow at night.
 - iPhone: installable PWA (host `dist/` over https, Add to Home Screen).
+
+## Batch: signals, spray (2026-10-26)
+- Traffic lights: green 7 s, yellow 2 s, and 4 s of all-red between one direction ending and the other starting (was 1.5 s).
+- Spray: water thrown from the wheels when driving through the rain puddles (same noise as the road shader's puddles), and powder kicked up on snow-covered roads. Not shown under cover.

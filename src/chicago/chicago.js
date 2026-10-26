@@ -7,7 +7,8 @@ import { S, T, TP, fromWorld, LAKE_N, LAKE_S, PIER, RIVERS, PARKS, LANDMARKS, ST
 import { rng, dist, distToSeg, pointInPoly, ribbonPoly, nearestOnPoly, atLen, polyLen } from './geom.js';
 
 const r2 = v => Math.round(v * 100) / 100;
-const GREEN = 6000, YELLOW = 1500, RED = 10500, HALF = 9000;
+// 4 s of all-red between one direction turning red and the other turning green, so busy junctions clear
+const GREEN = 7000, YELLOW = 2000, CLEAR = 4000, HALF = GREEN + YELLOW + CLEAR, RED = 2 * HALF - GREEN - YELLOW;
 
 export const SHOP_KINDS = {
   dealer:  { name: 'Car Dealership',   color: '#17d6c8', hex: 0x17d6c8, desc: 'Buy new cars' },

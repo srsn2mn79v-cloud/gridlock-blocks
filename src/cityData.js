@@ -199,7 +199,8 @@ const otherEnd = (e, id) => (e.from === id ? e.to : e.from);
 // Signal tool exports). Cycle is 18s: the two directions of one street share a phase, the
 // crossing street runs half a cycle later, and the 1.5s of red either side of each yellow
 // is an all-red clearance so cars finish clearing the box before the cross traffic starts.
-const GREEN = 6000, YELLOW = 1500, RED = 10500, HALF = 9000;
+// 4 s of all-red between one direction turning red and the other turning green, so busy junctions clear
+const GREEN = 7000, YELLOW = 2000, CLEAR = 4000, HALF = GREEN + YELLOW + CLEAR, RED = 2 * HALF - GREEN - YELLOW;
 function signalsAt(nodeId, groupA, groupB) {
   const mk = (edgeId, offsetMs, n) => ({
     id: 'sig_' + nodeId + '_' + n, nodeId, edgeId,
