@@ -37,3 +37,51 @@ export function updateFollowCamera(camera, car, offset, dt, blocked) {
   camera.up.set(Math.sin(roll), Math.cos(roll), 0);
   camera.lookAt(car.x, car.y + 1.2, car.z);
 }
+
+// ---- camera views: chase (tunable distance/height), front bumper, top-down, inside the car ----------------------------------------
+export const CAM_MODES = [['chase', 'Chase'], ['bumper', 'Bumper'], ['top', 'Top'], ['inside', 'Inside']];
+export function createCameraRig({ camera, car, getOffset, interior, onMode }) {
+  let mode = 'chase', prev = 'chase';
+  const eye = new THREE.Vector3(), look = new THREE.Vector3();
+  const rig = {
+    get mode() { return mode; },
+    setMode(m) {
+      if (!CAM_MODES.some(x => x[0] === m)) return;
+      mode = m; interior.setVisible(m === 'inside');
+      if (m === 'inside') interior.fit();
+      if (car.model) car.model.visible = m !== 'inside';
+      document.body.classList.toggle('cam-inside', m === 'inside');
+      onMode && onMode(m);
+    },
+    cycle() { const i = CAM_MODES.findIndex(x => x[0] === mode); rig.setMode(CAM_MODES[(i + 1) % CAM_MODES.length][0]); },
+    update(dt, blocked) {
+      if (mode === 'chase') { updateFollowCamera(camera, car, getOffset(), dt, blocked); return; }
+      const sin = Math.sin(car.heading), cos = Math.cos(car.heading), roll = (car.roll || 0) * 0.5, pitch = (car.pitch || 0);
+      const off = getOffset();
+      if (mode === 'top') {
+        const H = Math.max(14, off.y * 3.8);
+        eye.set(car.x - sin * 2.5, car.y + H, car.z - cos * 2.5);
+        camera.position.lerp(eye, 1 - Math.pow(0.0005, dt));
+        camera.up.set(sin, 0, cos); camera.lookAt(car.x + sin * 3, car.y, car.z + cos * 3);
+        return;
+      }
+      if (mode === 'bumper') {
+        const len = (car.dimLen || 3.6) * 0.5;
+        eye.set(car.x + sin * (len + 0.15), car.y + 0.55 + ((car.dimHeight || 1.5) - 1.5) * 0.3, car.z + cos * (len + 0.15));
+        camera.position.copy(eye);
+        camera.up.set(Math.sin(roll), Math.cos(roll), 0);
+        camera.lookAt(eye.x + sin * 20, eye.y + 0.55 - pitch * 8, eye.z + cos * 20);
+        return;
+      }
+      // inside: the driver's eye, a little left of centre
+      const k = interior.root.position.y, side = 0.4;
+      const cs = Math.cos(car.heading), sn = Math.sin(car.heading);
+      eye.set(car.x + cs * side + sin * 0.02, car.y + 1.08 + k, car.z - sn * side + cos * 0.02);
+      camera.position.copy(eye);
+      camera.up.set(Math.sin(roll), Math.cos(roll), 0);
+      look.set(eye.x + sin * 12, eye.y - 0.22 - pitch * 6 + (car.vy || 0) * 0, eye.z + cos * 12);
+      camera.lookAt(look);
+    }
+  };
+  return rig;
+}

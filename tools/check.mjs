@@ -109,7 +109,7 @@ async function checkTraffic(cars = 40, minutes = 5) {
   if (offLine.size) bad.push(offLine.size + ' line bus(es) left their route');
   if (minutes >= 3 && stopsServed.size < lineBuses) bad.push('buses served only ' + stopsServed.size + ' stops in ' + minutes + ' min');
   const tot = lanes[0] + lanes[1] + lanes[2];
-  if (tot > 40 && lanes[2] / tot < 0.55) bad.push('highway traffic should keep right: lane shares left/middle/right = ' + lanes.map(v => Math.round(v / tot * 100)).join('/') + ' %');
+  if (tot > 40 && Math.min(...lanes) / tot < 0.15) bad.push('highway lanes unevenly used: left/middle/right = ' + lanes.map(v => Math.round(v / tot * 100)).join('/') + ' %');
   return { name: 'traffic', count: cars + ' cars, ' + minutes + ' min (stopped ' + Math.round(stopSec / carSec * 100) + ' % of car-time, ' + Math.round(boxSec / carSec * 1000) / 10 + ' % held by full exits, ' + Math.round(inBox / carSec * 1000) / 10 + ' % stopped inside a junction [' + Object.entries(whyH).map(([k, v]) => k + ':' + Math.round(v / carSec * 1000) / 10).join(' ') + '], avg speed ' + (travelled / carSec).toFixed(1) + ' u/s, longest stop ' + Math.round(longest) + ' s, ghost frames ' + ghosts + ', overlap samples ' + overlaps + ', highway lanes L/M/R ' + lanes.join('/') + '; ' + transit.lines.length + ' bus lines, ' + lineBuses + ' buses, ' + stopsServed.size + ' stops served, ' + transit.stops.length + ' stops, ' + transit.stands.length + ' cab stands)', bad };
 }
 
@@ -298,19 +298,44 @@ async function checkCovered() {
   return { name: 'covered', count: n + ' sample points', bad };
 }
 
-// drift circuits: corners wide enough to drift (radius >= 35 u), walls clear of the road, tracks far from each other and from the city
+// drift circuits: corners wide enough to drift (radius >= 24 u), walls clear of the road, tracks far from each other and from the city
 async function checkDrift() {
   const { createDriftTracks } = await imp('src/driftTrack.js');
   const d = createDriftTracks({ scene: new THREE.Scene() }), bad = [];
   d.tracks.forEach(t => {
-    if (t.minR < 35) bad.push(t.id + ' tightest corner ' + t.minR + ' u');
-    let close = 0; t.wall.forEach(w => { if (t.distFrom(w.x, w.z) < t.width / 2 + 3) close++; }); if (close) bad.push(t.id + ': ' + close + ' wall posts inside the track');
-    if (t.length < 700 || t.length > 2200) bad.push(t.id + ' lap ' + t.length + ' m');
+    if (t.minR < 24) bad.push(t.id + ' tightest corner ' + t.minR + ' u');
+    let close = 0; t.wall.forEach(w => { if (t.distFrom(w.x, w.z) < t.width / 2 + 2) close++; }); if (close) bad.push(t.id + ': ' + close + ' wall posts inside the track');
+    if (t.length < 450 || t.length > 1400) bad.push(t.id + ' lap ' + t.length + ' m');
     if (d.heightAt(t.pts[0][0], t.pts[0][1]) !== 0 || d.heightAt.kind !== 'road') bad.push(t.id + ' start is not road');
   });
   return { name: 'drift', count: d.tracks.length + ' circuits', bad };
 }
-const CHECKS = { drift: checkDrift, covered: checkCovered,  signs: checkSigns, lamps: checkLamps, buildings: checkBuildings, traffic: () => checkTraffic(+process.argv[3] || 40, +process.argv[4] || 5), markings: checkMarkings, bridges: checkBridges, solid: checkSolid, water: checkWater };
+// races: circuits are real closed loops (start = finish, no street used twice), every kind has a start on the road
+async function checkRaces() {
+  await world();
+  const { planRaces } = await imp('src/races.js');
+  const plan = planRaces(city, () => 'City'), bad = [], by = {};
+  plan.forEach(r => { by[r.kind] = (by[r.kind] || 0) + 1; });
+  const circ = plan.filter(r => r.kind === 'circuit');
+  if (circ.length < 1) bad.push('no circuit race was planned');
+  circ.forEach(r => {
+    const a = r.pts[0], b = r.pts[r.pts.length - 1];
+    if (Math.hypot(a[0] - b[0], a[1] - b[1]) > 1.5) bad.push(r.id + ' does not close: ' + Math.round(Math.hypot(a[0] - b[0], a[1] - b[1])) + ' u apart');
+    const last = r.checkpoints[r.checkpoints.length - 1];
+    if (Math.hypot(last[0] - a[0], last[1] - a[1]) > 3) bad.push(r.id + ' final checkpoint is not the start line');
+  });
+  return { name: 'races', count: Object.entries(by).map(([k, v]) => v + ' ' + k).join(', '), bad };
+}
+// gas stations: enough of them, every pump lane sits on the paved forecourt, nothing (building/road) overlaps it
+async function checkGas() {
+  await world();
+  const bad = [], g = city.gasStations || [];
+  if (g.length < 5) bad.push('only ' + g.length + ' gas stations');
+  g.forEach(s => g.forEach(o => { if (o !== s && s.id < o.id && Math.hypot(s.x - o.x, s.z - o.z) < 120) bad.push(s.id + ' and ' + o.id + ' are close together'); }));
+  g.forEach(s => s.fill.forEach((f, i) => { heightAt(f.x, f.z, 0); if (heightAt.kind !== 'plaza') bad.push(s.id + ' lane ' + i + ' is on ' + heightAt.kind); }));
+  return { name: 'gas', count: g.length + ' gas stations', bad };
+}
+const CHECKS = { gas: checkGas, races: checkRaces, drift: checkDrift, covered: checkCovered,  signs: checkSigns, lamps: checkLamps, buildings: checkBuildings, traffic: () => checkTraffic(+process.argv[3] || 40, +process.argv[4] || 5), markings: checkMarkings, bridges: checkBridges, solid: checkSolid, water: checkWater };
 const which = process.argv[2] || 'all';
 const list = which === 'all' ? Object.keys(CHECKS) : [which];
 let failed = 0;

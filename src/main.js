@@ -9,10 +9,14 @@ import { buildDoors } from './generators/doors.js';
 import { buildProps } from './generators/props.js';
 import { getSpawn } from './generators/gameplay.js';
 import { createRaces } from './races.js';
+import { createFuel } from './fuel.js';
+import { createHarbour } from './harbour.js';
+import { createHail } from './hail.js';
 import { districtAt, fromWorld } from './chicago/map.js';
 import { Car } from './car.js';
 import { createInput } from './input.js';
-import { updateFollowCamera } from './camera.js';
+import { updateFollowCamera, createCameraRig, CAM_MODES } from './camera.js';
+import { createInterior } from './interior.js';
 import { createGroundSampler } from './terrain.js';
 import { buildCollisionWorld, resolveCarCollisions, pointInPolygon } from './collision.js';
 import { spawnDebris, updateEffects } from './effects.js';
@@ -364,6 +368,11 @@ function updateTrafficLights() {
 const input = createInput();
 const camOffset = new THREE.Vector3(0, 5.2, 9.5);
 const camBase = camOffset.clone();
+// chase-camera offset from the tunable distance/height, scaled for the size of the car
+function refreshCamOffset() {
+  const big = (car.dimLen || 3.6) / 3.6, h = Number(settings.camHeight) || 5.2, d = Number(settings.camDist) || 9.5;
+  camOffset.set(0, h * (0.8 + 0.2 * big) + (big > 1.2 ? 1.2 : 0), d * (0.75 + 0.25 * big));
+}
 
 const speedEl = document.getElementById('speed');
 const fpsEl = document.getElementById('fps');
@@ -378,9 +387,10 @@ const splashEl = document.getElementById('splash');
 let sinking = false, sinkTimer = 0;
 const SINK_DURATION = 4.5;
 
+const deckParcels = (city.harbour ? city.harbour.decks : []);
 function isCarInWater() {
   if (car.y > 1.4) return false;                       // on a bridge deck
-  return waterParcels.some(w => pointInPolygon(car.x, car.z, w.footprint));
+  return waterParcels.some(w => pointInPolygon(car.x, car.z, w.footprint)) && !deckParcels.some(w => pointInPolygon(car.x, car.z, w));
 }
 
 function respawnCar() {
@@ -442,10 +452,18 @@ const world = createWorld({ city, scene, camera, car, input, heightAt, collision
 if (!world.ownedCars().includes(settings.car)) settings.car = 'hatch';
 const arena = createDriftTracks({ scene });
 world.setArena(arena.heightAt);
-const races = createRaces({ city, scene, heightAt, car, world, transit, arena, collisionWorld, districtName: (x, z) => { const [X, Y] = fromWorld(x, z); const d = districtAt(X, Y); return d ? d.name : 'City'; } });
+let lastRev = null;
+const races = createRaces({ city, scene, heightAt, car, world, transit, arena, collisionWorld,
+  gearbox: { setManual: v => drive.setManual(v), shiftUp: () => drive.shiftUp(), shiftDown: () => drive.shiftDown(), state: () => lastRev },
+  tune: { settings, limits: { traffic: traffic.maxCount, peds: pedestrians.maxCount }, clearZone: z => traffic.setClearZone(z),
+    set: (k, v) => { menu.set(k, v); } }, districtName: (x, z) => { const [X, Y] = fromWorld(x, z); const d = districtAt(X, Y); return d ? d.name : 'City'; } });
 collisionWorld.push(...races.solids);
+const harbour = createHarbour({ city, scene });
+const fuel = createFuel({ city, scene, heightAt, car, world, active: () => !races.active() });
+collisionWorld.push(...fuel.colliders);
+const hail = createHail({ city, scene, heightAt: world.heightAt, world, camera, minimap, toast: msg => world.toast(msg) });
 world.setDestinations(() => races.plan.map(r => ({ name: r.name + ' (class ' + r.cls + ')', group: 'Races', sub: ({ drag: 'Drag', drift: 'Drift', circuit: 'Circuit', sprint: 'Sprint' })[r.kind], x: r.start.x - Math.sin(r.start.heading) * 14, z: r.start.z - Math.cos(r.start.heading) * 14, h: r.start.heading })));
-world.setBlocked(() => races.active() || races.offering());
+world.setBlocked(() => races.active() || races.offering() || hail.busy());
 world.setRaceInfo(() => races.plan);
 world.setSleepHook(h => weather.advance(h));
 // walls the chase camera must not sit inside: building footprints (bucketed) and, in a garage, its concrete
@@ -483,7 +501,7 @@ const transitMarkers = all => {
   return out;
 };
 const stationMarkers = (all) => (world.mode !== 'city' ? [] : (city.stations || []).filter(st => all || Math.hypot(st.x - car.x, st.z - car.z) < 260).map(st => ({ x: st.door.x, z: st.door.z, color: st.kind === 'hospital' ? '#ff4d4d' : st.kind === 'police' ? '#4a86ff' : '#ff9a2e', label: st.kind === 'hospital' ? '✚' : st.kind === 'police' ? 'PD' : 'FD' })));
-const mapExtras = (all) => { const tx = taxi.mapExtras(); return { route: races.route() || (tx && tx.route), markers: spreadMarkers((tx ? tx.markers : []).concat(world.mapMarkers(all), races.markers(), transitMarkers(all), stationMarkers(all))) }; };
+const mapExtras = (all) => { const tx = taxi.mapExtras(); return { route: races.route() || (tx && tx.route), markers: spreadMarkers((tx ? tx.markers : []).concat(world.mapMarkers(all), races.markers(), fuel.markers(), transitMarkers(all), stationMarkers(all))) }; };
 
 let autoLights = null;   // headlights follow night/day, but only when it actually crosses
 function syncLights() {
@@ -499,9 +517,10 @@ function applySetting(k, v) {
   else if (k === 'fog') env.setFog(v);
   else if (k === 'rain') env.setRain(v);
   else if (k === 'snow') env.setSnow(v);
-  else if (k === 'car') { car.setStyle(v); { const big = (car.dimLen || 3.6) / 3.6; camOffset.set(0, camBase.y * (0.8 + 0.2 * big) + (big > 1.2 ? 1.2 : 0), camBase.z * (0.75 + 0.25 * big)); } world.applyMods(); taxi.setEnabled(false, car); }
+  else if (k === 'car') { car.setStyle(v); refreshCamOffset(); camRig.setMode(camRig.mode); world.applyMods(); taxi.setEnabled(false, car); }
   else if (k === 'res') { resScale = Number(v) || 1; applyRatio(); renderer.setSize(innerWidth, innerHeight); gfx.resize(innerWidth, innerHeight); }
   else if (k === 'view') viewMul = Number(v) || 1;
+  else if (k === 'camDist' || k === 'camHeight') refreshCamOffset();
   else if (k === 'swapSticks') input.setSwap(v);
   else if (k === 'sound') audio.setEnabled(v);
   else if (k === 'volume') audio.setVolume(v);
@@ -518,7 +537,7 @@ const menu = createMenu({
   onChange: applySetting,
   onOpenChange: open => { paused = open; },
   ownedCars: () => world.ownedCars(),
-  canOpen: () => !world.modal && !minimap.isFullOpen() && performance.now() - minimap.escAt() > 80 && performance.now() - world.escAt() > 80
+  canOpen: () => !world.modal && !races.menuOpen() && !minimap.isFullOpen() && performance.now() - minimap.escAt() > 80 && performance.now() - world.escAt() > 80
 });
 
 // quick day/night toggle (button or N): sweeps between noon and night
@@ -533,8 +552,77 @@ function toggleDayNight() {
 dayBtn.addEventListener('click', () => { toggleDayNight(); dayBtn.blur(); });
 addEventListener('keydown', e => { if (e.code === 'KeyN' && !e.repeat) toggleDayNight(); });
 
+
+// ---- camera views: chase / bumper / top / inside, with a small tuner (distance + height) that leaves the car in view ----
+const interior = createInterior({ car, input });
+const camRig = createCameraRig({ camera, car, getOffset: () => camOffset, interior, onMode: mode => { settings.camMode = mode; saveSettings(settings); camSync(); } });
+const camBtn = document.createElement('button'); camBtn.id = 'cambtn'; camBtn.textContent = '📷'; camBtn.tabIndex = -1; camBtn.setAttribute('aria-label', 'Camera views');
+const camPanel = document.createElement('div'); camPanel.id = 'campanel';
+const camStyle = document.createElement('style');
+camStyle.textContent = `#cambtn, #resetbtn { position: fixed; top: 64px; right: 12px; z-index: 5; width: 44px; height: 44px; border-radius: 10px; border: 0; font-size: 21px; background: rgba(14,18,24,.72); color: #fff; cursor: pointer; touch-action: manipulation; }
+  #resetbtn { top: 116px; } #campanel { position: fixed; top: 64px; right: 64px; z-index: 6; display: none; width: 190px; padding: 8px 10px; border-radius: 12px; background: rgba(10,14,22,.55); backdrop-filter: blur(3px); color: #fff; font: 600 12px system-ui, sans-serif; }
+  #campanel .seg { display: flex; gap: 4px; margin-bottom: 6px; } #campanel .seg button { flex: 1; border: 0; border-radius: 7px; padding: 6px 0; font: 700 11px system-ui; background: rgba(255,255,255,.14); color: #fff; cursor: pointer; } #campanel .seg button.on { background: #ffd21f; color: #111; }
+  #campanel label { display: flex; justify-content: space-between; margin-top: 4px; } #campanel input { width: 100%; margin: 2px 0 0; }
+  html.touch #campanel { top: auto; bottom: 74px; right: 170px; }`;
+document.head.appendChild(camStyle); document.body.append(camPanel);
+// reset: put the car back on the nearest free bit of road (when it is wedged between cars or props)
+const resetBtn = document.createElement('button'); resetBtn.id = 'resetbtn'; resetBtn.textContent = '⟲'; resetBtn.tabIndex = -1; resetBtn.setAttribute('aria-label', 'Reset car onto the road (U)'); resetBtn.title = 'Reset car onto the road (U)';
+{ const grid = document.getElementById('tgrid'); if (grid) { camBtn.className = resetBtn.className = 'tb'; grid.append(camBtn, resetBtn); } else document.body.append(camBtn, resetBtn); }
+let unstickCool = 0;
+function unstick() {
+  if (world.onFoot || world.mode !== 'city' || races.active() || performance.now() < unstickCool) return;
+  const nodes = city.roadNodes, cars = traffic.cars.filter(c => c.active), hdg = car.heading;
+  let best = null, bd = 1e9;
+  for (const e of city.roadEdges) {
+    if ((e.structure && e.structure !== 'surface') || e.ramp || e.type === 'highway') continue;
+    const a = nodes[e.from], b = nodes[e.to]; if (!a || !b || a.elevation > 0.5 || b.elevation > 0.5) continue;
+    const len = Math.hypot(b.x - a.x, b.z - a.z); if (len < 6) continue;
+    const ux = (b.x - a.x) / len, uz = (b.z - a.z) / len;
+    for (let t = 4; t < len - 4; t += 8) {
+      const x = a.x + ux * t, z = a.z + uz * t, d = Math.hypot(x - car.x, z - car.z);
+      if (d < 7 || d > 120 || d >= bd) continue;
+      if (cars.some(c => Math.hypot(c.mesh.position.x - x, c.mesh.position.z - z) < 7)) continue;
+      const hz = world.heightAt(x, z, 0); if (world.heightAt.kind !== 'road') continue;
+      // face along the road, whichever way is closer to where the car was pointing
+      let h = Math.atan2(ux, uz); const dh = Math.atan2(Math.sin(h - hdg), Math.cos(h - hdg)); if (Math.abs(dh) > Math.PI / 2) h += Math.PI;
+      best = { x, z, y: hz, h }; bd = d;
+    }
+  }
+  if (!best) { world.toast('No free road nearby'); return; }
+  unstickCool = performance.now() + 2500;
+  car.teleport(best.x, best.z, best.y, best.h); car.speed = 0;
+  world.toast('Car reset onto the road');
+}
+resetBtn.addEventListener('click', () => { unstick(); resetBtn.blur(); });
+addEventListener('keydown', e => { if (e.code === 'KeyU' && !e.repeat && !e.target.closest?.('input,textarea')) unstick(); });
+// a nudge when the player has been on the gas but going nowhere for a few seconds
+let stuckT = 0;
+setInterval(() => { if (!world.onFoot && world.mode === 'city' && input.forward && Math.abs(car.speed) < 0.4 && !fuel.noFuelNow?.() && !car.noFuel) { stuckT++; if (stuckT === 4) world.toast('Stuck? Press U (or the ⟲ button) to reset the car onto the road'); } else stuckT = 0; }, 1000);
+camPanel.innerHTML = '<div class="seg">' + CAM_MODES.map(([k, n]) => `<button data-m="${k}">${n}</button>`).join('') + '</div>' +
+  '<div class="tune"><label>Distance <b class="vd"></b></label><input type="range" data-k="camDist" min="4" max="18" step="0.5"><label>Height <b class="vh"></b></label><input type="range" data-k="camHeight" min="1.5" max="11" step="0.25"></div>';
+function camSync() {
+  camPanel.querySelectorAll('.seg button').forEach(b => b.classList.toggle('on', b.dataset.m === camRig.mode));
+  camPanel.querySelector('.tune').style.display = camRig.mode === 'chase' || camRig.mode === 'top' ? '' : 'none';
+  camPanel.querySelector('.vd').textContent = (+settings.camDist).toFixed(1); camPanel.querySelector('.vh').textContent = (+settings.camHeight).toFixed(1);
+  camPanel.querySelector('[data-k=camDist]').value = settings.camDist; camPanel.querySelector('[data-k=camHeight]').value = settings.camHeight;
+  camPanel.querySelector('[data-k=camDist]').disabled = camRig.mode !== 'chase';
+}
+camBtn.addEventListener('click', () => { camPanel.style.display = camPanel.style.display === 'block' ? 'none' : 'block'; camSync(); camBtn.blur(); });
+camPanel.addEventListener('click', e => { const b = e.target.closest('button[data-m]'); if (b) camRig.setMode(b.dataset.m); });
+camPanel.addEventListener('input', e => { const k = e.target.dataset.k; if (!k) return; settings[k] = Number(e.target.value); saveSettings(settings); applySetting(k, settings[k]); camSync(); });
+addEventListener('keydown', e => { if (e.code === 'KeyV' && !e.repeat && !world.onFoot && !e.target.closest?.('input,textarea')) { camRig.cycle(); world.toast('Camera: ' + CAM_MODES.find(x => x[0] === camRig.mode)[1]); } });
+// clicking a dash button from inside the car
+renderer.domElement.addEventListener('pointerdown', e => {
+  if (camRig.mode !== 'inside' || world.onFoot) return;
+  const r = renderer.domElement.getBoundingClientRect(), v = new THREE.Vector2(((e.clientX - r.left) / r.width) * 2 - 1, -((e.clientY - r.top) / r.height) * 2 + 1);
+  const rc = new THREE.Raycaster(); rc.setFromCamera(v, camera);
+  const hit = rc.intersectObjects(interior.buttons, false)[0];
+  if (hit && input.toggle) input.toggle(hit.object.userData.key);
+});
+
 // apply the saved settings
 ['traffic', 'peds', 'fog', 'rain', 'snow', 'car', 'tex', 'res', 'view', 'fps', 'swapSticks'].forEach(k => applySetting(k, settings[k]));
+camRig.setMode(settings.camMode || 'chase'); refreshCamOffset();
 env.setHour(settings.hour, true);
 env.apply();
 dayBtn.textContent = env.nightK > 0.5 ? '🌙' : '☀️';
@@ -629,7 +717,14 @@ function districtFrame(dt) {
 function audioFrame(dt) {
   const thr = (input.forward ? 1 : 0) * (input.throttle == null ? 1 : Math.max(0.3, input.throttle));
   const rev = drive.update(dt, car, world.onFoot ? 0 : thr, world.onFoot);
+  lastRev = rev; car.accelMul = rev.manual ? rev.accelMul : 1;
   dashFrame(dt, rev);
+  {
+    const inside = camRig.mode === 'inside' && !world.onFoot;
+    if (interior.root.visible !== inside) { interior.setVisible(inside); if (car.model) car.model.visible = !inside; document.body.classList.toggle('cam-inside', inside); if (inside) interior.fit(); }
+    if (inside) interior.update(dt, { kmh: Math.hypot(car.vx || 0, car.vz || 0) * 6.2, maxKmh: car.maxSpeed * 6.2, rpm: rev.r, gear: rev.gear, fuel: fuel.level(),
+      blinkL: car.blinkers.frontLeft.material.emissiveIntensity > 0.5, blinkR: car.blinkers.frontRight.material.emissiveIntensity > 0.5, lights: !!input.lightsOn, lit: !!input.lightsOn || env.nightK > 0.5 });
+  }
   dash.style.display = world.onFoot ? 'none' : 'block';
   const ev = traffic.events.splice(0);
   ev.forEach(e => e.t === 'crash' ? audio.crash(e.x, e.z, e.power) : e.t === 'hiss' ? audio.airBrake && audio.airBrake(e.x, e.z) : audio.honk(e.x, e.z, HEAVY_TYPES[e.type] || 0, null, e.seed));
@@ -736,9 +831,10 @@ function animate() {
       car.update(dt / steps, (world.onFoot || races.frozen()) ? world.parkedInput(input) : input, world.heightAt);
       if (steps > 1) pre.push(...resolveCarCollisions(car, collisionWorld, dt / steps));
     }
-    traffic.update(dt, car);
+    traffic.update(dt, hail.following() ? hail.proxy : car);
     parkedCars.update(dt, car.x, car.z);
     races.update(dt);
+    fuel.update(dt); harbour.update(dt); hail.update(dt, !races.active());
     taxi.update(dt, car);
     standFrame(dt);
     updateTrafficLights();
@@ -767,7 +863,7 @@ function animate() {
     });
     destruction.update(dt, car);
     updateEffects(dt);
-    pedestrians.update(dt, car);
+    pedestrians.update(dt, hail.following() ? hail.proxy : car);
     updateWrongWay();
 
     if (isCarInWater()) {
@@ -781,11 +877,11 @@ function animate() {
     speedEl.textContent = Math.round(Math.hypot(car.vx, car.vz) * 6.2) + ' km/h · ' + (world.carClassInfo ? world.carClassInfo().cls : '') + (car.grip < 0.8 ? (car.grip < 0.55 ? ' ❄ icy' : ' 💧 wet') : '');
   }
 
-  if (!window.__freeCam) { if (world.onFoot) world.updateCamera(dt); else updateFollowCamera(camera, car, camOffset, dt, camBlocked); }
+  if (!window.__freeCam) { if (hail.cabCam()) hail.updateCamera(dt); else if (world.onFoot) world.updateCamera(dt); else camRig.update(dt, camBlocked); }
   minimap.update(focus, [], mapExtras(false));
   fxFrame(dt);
   gfx.render();
   requestAnimationFrame(animate);
 }
-window.__game = { radio, weather, plowFx, puffs, gfx, transit, parkedCars, skids, audio, races, structures, world, renderer, taxi, input, destruction, collisionWorld, lampDefs, signs, propInstances, env, settings, menu, minimap, scene, camera, car, city, traffic, pedestrians, lampPool, reflectors, heightAt, offences: { get wrongWay() { return wrongWayOffences; } } };
+window.__game = { hail, camRig, interior, fuel, radio, weather, plowFx, puffs, gfx, transit, parkedCars, skids, audio, races, structures, world, renderer, taxi, input, destruction, collisionWorld, lampDefs, signs, propInstances, env, settings, menu, minimap, scene, camera, car, city, traffic, pedestrians, lampPool, reflectors, heightAt, offences: { get wrongWay() { return wrongWayOffences; } } };
 animate();

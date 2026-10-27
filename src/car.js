@@ -163,7 +163,7 @@ export class Car {
     this._backHeld = pedal;
     if (this.speed < -0.3 && pedal) this._revOK = true;
     const reversing = pedal && this._revOK && this.speed <= 0.3;
-    const accelInput = input.forward ? 1 : (reversing ? -1 : 0);
+    const accelInput = (input.forward && !this.noFuel) ? 1 : (reversing ? -1 : 0);
     const steerInput = (input.steerAxis != null) ? input.steerAxis : (input.left ? 1 : input.right ? -1 : 0);
     const thr = input.throttle == null ? 1 : input.throttle;   // analog gas (touch slider)
     const braking = !!(input.brake || input.handbrake || pedal) && !reversing;
@@ -191,20 +191,21 @@ export class Car {
 
     // ---- longitudinal -------------------------------------------------------------------------------
     const air = this.airborne;
-    const k = Math.min(1, speedAbs / this.maxSpeed);
+    const vMax = this.maxSpeed * (this.fuelPower || 1);
+    const k = Math.min(1, speedAbs / vMax);
     if (!air) {
       if (accelInput > 0) {
         const kt = k / Math.max(0.15, thr);
-        this.speed += this.accel * Math.pow((this.baseMass || this.mass) / this.mass, 0.8) * (0.45 + 0.55 * g) * Math.min(1, thr * 1.2) * Math.max(-0.6, 1 - Math.pow(kt, 3)) * dt;
+        this.speed += this.accel * (this.fuelPower || 1) * (this.accelMul == null ? 1 : this.accelMul) * Math.pow((this.baseMass || this.mass) / this.mass, 0.8) * (0.45 + 0.55 * g) * Math.min(1, thr * 1.2) * Math.max(-0.6, 1 - Math.pow(kt, 3)) * dt;
       } else if (accelInput < 0) this.speed -= this.accel * 0.55 * dt;
       // braking is a constant deceleration (~1.1 g at stock, more with brake upgrades and lighter cars) rather than a
       // fixed fraction of speed, which used to slam the car to a stop from any speed
       const brakeDec = 11 * (this.brakeMul || 1) * Math.pow(1100 / this.mass, 0.3) * (0.3 + 0.7 * g) * (this.drifting ? 0.15 : 1);
       if (braking) { const d = Math.min(Math.abs(this.speed), brakeDec * dt); this.speed -= Math.sign(this.speed) * d; this.speed *= Math.exp(-0.05 * dt); }
       else this.speed *= Math.exp(-(accelInput > 0 ? 0.03 : 0.4) * dt);
-      if (grass > 0.5 && this.speed > 0) { const cap = this.maxSpeed * 0.94 * (1 - 0.2 * grass); if (this.speed > cap) this.speed += (cap - this.speed) * (1 - Math.exp(-12 * dt)); }   // grass costs about 20 % of the top speed
+      if (grass > 0.5 && this.speed > 0) { const cap = vMax * 0.94 * (1 - 0.2 * grass); if (this.speed > cap) this.speed += (cap - this.speed) * (1 - Math.exp(-12 * dt)); }   // grass costs about 20 % of the top speed
     }
-    this.speed = Math.max(this.maxReverse, Math.min(this.maxSpeed, this.speed));
+    this.speed = Math.max(this.maxReverse, Math.min(vMax, this.speed));
     if (Math.abs(this.speed) < 0.02) this.speed = 0;
 
     // ---- steering: quick turn-in, relaxes with speed, handbrake slides -----------------------------------

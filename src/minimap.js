@@ -126,11 +126,12 @@ export function createMinimap(city, roadsGroup) {
   // ---- the whole-city map (M, or tap the minimap): the same picture fitted to the screen, with every pin ----
   const full = document.createElement('div');
   full.id = 'fullmap';
-  full.innerHTML = '<canvas></canvas><div class="fmhead">City map <small>· tap or press M / Esc to close</small></div><div class="fmleg"></div>';
+  full.innerHTML = '<canvas></canvas><div class="fmhead"><span class="fmt">City map</span> <small class="fmh">· drag to move, scroll or pinch to zoom, M / Esc to close</small></div><div class="fmbtns"><button data-z="in">+</button><button data-z="out">−</button><button data-z="home">⌂</button><button data-z="close">✕</button></div><div class="fmleg"></div>';
   document.body.appendChild(full);
   const fcv = full.querySelector('canvas'), fctx = fcv.getContext('2d');
   const st = document.createElement('style');
-  st.textContent = `#fullmap { position: fixed; inset: 0; z-index: 25; display: none; background: rgba(8,12,18,.88); cursor: pointer; }
+  st.textContent = `#fullmap { position: fixed; inset: 0; z-index: 25; display: none; background: rgba(8,12,18,.88); cursor: grab; touch-action: none; }
+    #fullmap .fmbtns { position: absolute; right: 10px; top: 10px; display: flex; flex-direction: column; gap: 6px; } #fullmap .fmbtns button { width: 38px; height: 38px; border: 0; border-radius: 10px; background: rgba(255,255,255,.9); color: #111; font: 800 20px system-ui; cursor: pointer; }
     #fullmap canvas { position: absolute; inset: 0; width: 100%; height: 100%; }
     #fullmap .fmhead { position: absolute; left: 0; right: 0; top: 10px; text-align: center; color: #fff; font: 700 18px system-ui, sans-serif; text-shadow: 0 1px 6px #000; pointer-events: none; }
     #fullmap .fmhead small { font-weight: 400; font-size: 12px; opacity: .8; }
@@ -142,27 +143,27 @@ export function createMinimap(city, roadsGroup) {
     const m = 70, x0 = toU(realBounds.maxX + m), x1 = toU(realBounds.minX - m), y0 = toV(realBounds.maxZ + m), y1 = toV(realBounds.minZ - m);
     return { x0, y0, w: x1 - x0, h: y1 - y0 };
   })();
+  // zoom / pan state: (cu, cv) is the offscreen-map point shown in the middle of the screen, zoom multiplies the fit-to-screen scale
+  let zoom = 1, cu = fullRect.x0 + fullRect.w / 2, cv = fullRect.y0 + fullRect.h / 2, pickCb = null, view = { f: 1, scale: 1, cw: 1, ch: 1, cy: 1 };
   function drawFull(car, checkpoints = [], extras = null) {
     const dp = Math.min(2, window.devicePixelRatio || 1), cw = innerWidth, ch = innerHeight;
     const now = performance.now();
-    if (now - lastFull < 90) return;     // 10 fps is plenty for a pulsing ring
+    if (now - lastFull < 60) return;
     lastFull = now;
-    if (fcv.width !== Math.round(cw * dp) || fcv.height !== Math.round(ch * dp)) { fcv.width = Math.round(cw * dp); fcv.height = Math.round(ch * dp); fbase = null; }
+    if (fcv.width !== Math.round(cw * dp) || fcv.height !== Math.round(ch * dp)) { fcv.width = Math.round(cw * dp); fcv.height = Math.round(ch * dp); }
     const topPad = 44, botPad = 40, aw = cw - 24, ah = ch - topPad - botPad;
-    const f = Math.min(aw / fullRect.w, ah / fullRect.h);
-    const dw = fullRect.w * f, dh = fullRect.h * f, ox = (cw - dw) / 2, oy = topPad + (ah - dh) / 2;
-    if (!fbase) {   // the scaled-down city is drawn once per window size, not every frame
-      fbase = document.createElement('canvas'); fbase.width = fcv.width; fbase.height = fcv.height;
-      const bc = fbase.getContext('2d'); bc.setTransform(dp, 0, 0, dp, 0, 0);
-      bc.imageSmoothingQuality = 'high';
-      bc.drawImage(off, fullRect.x0, fullRect.y0, fullRect.w, fullRect.h, ox, oy, dw, dh);
-      bc.strokeStyle = 'rgba(255,255,255,.8)'; bc.lineWidth = 2; bc.strokeRect(ox, oy, dw, dh);
-    }
+    const f = Math.min(aw / fullRect.w, ah / fullRect.h), scale = f * zoom, midY = topPad + ah / 2;
+    view = { f, scale, cw, ch, cy: midY };
     fctx.setTransform(1, 0, 0, 1, 0, 0);
     fctx.clearRect(0, 0, fcv.width, fcv.height);
-    fctx.drawImage(fbase, 0, 0);
     fctx.setTransform(dp, 0, 0, dp, 0, 0);
-    const X = x => ox + (toU(x) - fullRect.x0) * f, Y = z => oy + (toV(z) - fullRect.y0) * f;
+    // the part of the offscreen city that is on screen
+    {
+      const u0 = Math.max(fullRect.x0, cu - (cw / 2) / scale), u1 = Math.min(fullRect.x0 + fullRect.w, cu + (cw / 2) / scale), v0 = Math.max(fullRect.y0, cv - (midY - topPad + 40) / scale), v1 = Math.min(fullRect.y0 + fullRect.h, cv + (ch - midY) / scale);
+      if (u1 > u0 && v1 > v0) { fctx.imageSmoothingQuality = 'high'; fctx.drawImage(off, u0, v0, u1 - u0, v1 - v0, cw / 2 + (u0 - cu) * scale, midY + (v0 - cv) * scale, (u1 - u0) * scale, (v1 - v0) * scale); }
+      fctx.strokeStyle = 'rgba(255,255,255,.8)'; fctx.lineWidth = 2; fctx.strokeRect(cw / 2 + (fullRect.x0 - cu) * scale, midY + (fullRect.y0 - cv) * scale, fullRect.w * scale, fullRect.h * scale);
+    }
+    const X = x => cw / 2 + (toU(x) - cu) * scale, Y = z => midY + (toV(z) - cv) * scale;
     // districts: a faint tint and a name over each, so you know what part of town is what
     (city.districts || []).forEach(d => {
       fctx.beginPath(); d.poly.forEach(([x, z], i) => (i ? fctx.lineTo(X(x), Y(z)) : fctx.moveTo(X(x), Y(z)))); fctx.closePath();
@@ -201,9 +202,38 @@ export function createMinimap(city, roadsGroup) {
     if (e.code === 'KeyM' && !shopOpen && !document.querySelector('#menu.open, .menu.open')) setFull(!fullOpen);
     else if (e.code === 'Escape' && fullOpen) { setFull(false); escAt = performance.now(); }
   });
-  const setFull = v => { fullOpen = v; lastFull = 0; full.style.display = v ? 'block' : 'none'; };
-  full.addEventListener('click', () => setFull(false));
+  const setFull = v => { fullOpen = v; lastFull = 0; full.style.display = v ? 'block' : 'none'; if (!v) { pickCb = null; full.querySelector('.fmt').textContent = 'City map'; full.querySelector('.fmh').textContent = '· drag to move, scroll or pinch to zoom, M / Esc to close'; } };
   el.addEventListener('click', () => setFull(true));
+  const clampView = () => { zoom = Math.max(1, Math.min(8, zoom)); cu = Math.max(fullRect.x0, Math.min(fullRect.x0 + fullRect.w, cu)); cv = Math.max(fullRect.y0, Math.min(fullRect.y0 + fullRect.h, cv)); lastFull = 0; };
+  const zoomAt = (k, sx, sy) => {       // zoom by factor k keeping the map point under (sx, sy) fixed
+    const before = { u: cu + (sx - view.cw / 2) / view.scale, v: cv + (sy - view.cy) / view.scale };
+    zoom *= k; zoom = Math.max(1, Math.min(8, zoom)); const sc = view.f * zoom;
+    cu = before.u - (sx - view.cw / 2) / sc; cv = before.v - (sy - view.cy) / sc; clampView();
+  };
+  full.addEventListener('wheel', e => { e.preventDefault(); zoomAt(e.deltaY < 0 ? 1.25 : 0.8, e.clientX, e.clientY); }, { passive: false });
+  const ptr = new Map(); let pinch = 0, moved = 0, downAt = null;
+  full.addEventListener('pointerdown', e => { if (e.target.closest('.fmbtns')) return; ptr.set(e.pointerId, { x: e.clientX, y: e.clientY }); moved = 0; downAt = { x: e.clientX, y: e.clientY }; try { full.setPointerCapture(e.pointerId); } catch (err) { /* ignore */ } if (ptr.size === 2) { const [a, b] = [...ptr.values()]; pinch = Math.hypot(a.x - b.x, a.y - b.y); } });
+  full.addEventListener('pointermove', e => {
+    const p = ptr.get(e.pointerId); if (!p) return;
+    if (ptr.size === 2) { const o = [...ptr.entries()].find(([id]) => id !== e.pointerId)[1]; p.x = e.clientX; p.y = e.clientY; const d = Math.hypot(p.x - o.x, p.y - o.y); if (pinch > 0) zoomAt(d / pinch, (p.x + o.x) / 2, (p.y + o.y) / 2); pinch = d; moved = 99; return; }
+    const dx = e.clientX - p.x, dy = e.clientY - p.y; p.x = e.clientX; p.y = e.clientY; moved += Math.abs(dx) + Math.abs(dy);
+    if (moved > 6) { cu -= dx / view.scale; cv -= dy / view.scale; clampView(); full.style.cursor = 'grabbing'; }
+  });
+  const pup = e => {
+    const wasTap = ptr.size === 1 && moved <= 6 && downAt; ptr.delete(e.pointerId); pinch = 0; full.style.cursor = pickCb ? 'crosshair' : 'grab';
+    if (wasTap && pickCb) {      // choose a destination: the map point under the tap, in world coordinates
+      const u = cu + (e.clientX - view.cw / 2) / view.scale, v = cv + (e.clientY - view.cy) / view.scale;
+      const cb = pickCb; setFull(false); cb({ x: maxX - u / SCALE, z: maxZ - v / SCALE });
+    }
+  };
+  full.addEventListener('pointerup', pup); full.addEventListener('pointercancel', e => { ptr.delete(e.pointerId); pinch = 0; });
+  full.querySelector('.fmbtns').addEventListener('click', e => {
+    const b = e.target.closest('button'); if (!b) return;
+    if (b.dataset.z === 'in') zoomAt(1.5, view.cw / 2, view.cy); else if (b.dataset.z === 'out') zoomAt(1 / 1.5, view.cw / 2, view.cy);
+    else if (b.dataset.z === 'home') { zoom = 1; cu = fullRect.x0 + fullRect.w / 2; cv = fullRect.y0 + fullRect.h / 2; clampView(); } else setFull(false);
+  });
+  // pick mode: the player taps a place on the map (used for hailing a cab)
+  function pick(title, cb) { pickCb = cb; zoom = 1; cu = fullRect.x0 + fullRect.w / 2; cv = fullRect.y0 + fullRect.h / 2; full.querySelector('.fmt').textContent = title; full.querySelector('.fmh').textContent = '· tap the map to choose, ✕ to cancel'; full.style.cursor = 'crosshair'; setFull(true); }
 
-  return { el, update, drawFull, setFull, toggleFull: () => setFull(!fullOpen), escAt: () => escAt, isFullOpen: () => fullOpen, debug: { off, toU, toV, paths } };
+  return { el, update, drawFull, setFull, pick, toggleFull: () => setFull(!fullOpen), escAt: () => escAt, isFullOpen: () => fullOpen, debug: { off, toU, toV, paths } };
 }

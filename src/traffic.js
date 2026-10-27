@@ -298,12 +298,15 @@ export function createTrafficSystem(cityData, scene, heightAt, count = 6, maxCou
     if (car.line) return n - 1;                       // bus lines hug the kerb so they can serve the stops
     if (car.edge && car.edge.type === 'highway') {
       if (car.prevType === 'highway' && car.laneIndex != null) return Math.min(n - 1, car.laneIndex);
-      return n - 1;
+      if (car.spawnHere) return Math.min(n - 1, n - 1 - Math.floor(Math.pow(car.laneBias === undefined ? Math.random() : car.laneBias, 1.3) * n));
+      return n - 1;       // joining from a ramp: the right-hand lane, then over to its own lane
     }
     const a = nodes[car.from], b = nodes[car.to];
     const mid = (n - 1) / 2;
     const loIdx = Math.floor(mid), hiIdx = Math.ceil(mid);
-    const middleChoice = loIdx === hiIdx ? loIdx : (Math.random() < 0.5 ? loIdx : hiIdx);
+    // straight on: every car has its own preferred lane, spread over ALL the lanes (not everybody in the middle one)
+    const bias = car.laneBias === undefined ? Math.random() : car.laneBias;
+    const middleChoice = Math.min(n - 1, Math.floor(bias * n));
     if (!a || !b || !car.nextEdge) return middleChoice;
     const far = nodes[otherEnd(car.nextEdge, car.to)];
     if (!far) return middleChoice;
@@ -330,11 +333,11 @@ export function createTrafficSystem(cityData, scene, heightAt, count = 6, maxCou
     car.crashTimer = 0;
     car.path = pathFor(edge, car.from, car.to);
     car.s = Math.random() * 0.7 * car.path.length;
-    car.pace = 0.93 + Math.random() * 0.17; car.prevType = undefined; car.laneIndex = undefined; car.passOff = 0; car._exT = undefined; car.seed = undefined;
+    car.pace = 0.93 + Math.random() * 0.17; car.laneBias = Math.random(); car.spawnHere = true; car.prevType = undefined; car.laneIndex = undefined; car.passOff = 0; car._exT = undefined; car.seed = undefined;
     car.targetSpeed *= edge.type === 'highway' ? car.pace : 1;
     car.nextEdge = pickNextEdge(car.to, car.from, car);
-    car.laneIndex = chooseLaneIndex(car);
-    if (edge.type === 'highway' && car.lanes > 1 && Math.random() < 0.22) { car.passOff = 1 + (car.lanes > 2 && Math.random() < 0.3 ? 1 : 0); car.laneIndex = Math.max(0, car.lanes - 1 - car.passOff); car.passUntil = performance.now() + 3000 + Math.random() * 9000; }
+    car.laneIndex = chooseLaneIndex(car); car.spawnHere = false; car.homeLane = car.laneIndex; car.laneFrom = null;
+    if (false) { car.passOff = 1 + (car.lanes > 2 && Math.random() < 0.3 ? 1 : 0); car.laneIndex = Math.max(0, car.lanes - 1 - car.passOff); car.passUntil = performance.now() + 3000 + Math.random() * 9000; }
     car.lat = laneLateral(car.width, car.lanes, car.laneIndex, car.oneWay);
     car.visualHeading = undefined;
     car.avoidOff = 0; car.avoidObs = null; car.conn = null; car.ghost = 0; car.blockedT = 0; car.waitT = 0;
@@ -519,7 +522,7 @@ export function createTrafficSystem(cityData, scene, heightAt, count = 6, maxCou
     if (pathB.length < clrB + 4) return;
     const nn = pickNextEdge(far, toNode, car);
     const lanesB = Math.max(1, next.lanes || 1);
-    const laneB = chooseLaneIndex({ from: toNode, to: far, lanes: lanesB, nextEdge: nn, edge: next, prevType: car.edge && car.edge.type, laneIndex: car.laneIndex, line: car.line });
+    const laneB = chooseLaneIndex({ laneBias: car.laneBias, from: toNode, to: far, lanes: lanesB, nextEdge: nn, edge: next, prevType: car.edge && car.edge.type, laneIndex: car.laneIndex, line: car.line });
     const latB = laneLateral(next.width || 9, lanesB, laneB, !!next.oneWay);
     const sA = Math.min(car.path.length, Math.max(0, car.s));
     const a = sampleAt(car.path, sA), oA = offsetVec(a.heading, car.lat);
@@ -625,13 +628,15 @@ export function createTrafficSystem(cityData, scene, heightAt, count = 6, maxCou
     // wrecks clear away once the player has left them well behind
     if (playerCar && k.age > 20 && Math.hypot(k.x - playerCar.x, k.z - playerCar.z) > 90) respawnAway(car, playerCar);
   }
+  let clearZone = null;     // {x,z,r}: races keep this area free of traffic
+  const inClear = (x, z) => !!clearZone && Math.hypot(x - clearZone.x, z - clearZone.z) < clearZone.r;
   function respawnAway(car, playerCar) {
     if (car.line) {
       for (let tries = 0; tries < 40; tries++) {
         const st = car.line.steps[Math.floor(Math.random() * car.line.steps.length)];
         place(car, st.edge, st.edge.from !== st.from);
         const pos = sampleAt(car.path, car.s);
-        if (Math.hypot(pos.x - playerCar.x, pos.z - playerCar.z) > 80) break;
+        if (Math.hypot(pos.x - playerCar.x, pos.z - playerCar.z) > 80 && !inClear(pos.x, pos.z)) break;
       }
       car.mesh.position.set(1e5, 0, 1e5); return;
     }
@@ -639,7 +644,7 @@ export function createTrafficSystem(cityData, scene, heightAt, count = 6, maxCou
       const edge = edgeFor(car.type);
       place(car, edge, edge.oneWay ? false : Math.random() < 0.5);
       const pos = sampleAt(car.path, car.s);
-      if (Math.hypot(pos.x - playerCar.x, pos.z - playerCar.z) > 80) break;
+      if (Math.hypot(pos.x - playerCar.x, pos.z - playerCar.z) > 80 && !inClear(pos.x, pos.z)) break;
     }
     car.mesh.position.set(1e5, 0, 1e5);  // snapped to its path on the next update
   }
@@ -661,7 +666,7 @@ export function createTrafficSystem(cityData, scene, heightAt, count = 6, maxCou
         place(car, m.e, m.e.oneWay ? false : Math.random() < 0.5);
         const q = sampleAt(car.path, car.s);
         const d = Math.hypot(q.x - playerCar.x, q.z - playerCar.z);
-        if (d > 110 && d < 440) break;
+        if (d > 110 && d < 440 && !inClear(q.x, q.z)) break;
       }
       car.mesh.position.set(1e5, 0, 1e5);
     }
@@ -673,6 +678,7 @@ export function createTrafficSystem(cityData, scene, heightAt, count = 6, maxCou
     const under = !!playerCar && (playerCar.y < -1.2 || playerCar.x > 4000);
     if (playerCar && !under) recycleFar(playerCar);
     const act = cars.filter(c => c.active);
+    if (clearZone && playerCar) for (const c of act) { if (c.mesh.position.x < 9e4 && inClear(c.mesh.position.x, c.mesh.position.z) && !c.knock) respawnAway(c, playerCar); }
     if (playerCar) {
       playerObs.x = under ? 1e6 : playerCar.x; playerObs.z = under ? 1e6 : playerCar.z; playerObs.speed = Math.abs(playerCar.speed || 0);
       playerObs.hdg = Math.atan2(Math.cos(playerCar.heading), Math.sin(playerCar.heading));
@@ -825,6 +831,10 @@ export function createTrafficSystem(cityData, scene, heightAt, count = 6, maxCou
         else if (rel < -0.3) hit = al < 1.4;
         else hit = ahead < 5.5 + (car.len - 3.4) * 0.4 && al < 1.7;
         if (!hit) continue;
+        if (car.laneFrom != null && car.edge.type === 'highway' && ahead < (car.len + oLen) / 2 + 2.5 && al > 0.5) {   // beside us in the middle of a lane change: go back, don't stand on the brakes
+          if (car.laneIndex !== car.laneFrom) { car.laneIndex = car.laneFrom; car.laneT = now + 5000; }
+          continue;
+        }
         const d = Math.hypot(dx, dz) - (car.len + oLen) / 2 + 3.5;   // bumper-to-bumper distance, expressed like the old centre-to-centre one
         if (d < nearest) { nearest = d; obs = o; obsLat = lat; }
       }
@@ -832,13 +842,16 @@ export function createTrafficSystem(cityData, scene, heightAt, count = 6, maxCou
       if (!globalThis.__noHw && !car.conn && car.edge.type === 'highway' && car.lanes > 1 && !car.avoidObs) {
         const n = car.lanes, right = n - 1, ex = hwExit(car, now), exitNear = ex && ex.dist < EXIT_LOOK;
         if (car.passOff === undefined) car.passOff = 0;
+        if (car.homeLane === undefined || car.homeLane > right) car.homeLane = Math.min(right, car.laneIndex);
         let want;
-        if (exitNear) { want = ex.right ? right : 0; car.passOff = right - want; }
+        if (exitNear) { want = ex.right ? right : 0; }
         else {
-          if (obs && !obs.isPlayer && car.passOff < right && nearest < 26 && obs.speed < car.targetSpeed * 0.88 && car.speed > 2 && now > (car.laneT || 0)) {
-            car.passOff++; car.passUntil = now + 6000 + Math.random() * 9000;
-          } else if (car.passOff > 0 && now > (car.passUntil || 0) && now > (car.laneT || 0)) { car.passOff--; car.passUntil = now + 2500; }
-          want = right - car.passOff;
+          // each car has a home lane (spread over all of them). It only moves left to get past something clearly slower,
+          // and drifts back home after a good while - no changing lanes just because it can.
+          if (obs && !obs.isPlayer && car.passOff < car.homeLane && nearest < 22 && obs.speed < car.targetSpeed * 0.8 && car.speed > 2 && now > (car.laneT || 0)) {
+            car.passOff++; car.passUntil = now + 9000 + Math.random() * 9000;
+          } else if (car.passOff > 0 && now > (car.passUntil || 0) && now > (car.laneT || 0)) { car.passOff--; car.passUntil = now + 6000; }
+          want = Math.max(0, car.homeLane - car.passOff);
         }
         if (want !== car.laneIndex && now > (car.laneT || 0)) {
           const step = want > car.laneIndex ? 1 : -1, tl = car.laneIndex + step;
@@ -847,11 +860,10 @@ export function createTrafficSystem(cityData, scene, heightAt, count = 6, maxCou
           for (const o of nb) {
             if (o === car) continue;
             const dx = px(o) - curX, dz = pz(o) - curZ, ahead = dx * ch + dz * sh, lat = -dx * sh + dz * ch;
-            if (ahead > -9 - (o.speed > car.speed ? (o.speed - car.speed) * 1.2 : 0) && ahead < 11 + Math.max(0, car.speed - o.speed) * 1.5 && Math.abs(lat - side) < 2.5) { clear = false; break; }
+            if (ahead > -12 - (o.speed > car.speed ? (o.speed - car.speed) * 1.5 : 0) && ahead < 14 + Math.max(0, car.speed - o.speed) * 1.8 && Math.abs(lat - side) < 3.0) { clear = false; break; }
           }
-          if (clear) { car.laneIndex = tl; car.laneT = now + 1800; }
-          else if (!exitNear && step > 0) car.passUntil = Math.max(car.passUntil || 0, now + 1500);
-          else if (!exitNear && step < 0) { car.passOff = Math.max(0, car.passOff - 1); }
+          if (clear) { car.laneFrom = car.laneIndex; car.laneIndex = tl; car.laneT = now + 4500; }
+          else { car.laneT = now + 700; if (!exitNear && step < 0) car.passOff = Math.max(0, car.passOff - 1); }
         }
       }
       if (obs) {
@@ -905,7 +917,7 @@ export function createTrafficSystem(cityData, scene, heightAt, count = 6, maxCou
       if (car.ghost > 0) car.ghost -= dt;
       if (car.speed < 0.3 && (car.why === 'ahead' || car.why === 'box') && !waitingLegit(car)) {
         car.blockedT += dt;
-        if (car.blockedT > 9) { car.ghost = 7; car.blockedT = 0; car.blockedBy = null; }
+        if (car.blockedT > 10 && lastPlayer && car.blockedBy !== playerObs) { car.blockedT = 0; car.blockedBy = null; respawnAway(car, lastPlayer); return; }
       } else car.blockedT = 0;
 
       // Rammed by the player, or touching it: stop where it is, hazards flashing.
@@ -1087,7 +1099,7 @@ export function createTrafficSystem(cityData, scene, heightAt, count = 6, maxCou
         place(car, edge, edge.oneWay ? false : Math.random() < 0.5);
         const pos = sampleAt(car.path, car.s);
         const px = lastPlayer ? lastPlayer.x : 1e6, pz = lastPlayer ? lastPlayer.z : 1e6;
-        if (Math.hypot(pos.x - px, pos.z - pz) > 70) break;
+        if (Math.hypot(pos.x - px, pos.z - pz) > 70 && !inClear(pos.x, pos.z)) break;
       }
     });
   }
@@ -1095,5 +1107,10 @@ export function createTrafficSystem(cityData, scene, heightAt, count = 6, maxCou
   const activeCount = () => cars.filter(c => c.active && !c.line && !c.svc).length;
   cars.forEach((c, i) => { if (i >= count && !c.line && !c.svc) { c.active = false; c.mesh.visible = false; c.colliders.forEach(k => { k.blocksCar = false; k.x = 1e6; k.z = 1e6; }); } });
 
-  return { update, events, colliders: colliderList, cars, svcCars, setPlows, setCount, activeCount, maxCount, setSink(arr) { sink = arr; } };
+  // Races: empty the area around (x,z) and keep it empty until released (null).
+  function setClearZone(z) {
+    clearZone = z;
+    if (z && lastPlayer) cars.forEach(c => { if (c.active && inClear(c.mesh.position.x, c.mesh.position.z)) respawnAway(c, lastPlayer); });
+  }
+  return { update, events, setClearZone, colliders: colliderList, cars, svcCars, setPlows, setCount, activeCount, maxCount, setSink(arr) { sink = arr; } };
 }

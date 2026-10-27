@@ -743,3 +743,11 @@ function per new type) whenever you want it — say the word and I'll add them.
 - **Shops** show your car in a lit showroom (walls in the shop's colour, name board, kit-specific props); the item list keeps its scroll position.
 - **Districts**: Neon Strip (many neon signs), Downtown (CBD, tallest towers), Industrial, Chinatown and others; the name pops up as you enter and the city map draws them. All shops are pinned on the map.
 - **Neon signs** stick out from the walls 3-5 m up. Front bumpers no longer cover the headlights.
+
+## Batch 2026-10-27 (b)
+- **Traffic**: lane choice spreads cars across lanes, a deadlock breaker for stuck cars, no more loops; highways have guard rails and trees.
+- **Street lights** run along every street at a regular spacing. Gas stations (8) with fuel, tow and premium gas; tank upgrade at the garage.
+- **Races**: pre-race menu (route on the map, length, lap record, opponents, laps, traffic/weather/time/pedestrian tuning, Start with a short loading screen). Traffic is cleared 300 m around the start and kept low. Circuits are one continuous loop; the start line is the finish line. Drag uses manual shifting with a big rpm dial. Drift circuits are smaller and tighter with bonus lines.
+- **Cameras**: chase / bumper / top / interior with tunable distance and height. Interior with working gauges, wheel, indicators and lights.
+- **Map zoom**, harbour (first guess), reset car (U), run toggle (G), compact mobile buttons, hail-a-cab, car purchase parks the old car, desk lists cars per house.
+- **Clothing**: more detailed character (neck, ears, face, hair, hands, split limbs) and garment models (collars, hoods, pockets, lapels, ties, cuffs, belts, laces, soles); catalogue grew to 19 shirts, 12 pants, 11 hats, 8 glasses, 8 shoes.

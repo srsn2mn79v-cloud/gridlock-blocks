@@ -22,7 +22,7 @@ const DECAL_COLORS = [['White', 0xffffff], ['Black', 0x111111], ['Yellow', 0xffd
 const NEONS = [['Pink', 0xff2fa8], ['Cyan', 0x20e8ff], ['Green', 0x38ff6a], ['Violet', 0xa14bff], ['White', 0xffffff], ['Red', 0xff2a2a]];
 const NITRO_SECS = [0, 4, 7, 10];
 
-const defaultMods = () => ({ paint: null, decal: { type: 'none', color: 0xffffff }, neon: null, xenon: false, nitro: 0, hud: 0,
+const defaultMods = () => ({ paint: null, decal: { type: 'none', color: 0xffffff }, neon: null, xenon: false, nitro: 0, hud: 0, tank: 0,
   perf: { engine: 0, turbo: 0, gearbox: 0, tires: 0, suspension: 0, brakes: 0, weight: 0, seats: 0, limiter: 0 }, kit: { front: 0, rear: 0, skirts: 0, spoiler: 0, fenders: 0, hood: 0 }, own: {} });
 
 function loadSave() {
@@ -58,20 +58,48 @@ function closestOnPoly(px, pz, poly) {
 const AVATAR_SCALE = 1.44 / 1.89;
 export function makeAvatar() {
   const g = new THREE.Group();
-  const M = (c) => new THREE.MeshStandardMaterial({ color: c, roughness: 0.8 });
-  const jacket = M(0x2f6fe0), pants = M(0x23262d), skin = M(0xe0b090), shoe = M(0x15161a);
+  const M = (c, r = 0.8) => new THREE.MeshStandardMaterial({ color: c, roughness: r });
+  const jacket = M(0x2f6fe0), pants = M(0x23262d), skin = M(0xe0b090, 0.7), shoe = M(0x15161a), hairM = M(0x3a2a1d, 0.9), dark = M(0x1a1410), lip = M(0xa8625a);
   const box = (w, h, d, m, x, y, z, parent = g) => { const o = new THREE.Mesh(new THREE.BoxGeometry(w, h, d), m); o.position.set(x, y, z); o.castShadow = true; parent.add(o); return o; };
-  box(0.5, 0.65, 0.28, jacket, 0, 1.2, 0);
-  const head = new THREE.Mesh(new THREE.SphereGeometry(0.17, 12, 10), skin); head.position.y = 1.7; head.castShadow = true; g.add(head);
-  const capMesh = box(0.36, 0.1, 0.34, M(0x15161a), 0, 1.84, 0); capMesh.visible = false;   // (hats are fitted by wardrobe.js)
+  const mesh = (geo, m, x, y, z, parent = g) => { const o = new THREE.Mesh(geo, m); o.position.set(x, y, z); o.castShadow = true; parent.add(o); return o; };
+  // torso: chest + waist (both take the shirt material); neck
+  box(0.5, 0.38, 0.28, jacket, 0, 1.33, 0); box(0.44, 0.285, 0.25, jacket, 0, 1.02, 0);
+  mesh(new THREE.CylinderGeometry(0.06, 0.07, 0.12, 10), skin, 0, 1.56, 0);
+  // head: skull, ears, brows, eyes, nose, mouth, hair
+  mesh(new THREE.SphereGeometry(0.17, 16, 12), skin, 0, 1.7, 0);
+  [-1, 1].forEach(s => {
+    box(0.03, 0.07, 0.045, skin, s * 0.17, 1.7, 0); box(0.07, 0.014, 0.012, hairM, s * 0.065, 1.755, 0.158);
+    box(0.034, 0.024, 0.012, dark, s * 0.065, 1.72, 0.162); box(0.03, 0.12, 0.1, hairM, s * 0.158, 1.73, -0.02);
+  });
+  box(0.03, 0.045, 0.045, skin, 0, 1.69, 0.17); box(0.07, 0.012, 0.01, lip, 0, 1.64, 0.162);
+  mesh(new THREE.SphereGeometry(0.18, 16, 10, 0, Math.PI * 2, 0, Math.PI * 0.56), hairM, 0, 1.715, -0.012);
+  box(0.28, 0.12, 0.05, hairM, 0, 1.69, -0.15);
   const hatSlot = new THREE.Group(); hatSlot.position.set(0, 1.74, 0); g.add(hatSlot);
   const glassSlot = new THREE.Group(); glassSlot.position.set(0, 1.72, 0.16); g.add(glassSlot);
-  const limb = (w, h, d, m, x, y, z, ph) => { const p = new THREE.Group(); p.position.set(x, y, z); const o = new THREE.Mesh(new THREE.BoxGeometry(w, h, d), m); o.position.y = -h / 2; o.castShadow = true; p.add(o); g.add(p); p.userData.ph = ph; return p; };
-  const legs = [limb(0.2, 0.88, 0.22, pants, -0.13, 0.88, 0, 0), limb(0.2, 0.88, 0.22, pants, 0.13, 0.88, 0, Math.PI)];
-  const arms = [limb(0.14, 0.6, 0.16, jacket, -0.34, 1.5, 0, Math.PI), limb(0.14, 0.6, 0.16, jacket, 0.34, 1.5, 0, 0)];
-  const shoeMeshes = [box(0.2, 0.1, 0.3, shoe, -0.13, 0.05, 0.04), box(0.2, 0.1, 0.3, shoe, 0.13, 0.05, 0.04)];
+  const torsoSlot = new THREE.Group(), pantsSlot = new THREE.Group(); g.add(torsoSlot, pantsSlot);
+  // limbs: arms and legs are pivots at shoulder / hip so the walk cycle can swing them
+  const pivot = (x, y, ph) => { const p = new THREE.Group(); p.position.set(x, y, 0); p.userData.ph = ph; g.add(p); return p; };
+  const shins = [], armSlots = [], legSlots = [];
+  const legs = [-0.13, 0.13].map((x, i) => {
+    const p = pivot(x, 0.88, i ? Math.PI : 0);
+    box(0.2, 0.44, 0.22, pants, 0, -0.22, 0, p); shins.push(box(0.19, 0.44, 0.21, pants, 0, -0.66, 0, p));
+    const sl = new THREE.Group(); sl.userData.side = x < 0 ? -1 : 1; p.add(sl); legSlots.push(sl); return p;
+  });
+  const arms = [-0.34, 0.34].map((x, i) => {
+    const p = pivot(x, 1.5, i ? 0 : Math.PI);
+    box(0.14, 0.32, 0.16, skin, 0, -0.16, 0, p); box(0.125, 0.34, 0.14, skin, 0, -0.49, 0, p);
+    box(0.1, 0.12, 0.13, skin, 0, -0.72, 0.005, p); box(0.025, 0.07, 0.05, skin, x < 0 ? 0.06 : -0.06, -0.72, 0.05, p);
+    const sl = new THREE.Group(); sl.userData.side = x < 0 ? -1 : 1; p.add(sl); armSlots.push(sl); return p;
+  });
+  const shoeMeshes = [], footSlots = [];
+  [-0.13, 0.13].forEach(x => {
+    shoeMeshes.push(box(0.2, 0.1, 0.3, shoe, x, 0.05, 0.04));
+    const f = new THREE.Group(); f.position.set(x, 0, 0.04); g.add(f); footSlots.push(f);
+  });
   g.userData.limbs = legs.concat(arms);
-  g.userData.mats = { shirt: jacket, pants, shoe }; g.userData.shoes = shoeMeshes; g.userData.cap = capMesh; g.userData.hatSlot = hatSlot; g.userData.glassSlot = glassSlot;
+  g.userData.mats = { shirt: jacket, pants, shoe, skin }; g.userData.shoes = shoeMeshes; g.userData.shins = shins;
+  g.userData.hatSlot = hatSlot; g.userData.glassSlot = glassSlot; g.userData.torsoSlot = torsoSlot; g.userData.pantsSlot = pantsSlot;
+  g.userData.armSlots = armSlots; g.userData.legSlots = legSlots; g.userData.footSlots = footSlots;
   g.scale.setScalar(AVATAR_SCALE);
   return g;
 }
@@ -400,6 +428,7 @@ export function createWorld({ city, scene, camera, car, input, heightAt: cityHei
     const e = fleet[car.styleKey]; if (e && e.live) { delete fleet[car.styleKey]; persist(); }
   }
   const footCam = new THREE.Vector3();
+  let footFrozen = false;
   let camSnap = false;
   function updateCamera(dt) {
     if (mode === 'flat') {
@@ -489,7 +518,7 @@ export function createWorld({ city, scene, camera, car, input, heightAt: cityHei
       if (!ownedCars().includes(k)) { delete fleet[k]; return; }
       if (k === car.styleKey) { if (!e.live) delete fleet[k]; } else if (e.live) e.live = false;
     });
-    save.bought.forEach(k => {
+    ownedCars().forEach(k => {
       if (k === car.styleKey || fleet[k]) return;
       for (const a of city.apartments) {
         if (!save.apts[a.id]) continue;
@@ -806,9 +835,21 @@ export function createWorld({ city, scene, camera, car, input, heightAt: cityHei
     const total = cartTotal(); if (total > cash()) { toast('Insufficient funds'); return; }
     if (total > 0) taxi.addCash(-total);
     const m = modsOf(car.styleKey);
+    const newCars = [...modal.cart.values()].filter(it => it.group.startsWith('car.')).map(it => it.key);
     modal.cart.forEach(it => { it.apply(m); if (it.commit) it.commit(); });
-    modal.cart.clear(); reconcileFleet(); persist(); applyMods(); refreshPanel();
-    toast(total > 0 ? 'Purchased for ' + money(total) : 'Done');
+    modal.cart.clear();
+    if (newCars.length) {
+      // the car you came in is parked in a free bay of one of your garages and you drive away in the new one
+      const old = car.styleKey, nk = newCars[newCars.length - 1];
+      if (old !== nk) {
+        chooseCar(nk); reconcileFleet();
+        const e = fleet[old], ap = e && city.apartments.find(q => q.id === e.apt);
+        toast('Your new ' + (CAR_STYLES.find(c => c.key === nk) || {}).name + ' is ready' + (ap ? ' - the ' + (CAR_STYLES.find(c => c.key === old) || {}).name + ' is parked at ' + ap.name : ''));
+      }
+      if (modal.preview) { modal.preview = nk; }
+    } else reconcileFleet();
+    persist(); applyMods(); refreshPanel();
+    if (!newCars.length) toast(total > 0 ? 'Purchased for ' + money(total) : 'Done');
   }
   function spend(v) { if (cash() < v) { toast('Not enough money'); return false; } taxi.addCash(-v); return true; }
   function buyOwn(id, price, then) { const m = modsOf(car.styleKey); if (m.own[id]) { then(m); persist(); applyMods(); refreshPanel(); return; } if (!spend(price)) return; m.own[id] = true; then(m); persist(); applyMods(); refreshPanel(); toast('Installed!'); }
@@ -856,13 +897,14 @@ export function createWorld({ city, scene, camera, car, input, heightAt: cityHei
     const chipRow = (name, list) => ({ name, chips: list });
     if (shop.kind === 'dealer') {
       const slots = garageSlots(), picked = [...cartMap.keys()].filter(g => g.startsWith('car.')).length;
-      return { ...base, buy: buyBar(), right: `Garage ${save.bought.length + picked}/${slots}`, rows: CAR_STYLES.filter(cs => !cs.job).map(cs => {
+      const need = save.bought.length + picked >= slots;
+      return { ...base, buy: buyBar(), right: `Garage ${save.bought.length + picked}/${slots}`, rows: [{ hint: need ? (slots ? 'Your garage bays are full - a new car needs a free bay for the car you drive now. Buy or rent a flat with a bigger garage first.' : 'You need a garage first: a new car goes home with you and your current car is parked in your garage. Buy a flat with a garage from an estate agent.') : 'The car you drive now is parked in a free garage bay and you drive away in the new one.' }].concat(CAR_STYLES.filter(cs => !cs.job).map(cs => {
         const owned = ownedCars().includes(cs.key), price = CAR_PRICE[cs.key] || 0, g = 'car.' + cs.key, chosen = cartMap.has(g), full = save.bought.length + picked >= slots && !chosen;
         return { name: cs.name, sub: `Class ${cs.cls} · ${Math.round(cs.maxSpeed * 6.2)} km/h · 0-100 ${zeroTo100(cs.accel, cs.maxSpeed, cs.mass).toFixed(1)} s · ${cs.mass} kg · ${owned ? 'Owned' : money(price)}`, sel: modal.preview === cs.key || chosen,
           btn: owned ? 'Owned' : chosen ? 'Selected' : full ? 'No garage' : 'Select', disabled: owned || full,
           focus: () => { modal.preview = cs.key; showPreview(cs.key); refreshPanel(); },
           act: () => { if (owned) return; if (chosen) cartMap.delete(g); else cartMap.set(g, { group: g, key: cs.key, name: cs.name, price, apply: () => {}, commit: () => { save.bought.push(cs.key); } }); refreshPanel(); } };
-      }) };
+      })) };
     }
     if (shop.kind === 'perf') {
       const rows = [];
@@ -899,6 +941,8 @@ export function createWorld({ city, scene, camera, car, input, heightAt: cityHei
       rows.push(pickRow({ group: 'xenon', key: 'x', name: 'Xenon headlights', price: 350, fitted: !!real.xenon, sub: real.xenon ? 'Fitted' : '$350 · cold blue-white beams', apply: mm => { mm.xenon = true; } }));
       rows.push({ hint: 'Trunk: nitro tank - hold Shift to boost (+30% top speed, 2.4x acceleration), refills over time' });
       const nr = []; stageRows(nr, 'nitro', 'Nitro tank', [900, 1600, 2600], 'boost time 4 / 7 / 10 s', x => x.nitro, (mm, l) => { mm.nitro = l; }); rows.push(...nr.slice(1));
+      rows.push({ hint: 'Fuel' });
+      const tr = []; stageRows(tr, 'tank', 'Fuel tank', [350, 700, 1200, 1800], '+25% tank per stage (range 125 / 150 / 175 / 200 km)', x => x.tank || 0, (mm, l) => { mm.tank = l; }); rows.push(...tr.slice(1));
       rows.push({ hint: 'HUD' });
       const hr = []; stageRows(hr, 'hud', 'HUD', [500, 900], 'stage 1 digital speedo, stage 2 adds compass + clock', x => x.hud, (mm, l) => { mm.hud = l; }); rows.push(...hr.slice(1));
       return { ...base, buy: buyBar(), rows };
@@ -1024,11 +1068,20 @@ export function createWorld({ city, scene, camera, car, input, heightAt: cityHei
       rows.push({ name: 'Time played', sub: hrs >= 1 ? hrs.toFixed(1) + ' h' : Math.round(stats.secs / 60) + ' min' });
       rows.push({ name: 'Races', sub: `${plays} run · ${wins} won` });
     } else if (modal.tab === 1) {
-      owned.forEach(k => {
-        const cs = CAR_STYLES.find(c => c.key === k); if (!cs) return;
-        const e = fleet[k], ap = e && city.apartments.find(q => q.id === e.apt);
-        rows.push({ name: cs.name, sub: `Class ${cs.cls} · ${Math.round(cs.maxSpeed * 6.2)} km/h · ${k === car.styleKey ? 'driving now' : ap ? 'parked at ' + ap.name : 'waiting nearby'}` });
+      // your cars grouped by the house they live at (each flat has its own garage)
+      const nameOf = k => (CAR_STYLES.find(c => c.key === k) || {}).name || k, info = k => { const cs = CAR_STYLES.find(c => c.key === k); return cs ? `Class ${cs.cls} · ${Math.round(cs.maxSpeed * 6.2)} km/h` : ''; };
+      const drivingNow = owned.includes(car.styleKey) ? car.styleKey : null;
+      if (drivingNow) { rows.push({ hint: 'Driving now' }); rows.push({ name: nameOf(drivingNow), sub: info(drivingNow) }); }
+      const homes = city.apartments.filter(a => save.apts[a.id]);
+      if (!homes.length) rows.push({ hint: 'You do not own a house yet - buy a flat with a garage from an estate agent to keep more cars.' });
+      homes.forEach(a => {
+        const here = owned.filter(k => k !== drivingNow && fleet[k] && fleet[k].apt === a.id);
+        rows.push({ hint: `${a.name} - ${a.label} · ${a.district} (garage ${here.length}/${a.garage})` });
+        if (!here.length) rows.push({ name: 'Empty garage', sub: `${a.garage} bay${a.garage === 1 ? '' : 's'} free` });
+        here.forEach(k => rows.push({ name: nameOf(k), sub: info(k) + (fleet[k].spot >= 0 ? ` · bay ${fleet[k].spot + 1}` : ' · parked on the garage floor') }));
       });
+      const lost = owned.filter(k => k !== drivingNow && !(fleet[k] && homes.some(a => a.id === fleet[k].apt)));
+      if (lost.length) { rows.push({ hint: 'No garage space' }); lost.forEach(k => rows.push({ name: nameOf(k), sub: info(k) + ' · no free bay - get a bigger garage' })); }
     } else {
       if (!races.length) rows.push({ hint: 'No races listed.' });
       races.forEach(r => { const st = rs[r.id] || {}; rows.push({ name: r.name, sub: `${r.kind} · class ${r.cls || '-'} · ${st.plays || 0} run · ${st.wins || 0} won` + (st.best ? ' · best ' + (r.kind === 'drift' ? Math.round(st.best).toLocaleString('en-US') + ' pts' : st.best.toFixed(1) + ' s') : '') }); });
@@ -1238,7 +1291,8 @@ export function createWorld({ city, scene, camera, car, input, heightAt: cityHei
       if (p.x < 0) return !(p.x > -14 && Math.abs(p.z) < RAMP.W / 2 + 4);
       return garageHeight(cur.g.lay, p.x, p.z) == null || rectHit(cur.g.solids, p.x, p.z, 0);
     }, get _dbg() { return { mode, cur, fleet, foot, targets: local.slice() }; },
-    carClassInfo: () => { const st = CAR_STYLES.find(c => c.key === car.styleKey) || CAR_STYLES[0]; return carClass(st.cls, modsOf(car.styleKey)); }, persist, setBlocked: fn => { blockedFn = fn; }, escAt: () => escAt, ownedCars, applyMods, openModal, closeModal, act, updateModal, updateCamera, mapMarkers, beforeCar, save,
+    carClassInfo: () => { const st = CAR_STYLES.find(c => c.key === car.styleKey) || CAR_STYLES[0]; return carClass(st.cls, modsOf(car.styleKey)); }, persist, spend, cash: () => cash(), modsOf, setFootFrozen: v => { footFrozen = !!v; }, setAvatarVisible: v => { avatar.visible = !!v; },
+    placeFoot: (x, z, h) => { foot.x = x; foot.z = z; foot.y = hAt(x, z, 0); foot.heading = foot.camH = h; foot.speed = 0; foot.turn = 0; foot.vx = foot.vz = 0; onFoot = true; avatar.visible = true; stepFoot(0); camSnap = true; }, setBlocked: fn => { blockedFn = fn; }, escAt: () => escAt, ownedCars, applyMods, openModal, closeModal, act, updateModal, updateCamera, mapMarkers, beforeCar, save,
     update(dt) {
       stats.secs += dt; if (!onFoot && mode !== 'flat') stats.units += Math.abs(car.speed || 0) * dt; statsT -= dt; if (statsT <= 0) { statsT = 30; persist(); }
       markerAnim(dt);
@@ -1257,7 +1311,7 @@ export function createWorld({ city, scene, camera, car, input, heightAt: cityHei
         const day = hr > 6 && hr < 18 ? Math.sin(ang) * wet : 0;
         F.L.update(dirL, day, 1 - 0.45 * Math.min(1, day * 1.5));
       }
-      if (onFoot) stepFoot(dt);
+      if (onFoot && !footFrozen) stepFoot(dt);
       updatePrompt();
       updateCluster();
     },

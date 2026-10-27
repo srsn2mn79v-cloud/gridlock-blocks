@@ -9,7 +9,7 @@ const PRIZES = [5000, 3000, 1500];
 export const RACE_KINDS = {
   drag:    { name: 'Drag',    color: '#ff4d4d', hex: 0xff4d4d, label: 'DR', desc: 'Straight line, fastest to the line' },
   drift:   { name: 'Drift',   color: '#ff9f1c', hex: 0xff9f1c, label: 'DF', desc: 'Slide for points: long, fast, big angle' },
-  circuit: { name: 'Circuit', color: '#3b82f6', hex: 0x3b82f6, label: 'CI', desc: 'One lap of the city through checkpoints' },
+  circuit: { name: 'Circuit', color: '#3b82f6', hex: 0x3b82f6, label: 'CI', desc: 'A closed loop through checkpoints; the start line is the finish line' },
   sprint:  { name: 'Sprint',  color: '#2ee66b', hex: 0x2ee66b, label: 'SP', desc: 'One path from A to B through checkpoints' }
 };
 
@@ -101,21 +101,32 @@ export function planRaces(city, districtName = () => 'City', transit = null) {
   let nC = 0;
   for (const h of order) {
     if (nC >= 3) break;
-    const s = nodes[h]; if (!farFromOthers(s.x, s.z, 380)) continue;
-    const R = 230 + rand() * 90, a0 = rand() * Math.PI * 2, wp = [];
-    for (let k = 0; k < 3; k++) {
-      const a = a0 + k * 2.1 + (rand() - 0.5) * 0.4;
+    const s = nodes[h]; if (!farFromOthers(s.x, s.z, 380) || !clearOfDoors(s.x, s.z)) continue;
+  for (let attempt = 0; attempt < 40; attempt++) {
+    const R = 200 + rand() * 160, a0 = rand() * Math.PI * 2, wp = [], nWp = 3 + (rand() < 0.4 ? 1 : 0);
+    for (let k = 0; k < nWp; k++) {
+      const a = a0 + k * (Math.PI * 2 / nWp) + (rand() - 0.5) * 0.5;
       const n = nearestHub(s.x + Math.cos(a) * R, s.z + Math.sin(a) * R, 70);
       if (n && n !== h && !wp.includes(n)) wp.push(n);
     }
-    if (wp.length < 3) continue;
+    if (wp.length < nWp) continue;
     const legs = [h, ...wp, h]; let ids2 = [h], ok = true;
     for (let i = 1; i < legs.length && ok; i++) { const p = path(legs[i - 1], legs[i]); if (!p) ok = false; else ids2 = ids2.concat(p.slice(1)); }
     if (!ok) continue;
-    const pts = polyOf(ids2), L = lenOf(pts);
+    // a true loop never uses the same street twice (no turning back on yourself)
+    const used = new Set(); let reuse = false;
+    for (let i = 1; i < ids2.length; i++) { const k = ids2[i - 1] < ids2[i] ? ids2[i - 1] + '|' + ids2[i] : ids2[i] + '|' + ids2[i - 1]; if (used.has(k)) reuse = true; used.add(k); }
+    if (reuse) continue;
+    const P = polyOf(ids2), L = lenOf(P);
     if (L < 900 || L > 2600) continue;
-    races.push({ kind: 'circuit', id: 'circuit' + nC, name: label(s.x, s.z) + ' Circuit', pts, length: L, width: 16, checkpoints: checkpointsFor(pts, 150), lap: true });
-    starts.push([s.x, s.z]); nC++;
+    // the start/finish line sits 50 u before the hub on the closing stretch, so the lap simply carries on through it
+    const cum = [0]; for (let i = 1; i < P.length; i++) cum.push(cum[i - 1] + Math.hypot(P[i][0] - P[i - 1][0], P[i][1] - P[i - 1][1]));
+    const cut = L - 50; let k = 0; while (k < P.length - 2 && cum[k + 1] <= cut) k++;
+    const S = ptAt(P, cut);
+    const pts = [S, ...P.slice(k + 1), ...P.slice(1, k + 1), S].filter((p, i, a) => i === 0 || Math.hypot(p[0] - a[i - 1][0], p[1] - a[i - 1][1]) > 1);
+    races.push({ kind: 'circuit', id: 'circuit' + nC, name: label(s.x, s.z) + ' Circuit', pts, length: L, width: 16, checkpoints: checkpointsFor(pts, 150), lap: true, laps: 2 });
+    starts.push([S[0], S[1]]); nC++; break;
+  }
   }
 
   // --- sprints: far apart ends, one shortest path --------------------------------------------------------------------------------
@@ -156,7 +167,7 @@ export function planRaces(city, districtName = () => 'City', transit = null) {
 }
 
 // ---- the game side ---------------------------------------------------------------------------------------------------------------------
-export function createRaces({ city, scene, heightAt, car, world, districtName, transit = null, arena = null, collisionWorld = null }) {
+export function createRaces({ city, scene, heightAt, car, world, districtName, transit = null, arena = null, collisionWorld = null, tune = null, gearbox = null }) {
   const plan = planRaces(city, districtName, transit);
   const save = (world.save.races ||= {});
   const persist = () => world.persist && world.persist();
@@ -252,9 +263,50 @@ export function createRaces({ city, scene, heightAt, car, world, districtName, t
     #raceres .row.me { color: #ffd21f; font-weight: 800; } #raceres button { margin-top: 12px; width: 100%; border: 0; border-radius: 10px; padding: 10px; font: 800 15px system-ui; background: var(--race, #ffd21f); color: #111; cursor: pointer; }
     #racequit { position: fixed; top: 8px; right: 8px; z-index: 14; display: none; border: 0; border-radius: 8px; padding: 6px 10px; font: 700 12px system-ui; background: rgba(160,30,30,.85); color: #fff; cursor: pointer; }
     #raceprompt { pointer-events: auto !important; cursor: pointer; position: fixed; left: 50%; bottom: 175px; transform: translateX(-50%); z-index: 8; display: none; padding: 8px 16px; border-radius: 20px; font: 800 14px system-ui, sans-serif; color: #111; background: var(--race, #ffd21f); pointer-events: none; }`;
+  style.textContent += `
+    #racemenu { position: fixed; inset: 0; z-index: 20; display: none; align-items: center; justify-content: center; background: rgba(4,8,14,.62); font-family: system-ui, sans-serif; }
+    #racemenu .box { width: min(440px, 94vw); max-height: 94vh; overflow: auto; padding: 14px 16px; border-radius: 16px; background: rgba(12,16,26,.97); color: #fff; border-top: 5px solid var(--race, #ffd21f); box-shadow: 0 10px 40px rgba(0,0,0,.6); }
+    #racemenu h2 { margin: 0; font-size: 21px; } #racemenu .sub { color: #aab7c8; font-size: 12px; margin: 2px 0 8px; }
+    #racemenu canvas { width: 100%; height: min(56vw, 34vh); max-height: 260px; object-fit: contain; border-radius: 10px; background: #0b1119; display: block; }
+    #racemenu .stats { display: grid; grid-template-columns: 1fr 1fr; gap: 6px; margin: 10px 0; }
+    #racemenu .stat { background: rgba(255,255,255,.07); border-radius: 8px; padding: 6px 9px; font-size: 12px; color: #aab7c8; } #racemenu .stat b { display: block; font-size: 17px; color: #fff; }
+    #racemenu .btns { display: flex; gap: 8px; margin-top: 8px; } #racemenu button { flex: 1; border: 0; border-radius: 10px; padding: 11px 6px; font: 800 14px system-ui; cursor: pointer; background: rgba(255,255,255,.12); color: #fff; }
+    #racemenu button.go { flex: 1.6; background: var(--race, #ffd21f); color: #111; }
+    #racemenu .row { display: flex; align-items: center; gap: 8px; margin: 7px 0; font-size: 13px; } #racemenu .row label { width: 96px; color: #cfd8e6; } #racemenu .row input[type=range] { flex: 1; } #racemenu .row output { width: 46px; text-align: right; font-weight: 700; }
+    #racemenu .seg { display: flex; gap: 5px; flex: 1; } #racemenu .seg button { padding: 7px 2px; font-size: 12px; } #racemenu .seg button.on { background: var(--race, #ffd21f); color: #111; }
+    #raceload { position: fixed; inset: 0; z-index: 30; display: none; align-items: center; justify-content: center; flex-direction: column; gap: 14px; background: #060a10; color: #fff; font: 800 22px system-ui, sans-serif; }
+    #raceload i { width: 220px; height: 6px; border-radius: 3px; background: rgba(255,255,255,.15); overflow: hidden; } #raceload i::after { content: ''; display: block; height: 100%; width: 40%; background: var(--race, #ffd21f); animation: rl 0.9s linear infinite; } @keyframes rl { from { margin-left: -40%; } to { margin-left: 100%; } }`;
+  style.textContent += `
+    #racedial { position: fixed; left: 10px; top: 96px; z-index: 9; display: none; width: min(26vw, 200px); pointer-events: none; }
+    #racedial canvas { width: 100%; display: block; filter: drop-shadow(0 4px 12px rgba(0,0,0,.6)); }
+    #raceshift { position: fixed; left: 10px; top: calc(96px + min(26vw, 200px) + 6px); z-index: 10; display: none; gap: 10px; } html.touch #raceshift { top: auto; bottom: 168px; }
+    #raceshift button { width: 74px; height: 56px; border: 2px solid rgba(255,255,255,.55); border-radius: 14px; background: rgba(10,14,22,.78); color: #fff; font: 800 15px system-ui; touch-action: none; cursor: pointer; }
+    #raceshift button.up { border-color: #2ee66b; } #raceshift button:active { background: rgba(80,150,230,.8); }`;
   document.head.appendChild(style);
   const mk = (id) => { const d = document.createElement('div'); d.id = id; document.body.appendChild(d); return d; };
-  const hud = mk('racehud'), countEl = mk('racecount'), resEl = mk('raceres'), promptEl = mk('raceprompt');
+  const menuEl = mk('racemenu'), loadEl = mk('raceload'), dialEl = mk('racedial'), shiftEl = mk('raceshift'), hud = mk('racehud'), countEl = mk('racecount'), resEl = mk('raceres'), promptEl = mk('raceprompt');
+  const dcv = document.createElement('canvas'); dcv.width = dcv.height = 360; dialEl.appendChild(dcv);
+  shiftEl.innerHTML = '<button class="dn" aria-label="Shift down">▼ DOWN<br><small>Z</small></button><button class="up" aria-label="Shift up">▲ UP<br><small>X</small></button>';
+  shiftEl.querySelector('.up').addEventListener('pointerdown', e => { e.preventDefault(); gearbox && gearbox.shiftUp(); });
+  shiftEl.querySelector('.dn').addEventListener('pointerdown', e => { e.preventDefault(); gearbox && gearbox.shiftDown(); });
+  addEventListener('keydown', e => { if (!run || run.r.kind !== 'drag' || !gearbox || e.repeat) return; if (e.code === 'KeyX') gearbox.shiftUp(); else if (e.code === 'KeyZ') gearbox.shiftDown(); });
+  // the big tachometer for manual shifting: red zone, a green shift window, a needle and the gear in the middle
+  function drawDial(v) {
+    const g = dcv.getContext('2d'), W = 360, cx = 180, cy = 190, R = 150, a0 = Math.PI * 0.78, a1 = Math.PI * 2.22, A = x => a0 + (a1 - a0) * x;
+    g.clearRect(0, 0, W, W);
+    g.fillStyle = 'rgba(8,12,20,.82)'; g.beginPath(); g.arc(cx, cy, R + 18, 0, 7); g.fill();
+    const arc = (x0, x1, col, w) => { g.strokeStyle = col; g.lineWidth = w; g.beginPath(); g.arc(cx, cy, R - w / 2, A(x0), A(x1)); g.stroke(); };
+    arc(0, 0.74, '#3a4658', 16); arc(0.74, 0.84, '#ffd21f', 16); arc(0.84, 0.95, '#2ee66b', 16); arc(0.95, 1, '#ff3b30', 16);
+    g.strokeStyle = '#cfd8e6'; g.lineWidth = 3; g.fillStyle = '#cfd8e6'; g.font = 'bold 20px system-ui'; g.textAlign = 'center'; g.textBaseline = 'middle';
+    for (let i = 0; i <= 8; i++) { const x = i / 8, a = A(x); g.beginPath(); g.moveTo(cx + Math.cos(a) * (R - 22), cy + Math.sin(a) * (R - 22)); g.lineTo(cx + Math.cos(a) * (R - 36), cy + Math.sin(a) * (R - 36)); g.stroke(); g.fillText(String(i), cx + Math.cos(a) * (R - 56), cy + Math.sin(a) * (R - 56)); }
+    const a = A(Math.min(1, v.r));
+    g.strokeStyle = v.r >= 0.84 && v.r <= 0.95 ? '#2ee66b' : v.r > 0.95 ? '#ff3b30' : '#ffffff'; g.lineWidth = 6; g.lineCap = 'round'; g.beginPath(); g.moveTo(cx, cy); g.lineTo(cx + Math.cos(a) * (R - 18), cy + Math.sin(a) * (R - 18)); g.stroke();
+    g.fillStyle = '#10151f'; g.beginPath(); g.arc(cx, cy, 36, 0, 7); g.fill();
+    g.fillStyle = '#fff'; g.font = 'bold 44px system-ui'; g.fillText(String(v.gear), cx, cy + 2);
+    g.font = 'bold 15px system-ui'; g.fillStyle = '#9fb0c6'; g.fillText('x1000 rpm', cx, cy + 74);
+    if (v.shiftLabel) { g.font = 'bold 22px system-ui'; g.fillStyle = v.shiftLabel === 'PERFECT SHIFT' ? '#2ee66b' : v.shiftLabel === 'good shift' ? '#ffd21f' : '#ff7a5c'; g.fillText(v.shiftLabel.toUpperCase(), cx, cy + 108); }
+    else if (v.r > 0.95) { g.font = 'bold 22px system-ui'; g.fillStyle = '#ff3b30'; g.fillText('SHIFT!', cx, cy + 108); }
+  }
   const quitBtn = document.createElement('button'); quitBtn.id = 'racequit'; quitBtn.textContent = 'Quit race (Backspace)'; document.body.appendChild(quitBtn);
 
   // ---- state ----------------------------------------------------------------------------------------------------------------------
@@ -270,9 +322,114 @@ export function createRaces({ city, scene, heightAt, car, world, districtName, t
   const gTime = (g, L) => { let lo = 0, hi = 600; for (let i = 0; i < 40; i++) { const mid = (lo + hi) / 2; if (gs(g, mid) < L) lo = mid; else hi = mid; } return hi; };
   const driftTargets = [16000, 10500, 6200];
 
+
+  // ---- pre-race menu: route on a map, length, records, opponents, laps, and a tune panel -----------------------------------------
+  const rt = (save.raceTune ||= { traffic: 6, peds: 35 });
+  const SNAP_KEYS = ['traffic', 'peds', 'hour', 'fog', 'rain', 'snow', 'dynWeather', 'clockRun'];
+  let menuR = null, snap = null, tuning = false, restore = null;
+  function drawRoute(cv, r) {
+    const W = cv.width = 640, H = cv.height = 400, g = cv.getContext('2d');
+    let pts = r.pts, closed = false;
+    if (r.track && arena) { const T = arena.byId(r.track); if (T) { pts = T.pts; closed = true; } }
+    let x0 = 1e9, x1 = -1e9, z0 = 1e9, z1 = -1e9; pts.forEach(p => { x0 = Math.min(x0, p[0]); x1 = Math.max(x1, p[0]); z0 = Math.min(z0, p[1]); z1 = Math.max(z1, p[1]); });
+    const pad = r.track ? 20 : 90; x0 -= pad; x1 += pad; z0 -= pad; z1 += pad;
+    const sc = Math.min(W / (x1 - x0), H / (z1 - z0)), ox = (W - (x1 - x0) * sc) / 2 - x0 * sc, oz = (H - (z1 - z0) * sc) / 2 - z0 * sc;
+    const X = x => x * sc + ox, Z = z => z * sc + oz;
+    g.fillStyle = '#0b1119'; g.fillRect(0, 0, W, H);
+    if (!r.track) {      // the surrounding streets, faint
+      g.strokeStyle = 'rgba(160,180,210,.28)'; g.lineWidth = 2;
+      const nodes = city.roadNodes; g.beginPath();
+      city.roadEdges.forEach(e => { const a = nodes[e.from], b = nodes[e.to]; if (!a || !b) return; if ((a.x < x0 && b.x < x0) || (a.x > x1 && b.x > x1) || (a.z < z0 && b.z < z0) || (a.z > z1 && b.z > z1)) return; g.moveTo(X(a.x), Z(a.z)); g.lineTo(X(b.x), Z(b.z)); });
+      g.stroke();
+    }
+    const K = RACE_KINDS[r.kind];
+    g.lineJoin = 'round'; g.lineCap = 'round';
+    g.strokeStyle = 'rgba(0,0,0,.6)'; g.lineWidth = 11; g.beginPath(); pts.forEach((p, i) => i ? g.lineTo(X(p[0]), Z(p[1])) : g.moveTo(X(p[0]), Z(p[1]))); if (closed) g.closePath(); g.stroke();
+    g.strokeStyle = K.color; g.lineWidth = 6; g.stroke();
+    // direction chevrons
+    g.fillStyle = '#fff'; const n = pts.length; const step = Math.max(6, Math.floor(n / 9));
+    for (let i = step; i < n - 1; i += step) { const a = pts[i], b = pts[(i + 1) % n], ang = Math.atan2(Z(b[1]) - Z(a[1]), X(b[0]) - X(a[0])); g.save(); g.translate(X(a[0]), Z(a[1])); g.rotate(ang); g.beginPath(); g.moveTo(5, 0); g.lineTo(-4, -4); g.lineTo(-4, 4); g.closePath(); g.fill(); g.restore(); }
+    // start / finish
+    const s = pts[0]; g.fillStyle = '#fff'; g.beginPath(); g.arc(X(s[0]), Z(s[1]), 9, 0, 7); g.fill(); g.fillStyle = '#111'; g.font = 'bold 12px system-ui'; g.textAlign = 'center'; g.textBaseline = 'middle'; g.fillText(r.kind === 'sprint' || r.kind === 'drag' ? 'S' : 'S/F', X(s[0]), Z(s[1]) + 0.5);
+    if (r.kind === 'sprint' || r.kind === 'drag') { const e = pts[pts.length - 1]; g.fillStyle = K.color; g.beginPath(); g.arc(X(e[0]), Z(e[1]), 9, 0, 7); g.fill(); g.fillStyle = '#111'; g.fillText('F', X(e[0]), Z(e[1]) + 0.5); }
+  }
+  function menuStats(r) {
+    const b = save[r.id] || {}, laps = r.kind === 'circuit' ? (r.laps || 1) : 1;
+    let lenM = Math.round(r.length * 1.25 * laps);
+    if (r.track && arena) { const T = arena.byId(r.track); lenM = T ? T.length : 0; }
+    const fmtLen = m => m >= 1000 ? (m / 1000).toFixed(2) + ' km' : m + ' m';
+    const rows = [['Length', r.kind === 'drift' ? fmtLen(lenM) + ' / lap' : fmtLen(lenM) + (laps > 1 ? ` (${laps} laps)` : '')], ['Opponents', '3 rivals'], ['Class', r.cls || 'F']];
+    if (r.kind === 'circuit') rows.push(['Lap record', b.bestLap ? fmt(b.bestLap) : '-'], ['Best race', b.best ? fmt(b.best) : '-']);
+    else if (r.kind === 'drift') rows.push(['Best score', b.best ? Math.round(b.best).toLocaleString('en-US') + ' pts' : '-'], ['Time limit', Math.round(r.timeLimit) + ' s']);
+    else rows.push(['Record', b.best ? fmt(b.best) : '-'], ['Won', (b.wins || 0) + ' / ' + (b.plays || 0)]);
+    return rows.map(x => `<div class="stat">${x[0]}<b>${x[1]}</b></div>`).join('');
+  }
+  const wxNow = () => { const st = tune.settings; return st.dynWeather ? 'dyn' : st.rain ? 'rain' : st.snow ? 'snow' : st.fog > 0.3 ? 'fog' : 'clear'; };
+  function renderMenu() {
+    const r = menuR, K = RACE_KINDS[r.kind], st = tune ? tune.settings : {};
+    menuEl.style.setProperty('--race', K.color);
+    if (!tuning) {
+      menuEl.innerHTML = `<div class="box"><h2>${K.name} - ${r.name}</h2><div class="sub">${K.desc}</div><canvas></canvas><div class="stats">${menuStats(r)}</div>
+        ${r.kind === 'circuit' ? `<div class="row"><label>Laps</label><div class="seg">${[1, 2, 3, 4, 5].map(n => `<button data-laps="${n}" class="${(r.laps || 1) === n ? 'on' : ''}">${n}</button>`).join('')}</div></div>` : ''}
+        <div class="btns">${tune ? '<button data-a="tune">Tune conditions</button>' : ''}<button data-a="cancel">Cancel</button><button class="go" data-a="go">Enter race</button></div></div>`;
+      drawRoute(menuEl.querySelector('canvas'), r);
+    } else {
+      const lim = tune.limits || { traffic: 60, peds: 200 }, wx = wxNow();
+      menuEl.innerHTML = `<div class="box"><h2>Race conditions</h2><div class="sub">Traffic and pedestrians apply during the race only; weather and time of day stay as you set them.</div>
+        <div class="row"><label>Traffic</label><input type="range" data-k="traffic" min="0" max="${lim.traffic}" step="1" value="${rt.traffic}"><output>${rt.traffic}</output></div>
+        <div class="row"><label>Pedestrians</label><input type="range" data-k="peds" min="0" max="${lim.peds}" step="1" value="${rt.peds}"><output>${rt.peds}</output></div>
+        <div class="row"><label>Time of day</label><input type="range" data-k="hour" min="0" max="23.5" step="0.5" value="${st.hour}"><output>${Math.floor(st.hour)}:${st.hour % 1 ? '30' : '00'}</output></div>
+        <div class="row"><label>Weather</label><div class="seg">${[['dyn', 'Auto'], ['clear', 'Clear'], ['rain', 'Rain'], ['snow', 'Snow'], ['fog', 'Fog']].map(([v, l]) => `<button data-wx="${v}" class="${wx === v ? 'on' : ''}">${l}</button>`).join('')}</div></div>
+        <div class="btns"><button data-a="back" class="go">Done</button></div></div>`;
+    }
+  }
+  menuEl.addEventListener('click', e => {
+    const b = e.target.closest('button'); if (!b || !menuR) return;
+    if (b.dataset.laps) { menuR.laps = +b.dataset.laps; renderMenu(); return; }
+    if (b.dataset.wx && tune) {
+      const v = b.dataset.wx;
+      tune.set('dynWeather', v === 'dyn'); if (v !== 'dyn') { tune.set('rain', v === 'rain'); tune.set('snow', v === 'snow'); tune.set('fog', v === 'fog' ? 0.6 : 0); }
+      renderMenu(); return;
+    }
+    const a = b.dataset.a;
+    if (a === 'tune') { tuning = true; renderMenu(); } else if (a === 'back') { tuning = false; renderMenu(); }
+    else if (a === 'cancel') closeMenu(true);
+    else if (a === 'go') { const r = menuR; closeMenu(false); launch(r); }
+  });
+  menuEl.addEventListener('input', e => {
+    const k = e.target.dataset && e.target.dataset.k; if (!k || !tune) return;
+    const v = Number(e.target.value); e.target.nextElementSibling.textContent = k === 'hour' ? Math.floor(v) + ':' + (v % 1 ? '30' : '00') : v;
+    if (k === 'hour') tune.set('hour', v); else { rt[k] = v; persist(); }
+  });
+  function openMenu(r) {
+    if (run || menuR) return;
+    menuR = r; tuning = false; offer = null; promptEl.style.display = 'none';
+    snap = {}; if (tune) SNAP_KEYS.forEach(k => { snap[k] = tune.settings[k]; });
+    if (tune) { const lim = tune.limits || {}; rt.traffic = Math.min(rt.traffic, lim.traffic ?? 999); rt.peds = Math.min(rt.peds, lim.peds ?? 999); }
+    renderMenu(); menuEl.style.display = 'flex'; world.modalOpen && world.modalOpen(true);
+  }
+  function closeMenu(cancel) {
+    menuEl.style.display = 'none'; menuR = null; tuning = false; world.modalOpen && world.modalOpen(false);
+    if (cancel && tune && snap) { SNAP_KEYS.forEach(k => { if (tune.settings[k] !== snap[k]) tune.set(k, snap[k]); }); }
+  }
+  // a short loading screen, then the grid: traffic is emptied around the line and kept low for the race
+  function launch(r) {
+    const K = RACE_KINDS[r.kind];
+    loadEl.style.setProperty('--race', K.color); loadEl.innerHTML = `<div>${K.name} - ${r.name}</div><i></i><small style="font:600 13px system-ui;color:#9fb0c6">Clearing the streets...</small>`; loadEl.style.display = 'flex';
+    setTimeout(() => {
+      if (tune) {
+        restore = { traffic: tune.settings.traffic, peds: tune.settings.peds };
+        tune.set('traffic', rt.traffic); tune.set('peds', rt.peds);
+        if (!r.track && tune.clearZone) tune.clearZone({ x: r.start.x, z: r.start.z, r: r.kind === 'drag' ? Math.max(250, r.length + 40) : 250 });   // 250 u = 312 m
+      }
+      begin(r);
+      setTimeout(() => { loadEl.style.display = 'none'; }, 450);
+    }, 700);
+  }
+
   function begin(r) {
     const K = RACE_KINDS[r.kind];
-    run = { r, K, t: -3.2, phase: 'count', cp: 0, ghosts: r.kind === 'drift' ? [] : ghostSetup(r), progress: 0, score: 0, chain: 0, chainT: 0, mult: 1, bank: 0, calm: 0, lost: '', best: 0 };
+    run = { r, K, laps: r.kind === 'circuit' ? (r.laps || 1) : 1, lapIdx: 0, lapT0: 0, bestLap: 0, t: -3.2, phase: 'count', cp: 0, ghosts: r.kind === 'drift' ? [] : ghostSetup(r), progress: 0, score: 0, chain: 0, chainT: 0, mult: 1, bank: 0, calm: 0, lost: '', best: 0 };
     document.documentElement.style.setProperty('--race', K.color);
     let x = r.start.x, z = r.start.z, h = r.start.heading;
     if (r.kind === 'drag' || r.kind === 'circuit' || r.kind === 'sprint') { const p = ptAt(r.pts, 0), px = -p.dz; x += px * Math.min(1.6, r.width / 5); z += p.dx * Math.min(1.6, r.width / 5); }
@@ -284,6 +441,7 @@ export function createRaces({ city, scene, heightAt, car, world, districtName, t
     } else car.teleport(x, z, heightAt(x, z), h);
     car.speed = 0; car.vx = 0; car.vz = 0;
     quitBtn.style.display = 'block'; hud.style.display = 'block'; promptEl.style.display = 'none';
+    if (r.kind === 'drag' && gearbox) { gearbox.setManual(true); dialEl.style.display = 'block'; shiftEl.style.display = 'flex'; }
     world.toast(K.name + ' - ' + r.name);
   }
   function end(reason) {
@@ -292,6 +450,8 @@ export function createRaces({ city, scene, heightAt, car, world, districtName, t
       arena.deactivate(collisionWorld); car.driftAssist = false;
       const g = run.r.start; car.teleport(g.x + g.dx * 12, g.z + g.dz * 12, heightAt(g.x, g.z), g.heading); car.speed = 0; car.vx = 0; car.vz = 0;
     }
+    if (gearbox) { gearbox.setManual(false); } dialEl.style.display = 'none'; shiftEl.style.display = 'none';
+    if (tune) { if (tune.clearZone) tune.clearZone(null); if (restore) { tune.set('traffic', restore.traffic); tune.set('peds', restore.peds); restore = null; } }
     run = null; hud.style.display = 'none'; countEl.style.display = 'none'; quitBtn.style.display = 'none';
     rings.forEach(m => { m.visible = false; }); beacon.visible = false; guide.visible = false; zoneRing.visible = false; ghostMeshes.forEach(m => { m.visible = false; });
     if (reason) world.toast(reason);
@@ -312,11 +472,12 @@ export function createRaces({ city, scene, heightAt, car, world, districtName, t
       place = rows.findIndex(x => x.me); rows.forEach(x => { x.val = x.val.toLocaleString('en-US') + ' pts'; });
       const prev = save[r.id] || {}; if (!prev.best || mineScore > prev.best) save[r.id] = { ...prev, best: mineScore };
     } else {
-      const t = timeOrScore, g = run.ghosts.map(gh => gTime(gh, r.length));
+      const t = timeOrScore, g = run.ghosts.map(gh => gTime(gh, r.length * run.laps));
       const names = ['Rival A', 'Rival B', 'Rival C'];
       rows = g.map((tt, i) => ({ name: names[i], tt })).concat([{ name: 'You', tt: t, me: true }]).sort((a, b) => a.tt - b.tt);
       place = rows.findIndex(x => x.me); rows.forEach(x => { x.val = fmt(x.tt); });
       const prev = save[r.id] || {}; if (!prev.best || t < prev.best) save[r.id] = { ...prev, best: t };
+      if (run.bestLap && (!(save[r.id].bestLap) || run.bestLap < save[r.id].bestLap)) save[r.id].bestLap = run.bestLap;
     }
     const prize = place < 3 ? Math.round(PRIZES[place] * CLASS_PRIZE_MUL[r.cls || 'F']) : 0;
     if (prize) world.reward(prize);
@@ -327,11 +488,12 @@ export function createRaces({ city, scene, heightAt, car, world, districtName, t
     end();
   }
   addEventListener('keydown', e => {
-    if (e.code === 'KeyE' && !e.repeat && !run && offer && !world.modal && !world.onFoot && !e.target.closest?.('input,textarea')) { const r = offer; offer = null; begin(r); return; }
+    if (e.code === 'KeyE' && !e.repeat && !run && offer && !world.modal && !world.onFoot && !e.target.closest?.('input,textarea')) { const r = offer; offer = null; openMenu(r); return; }
+    if (e.code === 'Escape' && menuR) { e.preventDefault(); closeMenu(true); return; }
     if (e.code === 'Backspace' && run) { e.preventDefault(); end('Race abandoned'); }
     if ((e.code === 'Enter' || e.code === 'Space') && resEl.style.display === 'block') resEl.style.display = 'none';
   });
-  promptEl.addEventListener('click', () => { if (offer && !run) { const r = offer; offer = null; begin(r); } });
+  promptEl.addEventListener('click', () => { if (offer && !run) { const r = offer; offer = null; openMenu(r); } });
   quitBtn.addEventListener('click', () => end('Race abandoned'));
 
   // player progress along the route (projected, monotone within a window)
@@ -352,7 +514,7 @@ export function createRaces({ city, scene, heightAt, car, world, districtName, t
       let near = null, nd = 1e9;
       plan.forEach(r => { const d = Math.hypot(r.start.x - car.x, r.start.z - car.z); r.gate.visible = d < 260; if (d < nd) { nd = d; near = r; } });
       if (cooldown && Math.hypot(cooldown.start.x - car.x, cooldown.start.z - car.z) > 45) cooldown = null;
-      const canStart = !world.onFoot && !world.modal && !(window.__noRace);
+      const canStart = !world.onFoot && !world.modal && !menuR && loadEl.style.display !== 'flex' && !(window.__noRace);
       offer = null;
       if (near && nd < 60 && canStart && resEl.style.display !== 'block') {
         const K = RACE_KINDS[near.kind], b = save[near.id] || {};
@@ -366,6 +528,7 @@ export function createRaces({ city, scene, heightAt, car, world, districtName, t
     }
     // ---- running ----
     const { r, K } = run;
+    if (r.kind === 'drag' && gearbox) { const v = gearbox.state(); if (v) drawDial(v); }
     run.t += dt;
     const t = run.t;
     plan.forEach(p => { if (p !== r) p.gate.visible = false; });
@@ -383,7 +546,7 @@ export function createRaces({ city, scene, heightAt, car, world, districtName, t
     placeGhosts(r, t, false);
     // progress / checkpoints
     run.progress = progressOf(r, run.progress);
-    let posN = 1; run.ghosts.forEach(gh => { if (gs(gh, t) > run.progress) posN++; });
+    let posN = 1; run.ghosts.forEach(gh => { if (gs(gh, t) > run.lapIdx * r.length + run.progress) posN++; });
     if (r.kind === 'drag') {
       hud.innerHTML = `<div class="big">${fmt(t)}</div><small>POS ${posN}/4 &middot; ${Math.max(0, Math.round((r.length - run.progress) * 1.25))} m to go</small>`;
       if (run.progress >= r.length - 0.5 && t > 1) finish(t);
@@ -392,20 +555,28 @@ export function createRaces({ city, scene, heightAt, car, world, districtName, t
       beacon.visible = true; beacon.position.set(fin.x, heightAt(fin.x, fin.z) + 20, fin.z);
       return;
     }
-    const cps = r.checkpoints, c = cps[run.cp];
+    const cps = r.checkpoints, nCp = cps.length, totalCp = nCp * run.laps, c = cps[run.cp % nCp];
     if (c) {
       const d = Math.hypot(car.x - c[0], car.z - c[1]);
-      if (d < 11) { run.cp++; if (run.cp >= cps.length) { finish(t); return; } }
+      if (d < 11) {
+        run.cp++;
+        if (run.cp % nCp === 0) {      // crossed the start/finish line
+          const lt = t - run.lapT0; run.lapT0 = t; if (!run.bestLap || lt < run.bestLap) run.bestLap = lt;
+          if (run.cp < totalCp) { run.lapIdx++; run.progress = 0; world.toast('Lap ' + (run.lapIdx + 1) + '/' + run.laps + ' - last ' + fmt(lt)); }
+        }
+        if (run.cp >= totalCp) { finish(t); return; }
+      }
     }
-    const n0 = cps[run.cp], n1 = cps[run.cp + 1];
+    const n0 = run.cp < totalCp ? cps[run.cp % nCp] : null, n1 = run.cp + 1 < totalCp ? cps[(run.cp + 1) % nCp] : null;
     const setRing = (m, p, vis) => { m.visible = vis && !!p; if (!p) return; const y = heightAt(p[0], p[1]); m.position.set(p[0], y + 3, p[1]); m.rotation.set(0, Math.atan2(p[0] - car.x, p[1] - car.z) + Math.PI / 2, 0); };
     setRing(rings[0], n0, true); setRing(rings[1], n1, true);
     if (n0) { beacon.visible = true; beacon.position.set(n0[0], heightAt(n0[0], n0[1]) + 80, n0[1]); }
-    const tgt = r.cpS && r.cpS[run.cp] != null ? r.cpS[run.cp] : run.progress + 120;
+    const tgt = r.cpS && r.cpS[run.cp % nCp] != null ? r.cpS[run.cp % nCp] : run.progress + 120;
     updateGuide(r, run.progress, tgt);
     const turn = nextTurn(r, run.progress), G = { left: '⬅', right: '➡', uturn: '⮌' };
     const cue = turn ? `<div class="turn">${G[turn.dir]} ${turn.dir === 'uturn' ? 'U-turn' : 'Turn ' + turn.dir} in ${turn.m} m</div>` : '<div class="turn">⬆ Straight on</div>';
-    hud.innerHTML = `<div class="big">${fmt(t)}</div>${cue}<small>POS ${posN}/4 &middot; checkpoint ${Math.min(run.cp + 1, cps.length)}/${cps.length}${n0 ? ' &middot; ' + Math.round(Math.hypot(car.x - n0[0], car.z - n0[1]) * 1.25) + ' m away' : ''}</small>`;
+    const lapTxt = run.laps > 1 ? `lap ${run.lapIdx + 1}/${run.laps} &middot; ` : '';
+    hud.innerHTML = `<div class="big">${fmt(t)}</div>${cue}<small>POS ${posN}/4 &middot; ${lapTxt}checkpoint ${(run.cp % nCp) + 1}/${nCp}${n0 ? ' &middot; ' + Math.round(Math.hypot(car.x - n0[0], car.z - n0[1]) * 1.25) + ' m away' : ''}${run.bestLap ? ' &middot; best lap ' + fmt(run.bestLap) : ''}</small>`;
     if (t > 900) end('Race timed out');
   }
 
@@ -413,8 +584,8 @@ export function createRaces({ city, scene, heightAt, car, world, districtName, t
     run.ghosts.forEach((gh, i) => {
       const m = ghostMeshes[i];
       const s = grid ? -gh.back : gs(gh, t) - gh.back * Math.max(0, 1 - t / 6);
-      if (s >= r.length + 80) { m.visible = false; return; }
-      const p = ptAt(r.pts, Math.max(-30, s));
+      if (s >= r.length * run.laps + 80) { m.visible = false; return; }
+      const p = ptAt(r.pts, s < 0 ? Math.max(-30, s) : (r.kind === 'circuit' ? s % r.length : s));
       const rx = -p.dz, rz = p.dx, lat = (r.kind === 'drag' ? gh.lat : gh.lat * 0.25) * Math.min(1, Math.max(0.5, (r.width - 6) / 12));
       const x = p.x + rx * (lat + 1.4), z = p.z + rz * (lat + 1.4);
       m.visible = true; m.position.set(x, heightAt(x, z), z); m.rotation.y = Math.atan2(p.dx, p.dz);
@@ -432,25 +603,32 @@ export function createRaces({ city, scene, heightAt, car, world, districtName, t
     if ((car.impactSpeed || 0) > 2.5) { car.impactSpeed = 0; if (run.chain > 0) run.lost = 'Crash! chain lost'; run.chain = 0; run.chainT = 0; run.mult = 1; }
     if (sliding) {
       run.calm = 0; run.chainT += dt;
-      run.mult = 1 + Math.min(4, run.chainT * 0.35);
-      run.chain += dt * 55 * Math.min(1.6, slip / 0.6) * Math.min(2, sp / 16) * (1 + Math.min(1, run.chainT / 6));
+      const bonus = !!(T && T.inBonus && T.inBonus(car.x, car.z));
+      run.mult = 1 + Math.min(3, run.chainT * 0.3);
+      // points shrink the longer one slide goes on, and every slide scrubs speed off: you have to straighten up and
+      // build speed again between drifts, so the circuit can't be chained by just holding gas and steering
+      run.chain += dt * 55 * Math.min(1.6, slip / 0.6) * Math.min(2, sp / 16) * Math.max(0.4, 1 - run.chainT * 0.1) * (bonus ? 2.5 : 1);
+      const bleed = Math.exp(-dt * (0.2 + 0.3 * Math.min(1, slip / 0.7)));
+      car.vx *= bleed; car.vz *= bleed; car.speed *= bleed;
+      run.bonusNow = bonus;
       run.lost = '';
     } else {
-      run.calm += dt;
+      run.calm += dt; run.bonusNow = false;
       if (run.chain > 0 && (run.calm > 0.7 || !inZone)) {
         if (inZone) { run.bank += run.chain * run.mult; run.lost = '+' + Math.round(run.chain * run.mult); } else run.lost = 'Left the zone - chain lost';
         run.chain = 0; run.chainT = 0; run.mult = 1;
       }
     }
-    hud.innerHTML = `<div class="big">${Math.round(run.bank + (run.chain * run.mult)).toLocaleString('en-US')} pts</div><small>${run.chain > 0 ? 'chain ' + Math.round(run.chain) + ' &times; ' + run.mult.toFixed(1) : (run.lost || (T ? 'drift: turn hard on the gas, tap handbrake' : 'drift: handbrake + steer'))} &middot; ${Math.max(0, Math.ceil(left))} s${inZone ? '' : (T ? ' &middot; BACK ON THE TRACK' : ' &middot; GET BACK IN THE RING')}</small>`;
+    hud.innerHTML = `<div class="big">${Math.round(run.bank + (run.chain * run.mult)).toLocaleString('en-US')} pts</div><small>${run.chain > 0 ? 'chain ' + Math.round(run.chain) + ' &times; ' + run.mult.toFixed(1) + (run.bonusNow ? ' &middot; <b style="color:#ff9f1c">WALL BONUS x2.5</b>' : '') : (run.lost || (T ? 'drift: turn hard on the gas, tap handbrake' : 'drift: handbrake + steer'))} &middot; ${Math.max(0, Math.ceil(left))} s${inZone ? '' : (T ? ' &middot; BACK ON THE TRACK' : ' &middot; GET BACK IN THE RING')}</small>`;
     if (left <= 0) { if (run.chain > 0) run.bank += run.chain * run.mult; finish(run.bank); }
   }
 
   return {
     update,
-    frozen: () => !!run && run.phase === 'count',
+    frozen: () => (!!run && run.phase === 'count') || !!menuR || loadEl.style.display === 'flex',
     active: () => !!run,
-    offering: () => !!offer && !run,
+    menuOpen: () => !!menuR,
+    offering: () => (!!offer || !!menuR) && !run,
     abort: reason => end(reason),
     markers: () => {
       const out = plan.map(r => ({ x: r.start.x, z: r.start.z, color: RACE_KINDS[r.kind].color, label: RACE_KINDS[r.kind].label }));

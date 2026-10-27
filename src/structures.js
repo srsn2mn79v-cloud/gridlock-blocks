@@ -33,7 +33,8 @@ export function buildStructures(city) {
   const group = new THREE.Group(), colliders = [], piers = [], walls = [];
   const nodes = city.roadNodes, edges = city.roadEdges;
   const vc = buildVerticalCurves(nodes, buildEdgesByNode(edges));
-  const light = [], dark = [];
+  const light = [], dark = [], rail = [], post = [], railCol = [];
+  const byNode = buildEdgesByNode(edges);
   const quad = (cx, cz, ux, uz, hl, hw) => [[cx + ux * hl - uz * hw, cz + uz * hl + ux * hw], [cx + ux * hl + uz * hw, cz + uz * hl - ux * hw],
     [cx - ux * hl + uz * hw, cz - uz * hl - ux * hw], [cx - ux * hl - uz * hw, cz - uz * hl + ux * hw]];
   const hwLine = city.hwLine || [];
@@ -45,6 +46,27 @@ export function buildStructures(city) {
     const ux = (B.x - A.x) / len, uz = (B.z - A.z) / len, hw = e.width / 2;
     const at = s => ({ x: A.x + ux * s, z: A.z + uz * s, y: elevationAlongEdge(e, s, nodes, vc) });
     const raised = Math.max(A.elevation, B.elevation) > WALL_MIN_Y;
+    // guard rails along both sides of a freeway on the ground (not where a slip road joins at either end)
+    if (!raised && e.type === 'highway' && !e.structure) {
+      const joinA = (byNode[e.from] || []).length > 2, joinB = (byNode[e.to] || []).length > 2;
+      const s0 = joinA ? 45 : 4, s1 = len - (joinB ? 45 : 4), L = hw + 0.9;
+      if (s1 - s0 > 10) {
+        const nn = Math.max(1, Math.round((s1 - s0) / 4));
+        for (let i = 0; i < nn; i++) {
+          const pa = at(s0 + (s1 - s0) * i / nn), pb = at(s0 + (s1 - s0) * (i + 1) / nn);
+          [1, -1].forEach(side => {
+            const l0 = side > 0 ? L : -L - 0.12, l1 = side > 0 ? L + 0.12 : -L;
+            rail.push(prism(pa, pb, l0, l1, pa.y + 0.5, pb.y + 0.5, pa.y + 0.82, pb.y + 0.82));                       // the W-beam
+            const lp = side > 0 ? L + 0.14 : -L - 0.26;
+            post.push(prism(pa, { x: pa.x + ux * 0.14, z: pa.z + uz * 0.14 }, lp, lp + 0.12, pa.y, pa.y, pa.y + 0.9, pa.y + 0.9));   // post
+            if (i % 2 === 0) {
+              const cx = (pa.x + pb.x) / 2, cz = (pa.z + pb.z) / 2, lc = side > 0 ? L + 0.06 : -L - 0.06;
+              railCol.push({ kind: 'parcel', footprint: quad(cx - uz * lc, cz + ux * lc, ux, uz, Math.hypot(pb.x - pa.x, pb.z - pa.z) + 0.2, 0.25), blocksCar: true, destructible: false, response: 'bounce', destroyed: false });
+            }
+          });
+        }
+      }
+    }
     if (!raised) return;
     const step = 2, n = Math.max(1, Math.round(len / step));
     const bridge = e.structure === 'bridge';
@@ -112,5 +134,7 @@ export function buildStructures(city) {
     m.castShadow = true; m.receiveShadow = true; group.add(m);
   };
   addMerged(light, concrete); addMerged(dark, concreteDark);
+  addMerged(rail, new THREE.MeshStandardMaterial({ color: 0xc4c8cc, roughness: 0.45, metalness: 0.7 })); addMerged(post, concreteDark);
+  colliders.push(...railCol);
   return { group, colliders, piers, walls };
 }

@@ -2,7 +2,7 @@ export function createInput() {
   const state = {
     forward: false, back: false, left: false, right: false, brake: false, boost: false,
     steerAxis: null, throttle: 1,   // analog (touch): steerAxis -1..1 (+ = left), throttle 0..1
-    lightsOn: false, blinkerLeft: false, blinkerRight: false,
+    lightsOn: false, blinkerLeft: false, blinkerRight: false, runLock: false,
     // on foot: analog move (x + = right, y + = forward) and look (x + = right, y + = up) vectors, fed by WASD / arrow keys,
     // the two touch thumbsticks and a gamepad's sticks. `swapSticks` puts the camera stick on the left instead.
     moveX: 0, moveY: 0, lookX: 0, lookY: 0, swapSticks: false, footMode: false, run: false
@@ -20,7 +20,7 @@ export function createInput() {
   // L/O/P are toggles (one press flips them, like a real headlight switch or indicator
   // stalk) rather than held keys — e.repeat guards against the browser's key-repeat
   // re-firing keydown while held, which would otherwise flicker the toggle.
-  const toggleMap = { KeyL: 'lightsOn', KeyO: 'blinkerLeft', KeyP: 'blinkerRight' };
+  const toggleMap = { KeyL: 'lightsOn', KeyO: 'blinkerLeft', KeyP: 'blinkerRight', KeyG: 'runLock' };
 
   // Shared by the keyboard and the touch buttons below, so both go through exactly the
   // same indicator rule (turning one on turns the other off, like a real stalk).
@@ -74,6 +74,9 @@ export function createInput() {
       #touch .tb.on { background: rgba(255,190,50,0.6); border-color: rgba(255,230,150,0.9); color: #1a1405; }
       #touch .steer { bottom: max(22px, env(safe-area-inset-bottom)); width: 22vw; max-width: 130px; min-width: 76px; height: 22vw; max-height: 130px; min-height: 76px; font-size: 38px; }
       #touch .pedal { right: max(18px, env(safe-area-inset-right)); width: 24vw; max-width: 140px; min-width: 84px; font-size: 20px; }
+      #touch #tgrid { position: absolute; right: calc(max(18px, env(safe-area-inset-right)) + min(24vw, 110px) + 12px); bottom: max(22px, env(safe-area-inset-bottom)); display: grid; grid-template-columns: repeat(3, 38px); gap: 6px; pointer-events: none; }
+      #touch #tgrid .tb { position: static; width: 38px; height: 38px; min-width: 0; font-size: 14px; border-radius: 50%; padding: 0; pointer-events: auto; }
+      #touch #tgrid .tb.ft { display: none; } #touch.foot #tgrid .tb.ft { display: flex; }
       #touch .small { top: max(12px, env(safe-area-inset-top)); width: 54px; height: 44px; font-size: 18px; border-radius: 12px; }
       #touch .wheel { left: max(18px, env(safe-area-inset-left)); bottom: max(22px, env(safe-area-inset-bottom)); width: min(46vw, 300px); height: 96px; border-radius: 48px; }
       #touch .wheel .hint { font-size: 11px; opacity: .6; pointer-events: none; }
@@ -97,6 +100,8 @@ export function createInput() {
     const root = document.createElement('div');
     root.id = 'touch';
     document.body.appendChild(root);
+    // the small buttons (indicators, headlights, camera, reset, run) live in one compact grid beside the pedals
+    const grid = document.createElement('div'); grid.id = 'tgrid'; root.appendChild(grid);
 
     // Held button: sets state[key] while any finger is on it.
     function holdButton(label, key, cls, css) {
@@ -125,10 +130,10 @@ export function createInput() {
       const el = document.createElement('div');
       el.className = 'tb small';
       el.textContent = label;
-      Object.assign(el.style, css);
       el.addEventListener('pointerdown', e => { e.preventDefault(); toggle(key); });
       el.addEventListener('contextmenu', e => e.preventDefault());
-      root.appendChild(el);
+      if (css && css.foot) el.classList.add('ft');
+      grid.appendChild(el);
       toggleButtons.push({ el, key });
       return el;
     }
@@ -178,9 +183,10 @@ export function createInput() {
 
     // handbrake: throws the tail out for drifting (the keyboard's Space while on the gas)
     holdButton('HANDBRAKE', 'handbrake', 'hand', {});
-    toggleButton('◀ind', 'blinkerLeft', { top: 'calc(max(12px, env(safe-area-inset-top)) + 58px)', right: 'calc(max(12px, env(safe-area-inset-right)) + 120px)' });
-    toggleButton('ind▶', 'blinkerRight', { top: 'calc(max(12px, env(safe-area-inset-top)) + 58px)', right: 'calc(max(12px, env(safe-area-inset-right)) + 60px)' });
-    toggleButton('💡', 'lightsOn', { top: 'calc(max(12px, env(safe-area-inset-top)) + 58px)', right: 'max(12px, env(safe-area-inset-right))' });
+    toggleButton('◀', 'blinkerLeft', {});
+    toggleButton('▶', 'blinkerRight', {});
+    toggleButton('💡', 'lightsOn', {});
+    toggleButton('🏃', 'runLock', { foot: true });
 
     // on foot: two thumbsticks (move + camera). Which side is which is the swapSticks setting.
     function makeStick(name, label) {
@@ -217,6 +223,7 @@ export function createInput() {
 
   // called once a frame: merges keyboard, touch sticks and a gamepad into the on-foot vectors (and, with a pad, the driving controls)
   let actHeld = false;
+  state.toggle = toggle;
   state.setSwap = v => { state.swapSticks = !!v; if (state._layoutSticks) state._layoutSticks(); };
   state.poll = (onFoot) => {
     state.footMode = onFoot;
@@ -247,7 +254,7 @@ export function createInput() {
       }
     }
     const m = Math.hypot(mx, my); if (m > 1) { mx /= m; my /= m; }
-    state.moveX = mx; state.moveY = my; state.lookX = lx; state.lookY = ly; state.run = run || m > 0.93 && (stick.move.x || stick.move.y) ? true : run;
+    state.moveX = mx; state.moveY = my; state.lookX = lx; state.lookY = ly; state.run = state.runLock || (run || m > 0.93 && (stick.move.x || stick.move.y) ? true : run);
   };
 
   return state;

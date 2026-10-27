@@ -7,7 +7,7 @@ import { createGroundGlow, setGlow } from './glow.js';
 
 export const ARENA_X = -9000, ARENA_STEP = 900;
 export const inArena = x => x < -6000;
-const WIDTH = 24;
+const WIDTH = 22, WALL_GAP = 2.6, BONUS_FROM_WALL = 3.2, BONUS_MARGIN = 0.5;   // units (1 u = 1.25 m): the bonus band is the 4 m next to either wall
 
 // ---- centrelines ---------------------------------------------------------------------------------
 function fillet(poly, R, step = 3) {
@@ -53,9 +53,9 @@ function resample(pts, step) {   // evenly spaced points along a closed polyline
 }
 
 const DEFS = [
-  { id: 'rect', name: 'Block Loop', note: 'Rectangle: long straights, four hairpin-ish corners', poly: () => resample(fillet([[0, 0], [300, 0], [300, 190], [0, 190]], 52), 4) },
-  { id: 'esses', name: 'Serpent', note: 'S-bends: flick the car left and right', poly: () => resample(spline([[0, 0], [150, -20], [290, 20], [330, 120], [240, 190], [130, 140], [40, 190], [-80, 220], [-180, 160], [-170, 60], [-90, 10]]), 4) },
-  { id: 'tri', name: 'Delta', note: 'Triangle: three long sweeping corners', poly: () => resample(fillet([[0, 0], [330, 0], [165, 290]], 60), 4) }
+  { id: 'rect', name: 'Block Loop', note: 'Tight L-shaped block: six hairpin-ish corners, short straights', poly: () => resample(fillet([[0, 0], [190, 0], [190, 80], [115, 80], [115, 135], [0, 135]], 30), 4) },
+  { id: 'esses', name: 'Serpent', note: 'Compact S-bends: flick the car left and right', poly: () => resample(spline([[0, 0], [75, -14], [150, 8], [172, 70], [128, 108], [70, 78], [22, 110], [-40, 126], [-96, 92], [-92, 34], [-48, 6]].map(p => [p[0] * 1.15, p[1] * 1.15])), 4) },
+  { id: 'tri', name: 'Delta', note: 'Triangle with a hairpin at every point', poly: () => resample(fillet([[0, 0], [200, 0], [100, 175]], 36), 4) }
 ];
 
 // distance from (x,z) to the closed polyline, plus the nearest point's index
@@ -101,7 +101,7 @@ export function createDriftTracks({ scene }) {
     let cx = 0, cz = 0; raw.forEach(p => { cx += p[0]; cz += p[1]; }); cx /= raw.length; cz /= raw.length;
     const ox = ARENA_X, oz = ti * ARENA_STEP;
     const pts = raw.map(p => [p[0] - cx + ox, p[1] - cz + oz]);
-    const half = WIDTH / 2;
+    const half = WIDTH / 2, wallR = half + WALL_GAP;
     // minimum corner radius, for the record (and the check)
     let minR = 1e9;
     for (let i = 0; i < pts.length; i += 2) {
@@ -118,7 +118,8 @@ export function createDriftTracks({ scene }) {
     [[-half - 1.8, -half], [half, half + 1.8]].forEach(([a, b]) => g.add(new THREE.Mesh(stripGeo(pts, a, b, 0.05, i => (Math.floor(i / 2) % 2 ? [0.92, 0.92, 0.92] : [0.82, 0.12, 0.1])), paint)));
     // dashed centre line + edge lines
     g.add(new THREE.Mesh(stripGeo(pts, -0.25, 0.25, 0.04, () => [0.95, 0.95, 0.9], i => Math.floor(i / 3) % 2 === 0), paint));
-    [[-half + 0.6, -half + 1.0], [half - 1.0, half - 0.6]].forEach(([a, b]) => g.add(new THREE.Mesh(stripGeo(pts, a, b, 0.04, () => [0.9, 0.9, 0.9]), paint)));
+    // the bonus lines: painted 4 m in from the inside and outside walls - drift between a line and its wall for extra points
+    { const o = wallR - BONUS_FROM_WALL; [[-o - 0.2, -o + 0.2], [o - 0.2, o + 0.2]].forEach(([a, b]) => g.add(new THREE.Mesh(stripGeo(pts, a, b, 0.045, () => [1.0, 0.55, 0.05]), paint))); }
     // start / finish line: a chequered strip across the track at point 0
     {
       const p = pts[0], q = pts[1]; let tx = q[0] - p[0], tz = q[1] - p[1]; const l = Math.hypot(tx, tz); tx /= l; tz /= l;
@@ -130,7 +131,7 @@ export function createDriftTracks({ scene }) {
       g.add(line);
     }
     // tyre walls both sides, and the collider list for them
-    const wallR = half + 6, wall = [];
+    const wall = [];
     for (let i = 0; i < pts.length; i += 1) {
       const a = pts[(i + pts.length - 1) % pts.length], b = pts[(i + 1) % pts.length], p = pts[i];
       let tx = b[0] - a[0], tz = b[1] - a[1]; const l = Math.hypot(tx, tz) || 1; tx /= l; tz /= l;
@@ -166,7 +167,9 @@ export function createDriftTracks({ scene }) {
       start: { x: back[0], z: back[1], heading: Math.atan2(a[0] - back[0], a[1] - back[1]), lineX: start.x, lineZ: start.z },
       wall: wall.map(w => ({ x: w[0], z: w[1] })),
       inTrack: (x, z, margin = 4) => nearest(pts, x, z).d < half + margin,
-      distFrom: (x, z) => nearest(pts, x, z).d
+      distFrom: (x, z) => nearest(pts, x, z).d,
+      inBonus: (x, z) => nearest(pts, x, z).d > wallR - BONUS_FROM_WALL - BONUS_MARGIN,
+      area: 0
     });
   });
 
