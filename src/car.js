@@ -332,7 +332,14 @@ export class Car {
 
     this.group.position.set(this.x, this.y, this.z);
     this.group.rotation.set(this.pitch, this.heading, this.roll);
-    this.wheels.forEach(w => { w.rotation.x += this.speed * dt * 1.4; });
+    // front wheels follow the real cornering angle (bicycle model: atan(wheelbase * yaw rate / speed)), eased so they never snap
+    const spA = Math.abs(this.speed);
+    const wantSteer = spA > 2 ? Math.max(-0.6, Math.min(0.6, Math.atan(2.4 * this.yawRate / this.speed))) : this.steerAngle * 0.6 * (spA / 2 + 0.3);
+    this.wheelSteer = (this.wheelSteer || 0) + (wantSteer - (this.wheelSteer || 0)) * (1 - Math.exp(-14 * dt));
+    this.wheels.forEach(w => {
+      w.rotation.order = 'YXZ'; w.rotation.x += this.speed * dt * 1.4;
+      w.rotation.y = w.position.z > 0 ? this.wheelSteer : 0;
+    });
 
     // --- Lighting state ----------------------------------------------------------
     const lightsOn = !!input.lightsOn;

@@ -3,6 +3,7 @@ import { buildChicago } from './chicago/chicago.js';
 import { buildRoads } from './generators/roads.js';
 import { buildStructures } from './structures.js';
 import { buildCuts, groundGeometry } from './generators/cuts.js';
+import { buildShopBays } from './shopBays.js';
 import { buildSigns } from './generators/signs.js';
 import { buildParcels } from './generators/parcels.js';
 import { buildDoors } from './generators/doors.js';
@@ -297,6 +298,7 @@ const heightAt = createGroundSampler(city);
 
 const cuts = buildCuts(city, heightAt);
 scene.add(cuts.group);
+scene.add(buildShopBays(city, heightAt));
 const signs = buildSigns(city, heightAt, roadsGroup.userData.mapPaths);
 scene.add(signs.group);
 signs.group.traverse(o => { if (o.isMesh) (Array.isArray(o.material) ? o.material : [o.material]).forEach(installSnowCap); });
@@ -305,6 +307,8 @@ const ground = new THREE.Mesh(
   groundGeometry(2600, cuts.holes),
   new THREE.MeshStandardMaterial({ color: 0x575c61, roughness: 0.95 })
 );
+const baseHoles = cuts.holes.slice();
+const setGarageHoles = polys => { ground.geometry.dispose(); ground.geometry = groundGeometry(2600, baseHoles.concat(polys.map(poly => ({ poly })))); };   // an owned apartment's garage ramp is cut into the ground
 ground.rotation.x = -Math.PI / 2;
 ground.receiveShadow = true;
 scene.add(ground);
@@ -447,7 +451,7 @@ const weather = createWeather({ env, settings, save: () => saveSettings(settings
 const plowFx = createPlowFx(scene);
 const taxi = createTaxi({ city, scene, heightAt, snowing: () => !!settings.snow });
 let modalPause = false;
-const world = createWorld({ city, scene, camera, car, input, heightAt, collisionWorld, parcelInstances, taxi, env, setModalPause: v => { modalPause = v; },
+const world = createWorld({ setGarageHoles, city, scene, camera, car, input, heightAt, collisionWorld, parcelInstances, taxi, env, setModalPause: v => { modalPause = v; },
   chooseCar: key => { settings.car = key; saveSettings(settings); applySetting('car', key); menu.refresh?.(); } });
 if (!world.ownedCars().includes(settings.car)) settings.car = 'hatch';
 const arena = createDriftTracks({ scene });
@@ -835,7 +839,8 @@ function animate() {
       car.update(dt / steps, (world.onFoot || races.frozen()) ? world.parkedInput(input) : input, world.heightAt);
       if (steps > 1) pre.push(...resolveCarCollisions(car, collisionWorld, dt / steps));
     }
-    traffic.update(dt, hail.following() ? hail.proxy : car);
+    traffic.update(dt, hail.following() ? hail.proxy : car, world.onFoot && world.mode === 'city' ? world.focus() : null);
+    if (traffic.walkerHit.on) world.shoveFoot(traffic.walkerHit.vx, traffic.walkerHit.vz);
     parkedCars.update(dt, car.x, car.z);
     races.update(dt);
     fuel.update(dt); harbour.update(dt); hail.update(dt, !races.active());

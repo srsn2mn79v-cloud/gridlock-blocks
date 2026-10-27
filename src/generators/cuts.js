@@ -107,6 +107,7 @@ export function groundGeometry(size, holes) {
   holes.forEach(r => {
     // rotation.x = -PI/2 maps shape y -> world -z
     const p = new THREE.Path();
+    if (r.poly) { r.poly.forEach(([x, z], i) => i ? p.lineTo(x, -z) : p.moveTo(x, -z)); p.closePath(); shape.holes.push(p); return; }   // any polygon: [[x, z], ...]
     p.moveTo(r.x1, -r.z1); p.lineTo(r.x2, -r.z1); p.lineTo(r.x2, -r.z2); p.lineTo(r.x1, -r.z2); p.closePath();
     shape.holes.push(p);
   });

@@ -90,12 +90,14 @@ export function createPuffs({ scene, heightAt, renderer }) {
             }
           }
           if (snow > 0.2) {
-            powderAcc += dt * Math.min(90, 8 * mph) * Math.min(1, snow * 1.3);
+            // snow flung sideways off the tyres: small flakes thrown out to either side in a low arc that fall back to the road
+            powderAcc += dt * Math.min(150, 12 * mph) * Math.min(1, snow * 1.3);
             while (powderAcc >= 1) {
               powderAcc -= 1;
-              const side = Math.random() < 0.5 ? 1 : -1, lz = -1.2 + Math.random() * 0.4, lx = 0.95 * side;
-              const x = car.x + sh * lz + ch * lx, z = car.z + ch * lz - sh * lx, y = heightAt(x, z, car.y) + 0.2;
-              smoke.emit({ x, y, z, vx: (car.vx || 0) * 0.3 + ch * side * (0.8 + Math.random()) + rnd() * 0.8, vy: 1.0 + Math.random() * 1.6, vz: (car.vz || 0) * 0.3 - sh * side * (0.8 + Math.random()) + rnd() * 0.8, life: 0.8 + Math.random() * 0.7, s0: 0.5, s1: 2.2 + Math.random() * 1.0, a: 0.55, r: 0.96, g: 0.98, b: 1.0, drag: 0.97 });
+              const side = Math.random() < 0.5 ? 1 : -1, lz = (Math.random() < 0.7 ? -1.2 : 1.2) + rnd() * 0.3, lx = 0.95 * side;
+              const x = car.x + sh * lz + ch * lx, z = car.z + ch * lz - sh * lx, y = heightAt(x, z, car.y) + 0.12;
+              const out = side * (2.2 + Math.random() * 3.2 + Math.min(2.5, mph * 0.06));
+              smoke.emit({ x, y, z, vx: (car.vx || 0) * 0.55 + ch * out + rnd() * 0.5, vy: 0.7 + Math.random() * 1.5, vz: (car.vz || 0) * 0.55 - sh * out + rnd() * 0.5, life: 0.45 + Math.random() * 0.4, s0: 0.1, s1: 0.2 + Math.random() * 0.14, a: 0.42, r: 0.9, g: 0.93, b: 0.97, drag: 0.985, grav: 7 });
             }
           }
         }

@@ -564,6 +564,21 @@ export function buildChicago() {
       }
     });
   });
+  // shop car parks: perpendicular bays down both sides of each shop's alley, a cow-path's worth of room in front of the door; a bay is only
+  // kept where nothing stands in it, and about half of them hold a parked car. The painted lines are drawn by shopBays.js from shop.bays.
+  shops.forEach(sh => {
+    sh.bays = [];
+    [1, -1].forEach(side => [6, 9.2, 12.4, 15.6].forEach(d => {
+      const cx = sh.mouth.x - sh.nx * 3 + sh.nx * d + sh.ux * side * 7.9, cz = sh.mouth.z - sh.nz * 3 + sh.nz * d + sh.uz * side * 7.9;
+      const fx = sh.ux * side, fz = sh.uz * side;                      // the car noses in: pointing away from the aisle
+      const pts = [[0, 0], [fx * 1.7, fz * 1.7], [-fx * 1.7, -fz * 1.7], [sh.nx * 1.1, sh.nz * 1.1], [-sh.nx * 1.1, -sh.nz * 1.1]].map(([ox, oz]) => [cx + ox, cz + oz]);
+      if (pts.some(([x, z]) => inWater(x, z, 1) || parcelsHit(x, z, 0.4) || outsideHW(x, z, 0) || roadClear(x, z) < 1.5)) return;
+      if (!propOK(cx, cz, 3.4, lampList) || !propOK(cx, cz, 3.0, treeList) || !propOK(cx, cz, 3.2, props.filter(q => q.type === 'shopsign' || q.type === 'trafficlight'))) return;
+      const bay = { x: r2(cx), z: r2(cz), fx, fz, nx: sh.nx, nz: sh.nz, ux: sh.ux, uz: sh.uz, side };
+      sh.bays.push(bay);
+      if (rand() < 0.55 && propOK(cx, cz, 3.6, parked)) parked.push({ type: 'parkedcar', x: bay.x, z: bay.z, rotation: Math.round(Math.atan2(fx, fz) * 180 / Math.PI), color: pick(PARK_COLORS) });
+    }));
+  });
   props.push(...parked);
 
   // neon signs: glowing words and blade signs on the street-facing walls of the taller buildings (drawn as a few instanced quads, props.js)

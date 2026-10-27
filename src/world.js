@@ -98,6 +98,8 @@ export function makeAvatar() {
     shoeMeshes.push(box(0.2, 0.1, 0.3, shoe, x, 0.05, 0.04));
     const f = new THREE.Group(); f.position.set(x, 0, 0.04); g.add(f); footSlots.push(f);
   });
+  // each shoe + its foot decoration rides in a group that swings about the hip with its leg (see stepFoot), so the feet move with the legs
+  legs.forEach((l, i) => { const fw = new THREE.Group(); fw.add(shoeMeshes[i], footSlots[i]); g.add(fw); l.userData.fw = fw; });
   g.userData.limbs = legs.concat(arms);
   g.userData.mats = { shirt: jacket, pants, shoe, skin }; g.userData.shoes = shoeMeshes; g.userData.shins = shins;
   g.userData.hatSlot = hatSlot; g.userData.glassSlot = glassSlot; g.userData.torsoSlot = torsoSlot; g.userData.pantsSlot = pantsSlot;
@@ -119,7 +121,7 @@ function arrowMarker(hex) {
   return g;
 }
 
-export function createWorld({ city, scene, camera, car, input, heightAt: cityHeight, collisionWorld, parcelInstances, taxi, env, chooseCar, setModalPause }) {
+export function createWorld({ setGarageHoles, city, scene, camera, car, input, heightAt: cityHeight, collisionWorld, parcelInstances, taxi, env, chooseCar, setModalPause }) {
   const save = loadSave();
   const persist = () => { try { localStorage.setItem(SAVE_KEY, JSON.stringify(save)); } catch (e) { /* ignore */ } };
   if (!save.welcomed) { save.welcomed = true; if (taxi.getCash() < 300) taxi.addCash(300 - taxi.getCash()); persist(); }
@@ -388,8 +390,8 @@ export function createWorld({ city, scene, camera, car, input, heightAt: cityHei
   addEventListener('pointermove', e => { if (onFoot && !modal && e.buttons & 1 && e.target && e.target.tagName === 'CANVAS') { lookDX += e.movementX * 0.006; lookDY -= e.movementY * 0.004; } });
   function stepFoot(dt) {
     // camera: the look vector (right stick / arrow keys / mouse drag) swings it freely round the walker
-    foot.camH -= (input.lookX || 0) * 2.8 * dt + lookDX; lookDX = 0;
-    foot.pitch = Math.max(-0.5, Math.min(0.7, (foot.pitch || 0) + (input.lookY || 0) * 1.6 * dt + lookDY)); lookDY = 0;
+    foot.camH -= (input.lookX || 0) * 1.96 * dt + lookDX; lookDX = 0;
+    foot.pitch = Math.max(-0.5, Math.min(0.7, (foot.pitch || 0) + (input.lookY || 0) * 1.12 * dt + lookDY)); lookDY = 0;
     // movement is relative to the camera: stick forward walks away from the camera, sideways strafes round, and the walker turns to face where they go
     const mxs = input.moveX || 0, mys = input.moveY || 0, mag = Math.min(1, Math.hypot(mxs, mys));
     const fx = Math.sin(foot.camH), fz = Math.cos(foot.camH), rx = -Math.cos(foot.camH), rz = Math.sin(foot.camH);
@@ -402,7 +404,9 @@ export function createWorld({ city, scene, camera, car, input, heightAt: cityHei
       foot.dirX = wx / Math.hypot(wx, wz); foot.dirZ = wz / Math.hypot(wx, wz);
     }
     foot.speed += (want - foot.speed) * Math.min(1, dt * 7);
-    const dx = (foot.dirX || 0) * foot.speed * dt, dz = (foot.dirZ || 0) * foot.speed * dt;
+    // a shove (a car that hit you): carries you along its direction, fading fast
+    foot.pushX = foot.pushX || 0; foot.pushZ = foot.pushZ || 0; const fade = Math.exp(-4.5 * dt); foot.pushX *= fade; foot.pushZ *= fade; if (Math.hypot(foot.pushX, foot.pushZ) < 0.05) foot.pushX = foot.pushZ = 0;
+    const dx = (foot.dirX || 0) * foot.speed * dt + foot.pushX * dt, dz = (foot.dirZ || 0) * foot.speed * dt + foot.pushZ * dt;
     let nx = foot.x + dx, nz = foot.z + dz;
     if (blockedAt(nx, nz)) { if (!blockedAt(foot.x + dx, foot.z)) nz = foot.z; else if (!blockedAt(foot.x, foot.z + dz)) nx = foot.x; else { nx = foot.x; nz = foot.z; foot.speed *= 0.3; } }
     if (mode === 'city') { foot.x = Math.max(B[0], Math.min(B[2], nx)); foot.z = Math.max(B[1], Math.min(B[3], nz)); } else { foot.x = nx; foot.z = nz; }
@@ -412,7 +416,10 @@ export function createWorld({ city, scene, camera, car, input, heightAt: cityHei
     avatar.position.set(foot.x, foot.y, foot.z); avatar.rotation.y = foot.heading;
     if (mode === 'garage') garageEdge();
     const sw = Math.min(1, Math.abs(foot.speed) / 3);
-    avatar.userData.limbs.forEach(l => { l.rotation.x = Math.sin(foot.phase + l.userData.ph) * 0.7 * sw; });
+    avatar.userData.limbs.forEach(l => {
+      const ang = Math.sin(foot.phase + l.userData.ph) * 0.7 * sw; l.rotation.x = ang;
+      const fw = l.userData.fw; if (fw) { fw.position.set(0, 0.88 * (1 - Math.cos(ang)), -0.88 * Math.sin(ang)); fw.rotation.x = ang * 0.45; }   // the foot follows the swinging leg, kept flatter than the shin
+    });
   }
   function exitCar() {
     const h = car.heading, lx = Math.cos(h), lz = -Math.sin(h);
@@ -550,7 +557,7 @@ export function createWorld({ city, scene, camera, car, input, heightAt: cityHei
     });
   }
   function leaveMode() {
-    if (mode === 'garage' && cur) { cur.g.group.visible = false; rmColliders(cur.colliders); rmColliders(cur.polys); cur.colliders = []; cur.statics.forEach(s => cur.g.group.remove(s.model)); cur.statics = []; (cur.npc || []).forEach(m => cur.g.group.remove(m)); cur.npc = []; }
+    if (mode === 'garage' && cur) { rmColliders(cur.colliders); rmColliders(cur.polys); cur.colliders = []; cur.statics.forEach(s => cur.g.group.remove(s.model)); cur.statics = []; (cur.npc || []).forEach(m => cur.g.group.remove(m)); cur.npc = []; }
     if (mode === 'flat' && cur && cur.flat) cur.flat.group.visible = false;
     clearLocal();
   }
@@ -580,7 +587,7 @@ export function createWorld({ city, scene, camera, car, input, heightAt: cityHei
     leaveMode(); mode = 'city'; cur = null; camHold = 1.6;
     if (!onFoot) { const e = fleet[car.styleKey]; if (e && e.live) delete fleet[car.styleKey]; persist(); }
   }
-  let camHold = 0;
+  let camHold = 0, shoveT = 0;
   // the owned garage door a point is in the doorway of (so the building's own wall does not stop you there)
   function inGateway(x, z) {
     if (mode !== 'city') return false;
@@ -717,6 +724,18 @@ export function createWorld({ city, scene, camera, car, input, heightAt: cityHei
   }
   refreshMarkers();
   (city.apartments || []).forEach(a => { if (save.apts[a.id]) ensureGate(a); });
+  // an owned garage's ramp is cut into the street (a hole in the ground plane) and drawn at all times, so the car never sinks into the ground on the way down
+  function showGarageRamps() {
+    const polys = [];
+    (city.apartments || []).forEach(a => {
+      if (!save.apts[a.id] || !a.garage) return;
+      const G = ensureGarage(a); G.g.group.visible = true;
+      const hw = RAMP.W / 2 + 0.55;
+      polys.push([[0.15, -hw], [RAMP.L, -hw], [RAMP.L, hw], [0.15, hw]].map(([lx, lz]) => { const p = G.toW(lx, lz); return [p.x, p.z]; }));
+    });
+    if (setGarageHoles) setGarageHoles(polys);
+  }
+  showGarageRamps();
   reconcileFleet();
   if (save.garageV !== 3) {      // the garage layout changed (v3: built in the real city, shorter ramp): put every parked car on its bay in the new one
     Object.keys(fleet).forEach(k => { const e = fleet[k], a = city.apartments.find(q => q.id === e.apt); if (!a || e.live) { if (e.live) delete fleet[k]; return; } if (e.spot >= 0 && e.spot < a.garage) Object.assign(e, spotPose(a, e.spot)); });
@@ -758,7 +777,7 @@ export function createWorld({ city, scene, camera, car, input, heightAt: cityHei
   }
   function buyApt(a, price) {
     if (!spend(price)) return;
-    save.apts[a.id] = true; ensureGate(a); reconcileFleet(); persist(); refreshMarkers(); refreshPanel();
+    save.apts[a.id] = true; ensureGate(a); showGarageRamps(); reconcileFleet(); persist(); refreshMarkers(); refreshPanel();
     toast('Welcome home! Your garage gate is marked on the map.');
   }
   function activate(t) {
@@ -1291,6 +1310,7 @@ export function createWorld({ city, scene, camera, car, input, heightAt: cityHei
       return garageHeight(cur.g.lay, p.x, p.z) == null || rectHit(cur.g.solids, p.x, p.z, 0);
     }, get _dbg() { return { mode, cur, fleet, foot, targets: local.slice() }; },
     carClassInfo: () => { const st = CAR_STYLES.find(c => c.key === car.styleKey) || CAR_STYLES[0]; return carClass(st.cls, modsOf(car.styleKey)); }, persist, spend, cash: () => cash(), modsOf, setFootFrozen: v => { footFrozen = !!v; }, setAvatarVisible: v => { avatar.visible = !!v; },
+    shoveFoot: (vx, vz) => { if (!onFoot || mode !== 'city') return; if (Math.hypot(foot.pushX || 0, foot.pushZ || 0) < 3) { foot.pushX = vx; foot.pushZ = vz; if (!shoveT || performance.now() - shoveT > 1500) { shoveT = performance.now(); toast('Watch out!'); } } },
     placeFoot: (x, z, h) => { foot.x = x; foot.z = z; foot.y = hAt(x, z, 0); foot.heading = foot.camH = h; foot.speed = 0; foot.turn = 0; foot.vx = foot.vz = 0; onFoot = true; avatar.visible = true; stepFoot(0); camSnap = true; }, setBlocked: fn => { blockedFn = fn; }, escAt: () => escAt, ownedCars, applyMods, openModal, closeModal, act, updateModal, updateCamera, mapMarkers, beforeCar, save,
     update(dt) {
       stats.secs += dt; if (!onFoot && mode !== 'flat') stats.units += Math.abs(car.speed || 0) * dt; statsT -= dt; if (statsT <= 0) { statsT = 30; persist(); }

@@ -777,3 +777,12 @@ function per new type) whenever you want it — say the word and I'll add them.
 - `tools/add_black_more.py`: second pass over the black lines (only what no street covers yet; landmark outlines, bank lines and lettering are skipped). Tool order is now: build_mapdata, add_black_roads, add_black_more, dedupe_streets, clean_map, build_interchanges.
 - Slip roads (gen_network.js): leave the carriageway tapering into a 4th lane (23 u from the median, 3 lanes stay between exit and entry), run alongside for up to 80 u, then a Hermite curve joins the traced arc tangent-continuously. Near the interstate's ends they get less room.
 - traffic.js: `car.hwJoin` - no lane changes for the first 80 u (100 m) after joining the interstate from a ramp.
+
+## Latest additions
+- **Gas price towers**: ground-standing LED boards (~4 m), regular/diesel/premium rows, face the street.
+- **Front wheels** steer with the real cornering angle (bicycle model, eased).
+- **Flats**: `node tools/check_flats.mjs` walks every flat layout (flood fill, walker radius 0.32) and fails if a room, bed, wardrobe, desk, lift or exit cannot be reached. Sofa/TV slide clear of doors; dressers sit against walls.
+- **Walking**: shoes swing with the legs; look stick is 30 % slower; cars brake for a walker and shove them if they still hit (`traffic.walkerHit` -> `world.shoveFoot`).
+- **Garages**: an owned apartment's ramp is cut into the ground plane (`setGarageHoles`) and always drawn, so the car never sinks under the street.
+- **Shop car parks**: `shop.bays` (chicago.js) + painted lines (`shopBays.js`), about half of the bays hold a parked car.
+- **Tyre snow**: small flakes thrown sideways in a low arc (puffs.js).

@@ -626,6 +626,8 @@ export function createTrafficSystem(cityData, scene, heightAt, count = 6, maxCou
 
   let lastPlayer = null;
   const playerObs = { isPlayer: true, x: 0, z: 0, speed: 0, hdg: 0 };
+  const walkerObs = { isPlayer: true, walker: true, x: 1e6, z: 1e6, speed: 0, hdg: 0, len: 0.9, wid: 0.9 };   // the player on foot: cars brake for them, and one that still hits them shoves them (walkerHit)
+  let walkerPos = null; const walkerHit = { on: false, vx: 0, vz: 0 };
   const clrOf = car => {
     const key = car.edge.id + '|' + car.to;
     if (car._clrKey !== key) { car._clrKey = key; car._clr = intersectionClearance(car.to, car.edge, edgesByNode); }
@@ -742,7 +744,9 @@ export function createTrafficSystem(cityData, scene, heightAt, count = 6, maxCou
     }
   }
 
-  function update(dt, playerCar) {
+  function update(dt, playerCar, walker) {
+    walkerPos = walker || null; walkerHit.on = false;
+    if (walkerPos) { walkerObs.x = walkerPos.x; walkerObs.z = walkerPos.z; walkerObs.y = walkerPos.y || 0; } else { walkerObs.x = walkerObs.z = 1e6; }
     const now = performance.now();
     lastPlayer = playerCar || lastPlayer;
     const under = !!playerCar && (playerCar.y < -1.2 || playerCar.x > 4000);
@@ -770,7 +774,18 @@ export function createTrafficSystem(cityData, scene, heightAt, count = 6, maxCou
         if (car.sirenT <= 0) { car.siren = !car.siren; car.sirenT = car.siren ? 20 + Math.random() * 25 : (35 + Math.random() * 90) * 5; car.targetSpeed *= car.siren ? 1.3 : 1 / 1.3; }
       }
       const nb = car._nb = nearOf(car);
-      const nbC = (playerCar && Math.abs(playerObs.x - car.mesh.position.x) < 70 && Math.abs(playerObs.z - car.mesh.position.z) < 70) ? nb.concat([playerObs]) : nb;
+      let nbC = (playerCar && Math.abs(playerObs.x - car.mesh.position.x) < 70 && Math.abs(playerObs.z - car.mesh.position.z) < 70) ? nb.concat([playerObs]) : nb;
+      if (walkerPos && Math.abs(walkerPos.x - car.mesh.position.x) < 40 && Math.abs(walkerPos.z - car.mesh.position.z) < 40) {
+        nbC = nbC.concat([walkerObs]);
+        // hit: a moving car whose body reaches the walker throws them along its direction of travel
+        const mx = car.mesh.position.x, mz = car.mesh.position.z, pvx = car._wx === undefined ? mx : car._wx, pvz = car._wz === undefined ? mz : car._wz;
+        const vx = (mx - pvx) / Math.max(dt, 1e-3), vz = (mz - pvz) / Math.max(dt, 1e-3), sp = Math.hypot(vx, vz);
+        if (sp > 1.0 && Math.abs(walkerPos.y - car.mesh.position.y) < 2.5) {
+          const fx = vx / sp, fz = vz / sp, rx = walkerPos.x - mx, rz = walkerPos.z - mz, al = rx * fx + rz * fz, lat = Math.abs(rx * fz - rz * fx);
+          if (al > -car.len / 2 - 0.3 && al < car.len / 2 + 0.5 && lat < car.wid / 2 + 0.45) { const k = Math.min(9, 2 + sp * 0.7); walkerHit.on = true; walkerHit.vx = fx * k; walkerHit.vz = fz * k; }
+        }
+      }
+      car._wx = car.mesh.position.x; car._wz = car.mesh.position.z;
       if (car.rival) { rivalStep(car, dt, now, nbC); return; }
       const a = nodes[car.from], b = nodes[car.to];
       if (!a || !b) return;
@@ -895,7 +910,7 @@ export function createTrafficSystem(cityData, scene, heightAt, count = 6, maxCou
         const lat = -dx * sh + dz * ch, al = Math.abs(lat);
         const rel = o.hdg === undefined ? 1 : Math.cos(o.hdg - heading);
         let hit;
-        const oLen = o.isPlayer ? 3.6 : o.len, oWid = o.isPlayer ? 1.9 : o.wid;
+        const oLen = o.isPlayer ? (o.len || 3.6) : o.len, oWid = o.isPlayer ? (o.wid || 1.9) : o.wid;
         const latThr = (car.wid + oWid) / 2 + 0.15;
         if (o.isPlayer && o.speed < 1.2) hit = al < latThr + 0.1;
         else if (rel > 0.5) hit = al < latThr;
@@ -1189,5 +1204,5 @@ export function createTrafficSystem(cityData, scene, heightAt, count = 6, maxCou
     clearZone = z;
     if (z && lastPlayer) cars.forEach(c => { if (c.active && inClear(c.mesh.position.x, c.mesh.position.z)) respawnAway(c, lastPlayer); });
   }
-  return { update, events, setClearZone, addRival, clearRivals, rivalPool, colliders: colliderList, cars, svcCars, setPlows, setCount, activeCount, maxCount, setSink(arr) { sink = arr; } };
+  return { update, walkerHit, events, setClearZone, addRival, clearRivals, rivalPool, colliders: colliderList, cars, svcCars, setPlows, setCount, activeCount, maxCount, setSink(arr) { sink = arr; } };
 }

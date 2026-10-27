@@ -40,13 +40,21 @@ export function createFuel({ city, scene, heightAt, car, world, active = () => t
   const ringMat = new THREE.MeshBasicMaterial({ color: 0x38e07b, transparent: true, opacity: 0.95, depthWrite: false });
   const discMat = new THREE.MeshBasicMaterial({ color: 0x38e07b, transparent: true, opacity: 0.2, depthWrite: false, side: THREE.DoubleSide });
   const ringGeo = new THREE.TorusGeometry(2.3, 0.14, 8, 40), discGeo = new THREE.CircleGeometry(2.3, 40);
+  // LED price tower like a real one: black slab, coloured fuel bars over big seven-segment style prices, a red 24 h line
   const board = s => tex((g, w, h) => {
-    g.fillStyle = '#10141c'; g.fillRect(0, 0, w, h); g.fillStyle = '#d8262f'; g.fillRect(0, 0, w, 64);
-    g.fillStyle = '#fff'; g.font = 'bold 48px system-ui'; g.textAlign = 'center'; g.textBaseline = 'middle'; g.fillText('GAS STATION', w / 2, 34);
-    const row = (y, name, col, v) => { g.textAlign = 'left'; g.font = 'bold 46px system-ui'; g.fillStyle = '#b4c2d6'; g.fillText(name, 26, y); g.textAlign = 'right'; g.fillStyle = col; g.fillText('$' + v.toFixed(2), w - 26, y); };
-    row(112, 'REGULAR', '#7dffa9', pricePerL(s, 'regular')); row(166, 'PREMIUM', '#ffd21f', pricePerL(s, 'premium')); row(220, 'DIESEL', '#7fd0ff', pricePerL(s, 'diesel'));
-    g.textAlign = 'center'; g.font = '600 22px system-ui'; g.fillStyle = '#8796ab'; g.fillText('per litre  -  open 24 h', w / 2, 262);
-  }, 512, 288);
+    g.fillStyle = '#05070b'; g.fillRect(0, 0, w, h);
+    g.fillStyle = '#f2f4f8'; g.font = 'italic 900 44px system-ui'; g.textAlign = 'center'; g.textBaseline = 'middle'; g.fillText('GAS STATION', w / 2, 46);
+    const row = (y, name, bar, col, v) => {
+      g.fillStyle = bar; g.fillRect(14, y, w - 28, 52); g.fillStyle = '#fff'; g.font = 'bold 40px system-ui'; g.textAlign = 'center'; g.fillText(name, w / 2, y + 28);
+      g.shadowColor = col; g.shadowBlur = 18; g.fillStyle = col; g.font = '600 150px "Courier New", monospace'; g.fillText(v.toFixed(2), w / 2 - 10, y + 150);
+      g.shadowBlur = 0; g.font = 'bold 34px system-ui'; g.textAlign = 'right'; g.fillText('/L', w - 18, y + 100);
+    };
+    row(96, 'REGULAR', '#c4202a', '#ff6a63', pricePerL(s, 'regular'));
+    row(300, 'DIESEL', '#2f9e3c', '#6dff7a', pricePerL(s, 'diesel'));
+    row(504, 'PREMIUM', '#2a57d0', '#7fa6ff', pricePerL(s, 'premium'));
+    g.fillStyle = '#f2f4f8'; g.font = 'bold 38px system-ui'; g.textAlign = 'center'; g.fillText('OPEN', w / 2, 724);
+    g.shadowColor = '#ff3b30'; g.shadowBlur = 16; g.fillStyle = '#ff5a50'; g.font = '600 96px "Courier New", monospace'; g.fillText('24:00', w / 2, 800);
+  }, 512, 880);
   const rings = [];
   stations.forEach(s => {
     const g = new THREE.Group(), y0 = heightAt(s.mx, s.mz, 0);
@@ -66,14 +74,14 @@ export function createFuel({ city, scene, heightAt, car, world, active = () => t
         solid(0.5, 0.42, x, 14 + dz);
       });
     });
-    // price boards on two tall poles at the street corners of the forecourt, faces square to the street (normal along the street,
-    // so a driver coming along the road sees the board head-on, from either direction); big enough to read from a block away
+    // price towers standing on the ground at the street corners of the forecourt (about 4 m tall), faces square to the street
+    // (normal along the street, so a driver coming along the road sees the board head-on from either direction)
     const bmat = new THREE.MeshBasicMaterial({ map: board(s) });
+    const TH = 3.2, TW = TH * 512 / 880;
     [-11.6, 11.6].forEach(px => {
-      box(0.8, 14, 0.8, dark, px, 7, 5.6); solid(0.55, 0.55, px, 5.6);
-      const bm = new THREE.Mesh(new THREE.BoxGeometry(0.5, 7.2, 12.6), [bmat, bmat, dark, dark, dark, dark]);
-      bm.position.set(px, 16.2, 5.6); g.add(bm);
-      box(0.54, 0.7, 12.6, red, px, 20.2, 5.6);
+      box(0.9, 0.25, TW + 0.5, concrete, px, 0.125, 5.6);
+      const bm = new THREE.Mesh(new THREE.BoxGeometry(0.4, TH, TW), [bmat, bmat, dark, dark, dark, dark]);
+      bm.position.set(px, 0.25 + TH / 2, 5.6); g.add(bm); solid(0.5, TW / 2 + 0.2, px, 5.6);
       s._boardX = (s._boardX || []).concat(px);
     });
     // a drive-in ramp over the kerb and pavement at the mouth of the forecourt
@@ -89,7 +97,7 @@ export function createFuel({ city, scene, heightAt, car, world, active = () => t
     const addGlow = (color, w, d, x, z, k) => { const gl = createGroundGlow(color, w, d); gl.position.set(x, 0.07, z); g.add(gl); s._glows.push([gl, k]); };
     addGlow(0xfff1cf, 30, 22, 0, 14, 1); addGlow(0xfff1cf, 18, 12, 0, 14, 1); addGlow(0xffe9b0, 16, 10, 0, 24, 0.9); addGlow(0xff4b3a, 14, 6, 0, 3, 0.5);
     s._halos = [];
-    [[0, 5.3, 14, 22], [-7.8, 5.3, 14, 10], [7.8, 5.3, 14, 10], [-11.6, 16.2, 5.6, 20], [11.6, 16.2, 5.6, 20], [0, 4.0, 27.2, 10]].forEach(([x, y, z, sz]) => { const hl = createHalo(0xfff1cf, sz); hl.position.set(x, y, z); g.add(hl); s._halos.push(hl); });
+    [[0, 5.3, 14, 22], [-7.8, 5.3, 14, 10], [7.8, 5.3, 14, 10], [-11.6, 2.2, 5.6, 9], [11.6, 2.2, 5.6, 9], [0, 4.0, 27.2, 10]].forEach(([x, y, z, sz]) => { const hl = createHalo(0xfff1cf, sz); hl.position.set(x, y, z); g.add(hl); s._halos.push(hl); });
     const glow = s._glows[0][0]; s._glow = glow;
     // the fill rings
     s._rings = s.fill.map(f => {

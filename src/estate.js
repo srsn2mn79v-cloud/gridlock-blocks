@@ -116,23 +116,29 @@ export function buildInterior(a) {
     if (posh) bx.add(0.9, 0.95, Math.max(1.6, kl * 0.55), W / 2 - 1.6, 0, kz0 + kl / 2, 0xe4dfd4, {}, true);          // island
     const tx = W * 0.08, tz = Math.min(2.2, Df * 0.4);
     bx.add(1.5, 0.74, 0.9, tx, 0, tz, 0x7b5b3a, {}, true); [[-0.55, -0.7], [0.55, -0.7], [-0.55, 0.7], [0.55, 0.7]].forEach(([dx, dz]) => bx.add(0.42, 0.46, 0.42, tx + dx, 0, tz + dz, 0x4b4f58));
-    const sz = Df * 0.85;
-    bx.add(2.1, 0.42, 0.9, -W * 0.16, 0, sz, ACC, {}, true); bx.add(2.1, 0.5, 0.18, -W * 0.16, 0.42, sz + 0.4, ACC);
-    bx.add(1.1, 0.34, 0.6, -W * 0.16, 0, sz - 1.1, 0x5a4a3a, {}, true);
-    bx.add(1.5, 0.55, 0.12, -W * 0.16, 0.9, Df - 0.05 > sz + 1.2 ? Df - 0.05 : sz + 1.45, 0x101216);                  // TV
-    if (rich) bx.add(2.4, 0.04, 2.0, -W * 0.16, 0.01, sz - 0.6, 0xb9b3a6);                                              // rug
-    ceilingLamp(0, Df * 0.4, true); ceilingLamp(W * 0.25, Df * 0.8); floorLamp(-W * 0.16 - 1.5, Df - 0.4);
-    // partition with door gaps, then the cells behind it
+    // the cells behind the partition (bedrooms and bathrooms), each with a door gap in the partition
     const cells = [];
     for (let i = 0; i < a.beds; i++) cells.push({ kind: 'bed', w: 1.0 });
     for (let i = 0; i < a.baths; i++) cells.push({ kind: 'bath', w: 0.62 });
     const tw = cells.reduce((s, c) => s + c.w, 0); let cx0 = -W / 2;
     cells.forEach((c, i) => { c.w = c.w / tw * W; c.x0 = cx0; c.x1 = cx0 + c.w; cx0 += c.w; });
+    // sofa, coffee table and TV: kept a full metre off the partition, and slid along it until the TV is not in front of a door,
+    // so every bedroom and bathroom door stays free to walk through (tools/check_flats.mjs walks every flat to prove it)
+    const sz = Math.min(Df * 0.85, Df - 1.75), sofaW = 2.1, tvW = 1.5;
+    const doorFree = x => cells.every(c => Math.abs(x - (c.x0 + c.x1) / 2) > door / 2 + tvW / 2 + 0.1);
+    let sx = -W * 0.16;
+    if (!doorFree(sx)) { let best = null; for (let x = -W / 2 + 1.8; x <= W / 2 - 2.9; x += 0.1) if (doorFree(x) && (best == null || Math.abs(x + W * 0.16) < Math.abs(best + W * 0.16))) best = x; if (best != null) sx = best; }
+    bx.add(sofaW, 0.42, 0.9, sx, 0, sz, ACC, {}, true); bx.add(sofaW, 0.5, 0.18, sx, 0.42, sz + 0.4, ACC);
+    bx.add(1.1, 0.34, 0.6, sx, 0, sz - 1.1, 0x5a4a3a, {}, true);
+    if (doorFree(sx)) bx.add(tvW, 0.55, 0.12, sx, 0.9, Df - 0.05, 0x101216);                                           // TV on the partition
+    else bx.add(tvW, 0.55, 0.12, sx, 0.9, sz + 0.9, 0x101216);                                                          // no clear stretch of wall: it stands behind the sofa
+    if (rich) bx.add(2.4, 0.04, 2.0, sx, 0.01, sz - 0.6, 0xb9b3a6);                                                     // rug
+    ceilingLamp(0, Df * 0.4, true); ceilingLamp(W * 0.25, Df * 0.8); floorLamp(sx - 1.5, Df - 0.4);
     cells.forEach((c, i) => {
       const cx = (c.x0 + c.x1) / 2;
       wall((c.w - door) / 2, H, t, c.x0 + (c.w - door) / 4, 0, Df); wall((c.w - door) / 2, H, t, c.x1 - (c.w - door) / 4, 0, Df); wall(door, H - 2.05, t, cx, 2.05, Df, false);
       if (i < cells.length - 1) wall(t, H, D - Df, c.x1, 0, (Df + D) / 2);
-      if (c.kind === 'bed') { bed(cx, D, true, true); wardrobe(c.x0 + 0.5, (Df + D) / 2 - 0.2, 0.9, 1.6, true); ceilingLamp(cx, (Df + D) / 2, !wardrobeAt); if (!wardrobeAt) wardrobeAt = { x: c.x0 + 0.5, z: (Df + D) / 2 - 1.15 }; if (rich) bx.add(1.1, 0.4, 0.5, cx, 0, Df + 0.9, 0x5a4a3a, {}, true); }
+      if (c.kind === 'bed') { bed(cx, D, true, c.w > 3.2); wardrobe(c.x0 + 0.5, Math.min((Df + D) / 2 - 0.2, Df + 1.3), 0.9, Math.max(0.9, Math.min(1.6, c.w - 1.6)), true); ceilingLamp(cx, (Df + D) / 2, !wardrobeAt); if (!wardrobeAt) wardrobeAt = { x: c.x0 + 0.5, z: Math.min((Df + D) / 2 - 0.2, Df + 1.3) - 0.95 }; if (rich) bx.add(0.5, 0.4, 1.1, c.x1 - 0.4, 0, Df + 1.7, 0x5a4a3a, {}, true); }   // dresser against the side wall, clear of the door
       else bath(cx, Df, D, c.w);
     });
   }
