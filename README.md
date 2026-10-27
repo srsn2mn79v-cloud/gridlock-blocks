@@ -762,3 +762,8 @@ function per new type) whenever you want it — say the word and I'll add them.
 - `npm run build:html` now also makes `dist-singlefile-studio/studio.html` (the Studio as one file).
 - Fixes needed by the new layout: lamps/signs far from any road are dropped, props inside buildings or water are dropped, the circuit generator is more tolerant, bus lines may use local streets.
 - Not covered: the old `city-editor.html` (different data format) is obsolete.
+
+### Fix (same day): black roads
+- The thin black lines on the map are roads (small streets, causeways to the piers, highway exit ramps), not park paths. `tools/add_black_roads.py` traces them and adds them after `build_mapdata.py`; ramps next to the highway are left to the interchange code. Highway exits are now the three on the map: top-left diamond (Wrigley), west clover, bottom lens (McCormick); the stray exit at Old Town is gone.
+- Roads to Navy Pier, the Filtration Plant, Adler Planetarium and Meigs Field are back (on thin causeway decks, which the water check now treats as dry).
+- Bus lines may use some local streets (at most 55 % of a line) and tolerate sharper turns.

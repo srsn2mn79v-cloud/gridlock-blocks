@@ -31,7 +31,7 @@ export function buildTransit(city) {
       open.sort((p, q) => dist[q] - dist[p]); const u = open.pop();
       if (done.has(u)) continue; done.add(u);
       if (u === b) break;
-      for (const { e, to } of adj[u] || []) { if (banE && banE.has(e.id)) continue; if (banN && banN.has(to) && to !== b) continue; const d = dist[u] + len(e) * (e.type === 'avenue' ? 1 : 2.2); if (dist[to] == null || d < dist[to]) { dist[to] = d; prev[to] = u; open.push(to); } }
+      for (const { e, to } of adj[u] || []) { if (banE && banE.has(e.id)) continue; if (banN && banN.has(to) && to !== b) continue; const d = dist[u] + len(e) * (e.type === 'avenue' ? 1 : 5); if (dist[to] == null || d < dist[to]) { dist[to] = d; prev[to] = u; open.push(to); } }
     }
     if (dist[b] == null) return null;
     const out = [b]; while (out[0] !== a) out.unshift(prev[out[0]]);
@@ -42,7 +42,7 @@ export function buildTransit(city) {
 
   const R = rng(1234), lines = [];
   for (let k = 0; k < 4 && best.length > 20; k++) {
-    for (let attempt = 0; attempt < 30; attempt++) {
+    for (let attempt = 0; attempt < 100; attempt++) {
       const r = maxR * (0.35 + 0.3 * R()), a0 = (k / 4) * Math.PI + R() * 0.6;
       const A = nearest(cx + Math.cos(a0) * r, cz + Math.sin(a0) * r), B = nearest(cx - Math.cos(a0) * r * (0.7 + 0.5 * R()), cz - Math.sin(a0) * r * (0.7 + 0.5 * R()));
       if (!A || !B || A === B) continue;
@@ -58,13 +58,14 @@ export function buildTransit(city) {
         const p = nodesSeq[(i + m - 1) % m], c = nodesSeq[i], q = nodesSeq[(i + 1) % m];
         const A = N[p], B = N[c], C = N[q];
         const ix = B.x - A.x, iz = B.z - A.z, ox = C.x - B.x, oz = C.z - B.z, dot = (ix * ox + iz * oz) / ((Math.hypot(ix, iz) * Math.hypot(ox, oz)) || 1);
-        if (p === q || dot < -0.15) { bad = true; break; }
+        if (p === q || dot < -0.55) { bad = true; break; }
         const key = p + '>' + c, rec = edgeBetween(c, q);
         if (!rec || (next.has(key) && next.get(key) !== rec.e)) { bad = true; break; }
         next.set(key, rec.e);
         total += len(rec.e);
       }
-      if (bad || total < 1200 || total > 9000) continue;
+      let loc = 0; for (let i = 0; i < m && !bad; i++) { const rec = edgeBetween(nodesSeq[i], nodesSeq[(i + 1) % m]); if (rec && rec.e.type !== 'avenue') loc += len(rec.e); }
+      if (bad || total < 1200 || total > 9000 || loc > total * 0.55) continue;
       const steps = nodesSeq.map((c, i) => { const q = nodesSeq[(i + 1) % m]; return { from: c, to: q, edge: edgeBetween(c, q).e }; });
       lines.push({ id: k, name: LINE_NAMES[k], color: LINE_COLORS[k], nodes: nodesSeq, steps, next, length: total });
       break;
