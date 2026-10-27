@@ -853,7 +853,8 @@ export function createTrafficSystem(cityData, scene, heightAt, count = 6, maxCou
           } else if (car.passOff > 0 && now > (car.passUntil || 0) && now > (car.laneT || 0)) { car.passOff--; car.passUntil = now + 6000; }
           want = Math.max(0, car.homeLane - car.passOff);
         }
-        if (want !== car.laneIndex && now > (car.laneT || 0)) {
+        if (car.hwJoin > 0) car.hwJoin -= Math.max(0, car.speed) * dt;
+        if (want !== car.laneIndex && now > (car.laneT || 0) && !(car.hwJoin > 0)) {
           const step = want > car.laneIndex ? 1 : -1, tl = car.laneIndex + step;
           const side = laneLateral(car.width, n, tl, true) - car.lat;
           let clear = true;
@@ -963,6 +964,7 @@ export function createTrafficSystem(cityData, scene, heightAt, count = 6, maxCou
           car.lanes = Math.max(1, next.lanes || 1);
           car.oneWay = !!next.oneWay;
           car.avoidObs = null; car.avoidOff = 0;
+          car.hwJoin = (next.type === 'highway' && car.prevType !== 'highway') ? 80 : 0;     // no lane changes for the first 100 m after joining the interstate
         }
         car.path = pathFor(car.edge, car.from, car.to);
         if (c) {

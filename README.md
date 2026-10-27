@@ -772,3 +772,8 @@ function per new type) whenever you want it — say the word and I'll add them.
 - `tools/clean_map.py` (run after add_black_roads + dedupe, before build_interchanges): straightens wiggly streets, closes gaps between a dead end and the street it points at (up to ~40 m anywhere, ~100 m when collinear, further across rivers), and drops isolated pieces shorter than ~140 m. The network builder now also prunes dead-end stubs under 90 units.
 - `tools/build_interchanges.py` traces the three interchanges (clover, Wrigley diamond, McCormick lens) from the black lines of the map as real arcs; `gen_network.js` builds the slip roads from those arcs (exit/entry decided by which side of the interstate and which side of the cross street they sit), with a short blend onto the carriageway. Streets that only traced a ramp are removed.
 - Order of the tools: build_mapdata, add_black_roads, dedupe_streets, clean_map, build_interchanges.
+
+### Fix (same day): black roads, smooth ramps, 4th lane
+- `tools/add_black_more.py`: second pass over the black lines (only what no street covers yet; landmark outlines, bank lines and lettering are skipped). Tool order is now: build_mapdata, add_black_roads, add_black_more, dedupe_streets, clean_map, build_interchanges.
+- Slip roads (gen_network.js): leave the carriageway tapering into a 4th lane (23 u from the median, 3 lanes stay between exit and entry), run alongside for up to 80 u, then a Hermite curve joins the traced arc tangent-continuously. Near the interstate's ends they get less room.
+- traffic.js: `car.hwJoin` - no lane changes for the first 80 u (100 m) after joining the interstate from a ramp.

@@ -49,7 +49,7 @@ export function generateRoads() {
     return { sw, ramps: (ix.ramps || []).map(r => TP(r)), cls: ix.cls || 'six', no: k + 1, label: ix.label || ('Interchange ' + (k + 1)) };
   });
   const ramps = [];
-  const LEAD = 45, ENTRY_END = LEAD;
+  const XH = 210, ENTRY_END = 45;       // a slip road touches its carriageway XH units from where its curve takes over; ENTRY_END only places the 'next exits' signs
   const needS = [];
   // arclength of the interstate at the point nearest to p, and which side of it p is on (+1 = right of the path)
   const along = p => {
@@ -74,7 +74,12 @@ export function generateRoads() {
       const e = along(r[0]); r.info = e; r.junction = dist(r[r.length - 1], sw[0]) < dist(r[r.length - 1], sw[1]) ? sw[0] : sw[1];
       const f = e.side, exitKind = (f > 0 ? e.s < hs : e.s > hs);   // the right-hand carriageway of the side the arc is on; upstream of the street = exit
       r.f = f; r.kind = exitKind ? 'exit' : 'entry';
-      needS.push(e.s - f * (exitKind ? LEAD : -LEAD), e.s);
+      const sg = exitKind ? f : -f;                                  // direction of travel along the interstate as seen from the ramp's outward end
+      let ia = 0; while (ia < r.length - 3 && along(r[ia]).d < 50) ia++;
+      const sa = along(r[ia]).s, total = polyLen(H);
+      const room = sg > 0 ? sa - 135 : total - 135 - sa, xh = Math.max(100, Math.min(XH, room));       // near the interstate's ends the slip road gets less room
+      r.plan = { ia, sg, xh, s0: Math.max(0, Math.min(total, sa - sg * xh)) };
+      needS.push(r.plan.s0);
     });
   });
   // put vertices into the interstate where the slip roads leave and rejoin it
@@ -103,16 +108,20 @@ export function generateRoads() {
   IX.forEach(ix => {
     if (!ix.P) return;
     ix.ramps.forEach(r => {
-      const { f, kind } = r, e = r.info, ex = kind === 'exit';
-      const carr = s => { const h = hwPoint(s); return [h.x + h.rx * f * CAR_OFF, h.z + h.rz * f * CAR_OFF]; };
-      const arc = r.slice(0, -1).concat([r.junction]);
-      const sm = k => k * k * (3 - 2 * k), blend = [];
-      for (let k = 0; k <= 4; k++) {
-        const w = sm(k / 4), s0 = e.s + f * (ex ? -1 : 1) * LEAD * (1 - k / 4), c = carr(s0);
-        blend.push([c[0] + (arc[0][0] - c[0]) * w, c[1] + (arc[0][1] - c[1]) * w]);
+      const { f, kind } = r, ex = kind === 'exit', { ia, sg, s0, xh } = r.plan, LL = 23, HM = xh >= 210 ? 90 : 60, PAR = Math.max(0, xh - 40 - HM);
+      const at = (x, l) => { const h = hwPoint(s0 + sg * x); return [h.x + h.rx * f * l, h.z + h.rz * f * l]; };
+      const sm = k => k * k * (3 - 2 * k), out = [];
+      for (let x = 0; x <= 40; x += 10) out.push(at(x, CAR_OFF + (LL - CAR_OFF) * sm(x / 40)));     // leaves the carriageway as a 4th lane ...
+      if (PAR > 0) out.push(at(40 + PAR / 2, LL), at(40 + PAR, LL));                                  // ... runs alongside (up to 80 u) ...
+      const P0 = out[out.length - 1], P1 = r[ia], tg = hwPoint(s0 + sg * (40 + PAR));
+      const T0 = [(tg.rz) * f * sg, -(tg.rx) * f * sg], ta = [r[Math.min(r.length - 1, ia + 5)][0] - P1[0], r[Math.min(r.length - 1, ia + 5)][1] - P1[1]], tl = Math.hypot(ta[0], ta[1]) || 1, ch = dist(P0, P1) * 0.7;
+      for (let k = 1; k <= 8; k++) {                                                                  // ... then a smooth curve (Hermite) onto the traced arc
+        const t = k / 8, h00 = 2 * t ** 3 - 3 * t * t + 1, h10 = t ** 3 - 2 * t * t + t, h01 = -2 * t ** 3 + 3 * t * t, h11 = t ** 3 - t * t;
+        out.push([h00 * P0[0] + h10 * ch * T0[0] + h01 * P1[0] + h11 * ch * ta[0] / tl, h00 * P0[1] + h10 * ch * T0[1] + h01 * P1[1] + h11 * ch * ta[1] / tl]);
       }
-      if (ex) ramps.push({ pts: blend.concat(arc.slice(1)), kind, f, ix, inside: true });
-      else { const q = arc.slice().reverse().concat(blend.slice().reverse().slice(1)); ramps.push({ pts: q, kind, f, ix, inside: true }); }
+      const arc = r.slice(ia + 1, -1).concat([r.junction]);
+      const pts = out.concat(arc);
+      ramps.push({ pts: ex ? pts : pts.slice().reverse(), kind, f, ix, inside: true });
     });
     // the street: outer junction -> over the interstate -> inner junction -> into the city
     const d0 = [ix.sw[0][0] - ix.sw[1][0], ix.sw[0][1] - ix.sw[1][1]], l0 = Math.hypot(d0[0], d0[1]) || 1;   // a short tail beyond the outer junction gives the bridge room (the tail itself is pruned as a stub)
