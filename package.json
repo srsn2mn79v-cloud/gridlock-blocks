@@ -6,7 +6,7 @@
   "scripts": {
     "dev": "vite",
     "build": "node tools/radio-manifest.mjs && vite build",
-    "build:html": "node tools/radio-manifest.mjs && vite build --config vite.singlefile.config.js",
+    "build:html": "node tools/radio-manifest.mjs && vite build --config vite.singlefile.config.js && vite build --config vite.singlefile.studio.config.js",
     "preview": "vite preview"
   },
   "dependencies": {

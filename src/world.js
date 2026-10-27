@@ -12,15 +12,17 @@ import { createFlatLights } from './flatlight.js';
 import { buildInterior, buildStoreInterior, buildGarage, buildGateMesh, garageLayout, garageHeight, RAMP, bayAt, FINE_SECS } from './estate.js';
 import { createGroundGlow } from './glow.js';
 import { buildKit } from './bodykit.js';
+import { getUpgrades } from './customData.js';
+const UPG = getUpgrades();      // prices + effects of every upgrade (editable in the Studio)
 
 const SAVE_KEY = 'gridlock.world';
 const STARTERS = ['hatch'];   // taxi and bus are jobs now (cab stands, bus depot), not cars you can buy
-const CAR_PRICE = { van: 5000, bus: 9000, pickup: 12000, muscle: 24000, sport: 28000 };
+const CAR_PRICE = UPG.carPrice;
 const PAINTS = [['Racing red', 0xd62a2a], ['Sunset orange', 0xff5e3a], ['Gold', 0xf1b800], ['Lime', 0x7ed321], ['Forest', 0x1f7a44], ['Teal', 0x14b3a6],
   ['Sky blue', 0x3aa0ff], ['Cobalt', 0x2f4fd8], ['Violet', 0x7a3fd1], ['Hot pink', 0xff4fa3], ['Pearl white', 0xf2f2f2], ['Graphite', 0x30343b], ['Jet black', 0x0e0f12]];
 const DECAL_COLORS = [['White', 0xffffff], ['Black', 0x111111], ['Yellow', 0xffd21f], ['Red', 0xe53030], ['Blue', 0x2f7bff], ['Cyan', 0x17d6c8]];
 const NEONS = [['Pink', 0xff2fa8], ['Cyan', 0x20e8ff], ['Green', 0x38ff6a], ['Violet', 0xa14bff], ['White', 0xffffff], ['Red', 0xff2a2a]];
-const NITRO_SECS = [0, 4, 7, 10];
+const NITRO_SECS = [0, ...UPG.nitro.secs];
 
 const defaultMods = () => ({ paint: null, decal: { type: 'none', color: 0xffffff }, neon: null, xenon: false, nitro: 0, hud: 0, tank: 0,
   perf: { engine: 0, turbo: 0, gearbox: 0, tires: 0, suspension: 0, brakes: 0, weight: 0, seats: 0, limiter: 0 }, kit: { front: 0, rear: 0, skirts: 0, spoiler: 0, fenders: 0, hood: 0 }, own: {} });
@@ -232,12 +234,13 @@ export function createWorld({ city, scene, camera, car, input, heightAt: cityHei
   // ---------- performance model: what each part does, and the five ratings the Performance shop shows -------------
   function perfStats(styleKey, P) {
     const st = CAR_STYLES.find(c => c.key === styleKey) || CAR_STYLES[0];
-    const mass = Math.round(st.mass * (1 - 0.04 * P.weight) - (P.seats ? 80 : 0));
-    const maxSpeed = st.maxSpeed * (1 + 0.06 * P.engine + 0.03 * P.gearbox + 0.01 * P.turbo) * (P.limiter ? 1.08 : 1);
-    const accel = st.accel * (1 + 0.06 * P.engine + 0.10 * P.turbo + 0.05 * P.gearbox);
-    const gripBonus = 0.07 * P.tires + 0.02 * P.suspension;
-    const brakeMul = (st.brake || 1) * (1 + 0.22 * P.brakes);
-    const handlingMul = (st.handling || 1) * (1 + 0.06 * P.tires + 0.08 * P.suspension);
+    const fx = k => Object.keys(UPG.stages).reduce((a, n) => a + ((UPG.stages[n].fx || {})[k] || 0) * (P[n] || 0), 0);
+    const mass = Math.round(st.mass * (1 - fx('weight')) - (P.seats ? UPG.seats.kg : 0));
+    const maxSpeed = st.maxSpeed * (1 + fx('speed')) * (P.limiter ? 1 + UPG.limiter.speed : 1);
+    const accel = st.accel * (1 + fx('accel'));
+    const gripBonus = fx('grip');
+    const brakeMul = (st.brake || 1) * (1 + fx('brake'));
+    const handlingMul = (st.handling || 1) * (1 + fx('handling'));
     // ratings 0-100 (what you actually feel: lighter = quicker off the line, better braking and turn-in)
     const effAccel = accel * Math.pow(st.mass / mass, 0.8), hm = handlingMul * Math.pow(1100 / mass, 0.25), brk = brakeMul * Math.pow(1100 / mass, 0.3);
     const r = (v, lo, hi) => Math.max(0, Math.min(100, Math.round((v - lo) / (hi - lo) * 100)));
@@ -910,24 +913,21 @@ export function createWorld({ city, scene, camera, car, input, heightAt: cityHei
       const rows = [];
       { const cc = carClass(style.cls, d), nxt = CLASS_ORDER[Math.min(5, classIndex(style.cls) + 1)];
         rows.push({ hint: `Class ${cc.cls}${cc.maxed ? ' (maxed out: moved up from ' + cc.base + ')' : ''} - build ${Math.round(cc.progress * 100)}%. Fit every upgrade to lift this car to class ${nxt}.` }); }
-      stageRows(rows, 'perf.engine', 'Engine', [600, 1200, 2200], 'top speed and acceleration (+6% each per stage)', x => x.perf.engine, (mm, l) => { mm.perf.engine = l; });
-      stageRows(rows, 'perf.turbo', 'Turbo', [500, 1000, 1800], 'mostly acceleration (+10% per stage)', x => x.perf.turbo, (mm, l) => { mm.perf.turbo = l; });
-      stageRows(rows, 'perf.gearbox', 'Gearbox', [800, 1500, 2600], 'acceleration and top speed (+5% / +3% per stage)', x => x.perf.gearbox, (mm, l) => { mm.perf.gearbox = l; });
-      stageRows(rows, 'perf.tires', 'Tyres', [400, 800, 1400], 'handling and grip, especially wet and icy', x => x.perf.tires, (mm, l) => { mm.perf.tires = l; });
-      stageRows(rows, 'perf.suspension', 'Suspension', [450, 900, 1600], 'handling (+8% per stage)', x => x.perf.suspension, (mm, l) => { mm.perf.suspension = l; });
-      stageRows(rows, 'perf.brakes', 'Brakes', [350, 700, 1200], 'shorter stopping distance', x => x.perf.brakes, (mm, l) => { mm.perf.brakes = l; });
-      stageRows(rows, 'perf.weight', 'Lightweight materials', [500, 1100, 2000], '-4% weight per stage: quicker, brakes and turns better', x => x.perf.weight, (mm, l) => { mm.perf.weight = l; });
+      Object.keys(UPG.stages).forEach(k => {
+        const st2 = UPG.stages[k], fxt = Object.entries(st2.fx || {}).filter(([, v]) => v).map(([n, v]) => (n === 'weight' ? '-' : '+') + Math.round(v * 100) + '% ' + n).join(', ');
+        stageRows(rows, 'perf.' + k, st2.name, st2.prices, st2.desc + (fxt ? ' (' + fxt + ' per stage)' : ''), x => x.perf[k], (mm, l) => { mm.perf[k] = l; });
+      });
       rows.push({ hint: 'Stripping & limiter' });
-      [['seats', 'Remove seats', 700, '-80 kg: acceleration and braking'], ['limiter', 'Remove speed limiter', 1500, '+8% top speed']].forEach(([k, n, p, ds]) => {
+      [['seats', 'Remove seats', UPG.seats.price, '-' + UPG.seats.kg + ' kg: ' + UPG.seats.desc], ['limiter', 'Remove speed limiter', UPG.limiter.price, '+' + Math.round(UPG.limiter.speed * 100) + '% ' + UPG.limiter.desc]].forEach(([k, n, p, ds]) => {
         rows.push({ ...pickRow({ group: 'perf.' + k, key: k, name: n, price: p, fitted: !!real.perf[k], sub: real.perf[k] ? 'Installed' : `${money(p)} - ${ds}`, hover: { [k]: 1 }, apply: mm => { mm.perf[k] = 1; } }), hover: { [k]: 1 } });
       });
       return { ...base, perfBars: true, buy: buyBar(), rows };
     }
     if (shop.kind === 'paint') {
       const curPaint = d.paint != null ? d.paint : style.color, rp = real.paint != null ? real.paint : style.color;
-      const rows = [{ chips: PAINTS.map(([n, c]) => ({ label: n + (c === rp ? '' : ' · $200'), color: c, on: curPaint === c,
-        act: () => { if (c === rp) cartMap.delete('paint'); else if (cartMap.get('paint') && cartMap.get('paint').key === c) cartMap.delete('paint'); else cartMap.set('paint', { group: 'paint', key: c, name: n, price: 200, apply: mm => { mm.paint = c; } }); applyMods(draft()); refreshPanel(); } })), name: 'Paint job - $200' }];
-      [['none', 'No decal', 0], ['stripe', 'Racing stripe', 300], ['twin', 'Twin stripes', 300], ['side', 'Side stripes', 300]].forEach(([t, n, p]) => {
+      const rows = [{ chips: PAINTS.map(([n, c]) => ({ label: n + (c === rp ? '' : ' · $' + UPG.paint), color: c, on: curPaint === c,
+        act: () => { if (c === rp) cartMap.delete('paint'); else if (cartMap.get('paint') && cartMap.get('paint').key === c) cartMap.delete('paint'); else cartMap.set('paint', { group: 'paint', key: c, name: n, price: UPG.paint, apply: mm => { mm.paint = c; } }); applyMods(draft()); refreshPanel(); } })), name: 'Paint job - $' + UPG.paint }];
+      [['none', 'No decal', 0], ['stripe', 'Racing stripe', UPG.decal], ['twin', 'Twin stripes', UPG.decal], ['side', 'Side stripes', UPG.decal]].forEach(([t, n, p]) => {
         const owned = t === 'none' || real.own['decal.' + t];
         rows.push(pickRow({ group: 'decal', key: t, name: n, price: owned ? 0 : p, fitted: real.decal.type === t, apply: mm => { mm.decal.type = t; if (t !== 'none') mm.own['decal.' + t] = true; } }));
       });
@@ -935,21 +935,20 @@ export function createWorld({ city, scene, camera, car, input, heightAt: cityHei
       return { ...base, buy: buyBar(), rows };
     }
     if (shop.kind === 'tuning') {
-      const rows = [{ name: real.own.neon ? 'Underglow neon (owned - recolour free)' : 'Underglow neon - $400 (then free to recolour)', chips: NEONS.map(([n, c]) => ({ label: n, color: c, on: d.neon === c,
-        act: () => { const cc = cartMap.get('neon'); if (cc && cc.key === c) cartMap.delete('neon'); else cartMap.set('neon', { group: 'neon', key: c, name: 'Neon ' + n, price: real.own.neon ? 0 : 400, apply: mm => { mm.neon = c; mm.own.neon = true; } }); applyMods(draft()); refreshPanel(); } })) }];
+      const rows = [{ name: real.own.neon ? 'Underglow neon (owned - recolour free)' : 'Underglow neon - $' + UPG.neon + ' (then free to recolour)', chips: NEONS.map(([n, c]) => ({ label: n, color: c, on: d.neon === c,
+        act: () => { const cc = cartMap.get('neon'); if (cc && cc.key === c) cartMap.delete('neon'); else cartMap.set('neon', { group: 'neon', key: c, name: 'Neon ' + n, price: real.own.neon ? 0 : UPG.neon, apply: mm => { mm.neon = c; mm.own.neon = true; } }); applyMods(draft()); refreshPanel(); } })) }];
       if (real.neon != null || d.neon != null) rows.push(pickRow({ group: 'neon', key: 'off', name: 'Remove neon', price: 0, fitted: d.neon == null && real.neon == null, sub: 'Switch the underglow off', apply: mm => { mm.neon = null; } }));
-      rows.push(pickRow({ group: 'xenon', key: 'x', name: 'Xenon headlights', price: 350, fitted: !!real.xenon, sub: real.xenon ? 'Fitted' : '$350 · cold blue-white beams', apply: mm => { mm.xenon = true; } }));
+      rows.push(pickRow({ group: 'xenon', key: 'x', name: 'Xenon headlights', price: UPG.xenon, fitted: !!real.xenon, sub: real.xenon ? 'Fitted' : '$' + UPG.xenon + ' · cold blue-white beams', apply: mm => { mm.xenon = true; } }));
       rows.push({ hint: 'Trunk: nitro tank - hold Shift to boost (+30% top speed, 2.4x acceleration), refills over time' });
-      const nr = []; stageRows(nr, 'nitro', 'Nitro tank', [900, 1600, 2600], 'boost time 4 / 7 / 10 s', x => x.nitro, (mm, l) => { mm.nitro = l; }); rows.push(...nr.slice(1));
+      const nr = []; stageRows(nr, 'nitro', 'Nitro tank', UPG.nitro.prices, 'boost time ' + UPG.nitro.secs.join(' / ') + ' s', x => x.nitro, (mm, l) => { mm.nitro = l; }); rows.push(...nr.slice(1));
       rows.push({ hint: 'Fuel' });
-      const tr = []; stageRows(tr, 'tank', 'Fuel tank', [350, 700, 1200, 1800], '+25% tank per stage (range 125 / 150 / 175 / 200 km)', x => x.tank || 0, (mm, l) => { mm.tank = l; }); rows.push(...tr.slice(1));
+      const tr = []; stageRows(tr, 'tank', 'Fuel tank', UPG.tank.prices, '+25% tank per stage (range 125 / 150 / 175 / 200 km)', x => x.tank || 0, (mm, l) => { mm.tank = l; }); rows.push(...tr.slice(1));
       rows.push({ hint: 'HUD' });
-      const hr = []; stageRows(hr, 'hud', 'HUD', [500, 900], 'stage 1 digital speedo, stage 2 adds compass + clock', x => x.hud, (mm, l) => { mm.hud = l; }); rows.push(...hr.slice(1));
+      const hr = []; stageRows(hr, 'hud', 'HUD', UPG.hud.prices, 'stage 1 digital speedo, stage 2 adds compass + clock', x => x.hud, (mm, l) => { mm.hud = l; }); rows.push(...hr.slice(1));
       return { ...base, buy: buyBar(), rows };
     }
     // body kit shop
-    const slots = [['front', 'Front bumper', ['Stock', 'Lip splitter', 'Sport bumper', 'Aggressive bumper'], [0, 350, 600, 900]], ['rear', 'Rear bumper', ['Stock', 'Diffuser', 'Race diffuser'], [0, 400, 700]],
-      ['skirts', 'Side skirts', ['Stock', 'Sport skirts', 'GT skirts'], [0, 300, 550]], ['spoiler', 'Spoiler', ['None', 'Lip', 'Ducktail', 'GT wing', 'Tall race wing'], [0, 250, 450, 800, 1100]], ['fenders', 'Fender flares', ['Stock', 'Bolt-on flares', 'Wide body'], [0, 500, 900]], ['hood', 'Hood', ['Stock', 'Louvred vents', 'Power scoop', 'Carbon vented bonnet'], [0, 300, 550, 950]]];
+    const slots = [['front', 'Front bumper'], ['rear', 'Rear bumper'], ['skirts', 'Side skirts'], ['spoiler', 'Spoiler'], ['fenders', 'Fender flares'], ['hood', 'Hood']].map(([k, l]) => [k, l, UPG.kit[k].names, UPG.kit[k].prices]);
     const rows = [];
     slots.forEach(([slot, label, names, prices]) => {
       rows.push({ hint: label });

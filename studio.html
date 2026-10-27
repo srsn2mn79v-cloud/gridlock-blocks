@@ -1,0 +1,46 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Gridlock Studio</title>
+  <style>
+    :root { color-scheme: dark; --bg:#0f1318; --panel:#171d25; --line:#2a3340; --fg:#e8ecf1; --dim:#93a0b1; --acc:#2f7cf6; }
+    * { box-sizing: border-box; }
+    html, body { margin: 0; height: 100%; background: var(--bg); color: var(--fg); font: 13px/1.4 system-ui, sans-serif; }
+    body { display: flex; flex-direction: column; }
+    header { display: flex; align-items: center; gap: 10px; padding: 8px 12px; background: var(--panel); border-bottom: 1px solid var(--line); flex-wrap: wrap; }
+    .logo { font-size: 15px; letter-spacing: .02em; }
+    .tabs { display: flex; gap: 4px; }
+    .tab-btn { background: #202935; color: var(--fg); border: 0; padding: 7px 14px; border-radius: 7px; cursor: pointer; font: inherit; }
+    .tab-btn.on { background: var(--acc); }
+    .sp { flex: 1; } .status { color: var(--dim); font-size: 12px; max-width: 36vw; }
+    main { flex: 1; min-height: 0; position: relative; }
+    .tab { position: absolute; inset: 0; display: flex; }
+    .cv { flex: 1; position: relative; min-width: 0; } .cv canvas { position: absolute; inset: 0; cursor: crosshair; }
+    .side { width: 330px; background: var(--panel); border-left: 1px solid var(--line); overflow: auto; padding: 12px; }
+    .side h3, .card h3 { margin: 0 0 8px; font-size: 14px; } h4 { margin: 10px 0 6px; font-size: 12px; color: var(--dim); text-transform: uppercase; }
+    .btn { background: #232d3a; color: var(--fg); border: 1px solid var(--line); border-radius: 7px; padding: 6px 10px; cursor: pointer; font: inherit; }
+    .btn:hover { background: #2b3748; } .btn.pri { background: var(--acc); border-color: var(--acc); } .btn.go { background: #1f9d55; border-color: #1f9d55; } .btn.danger { background: #4a2328; border-color: #6b2f36; }
+    .row { display: flex; gap: 6px; flex-wrap: wrap; align-items: end; margin: 6px 0; }
+    .f { display: flex; flex-direction: column; gap: 2px; margin: 4px 0; } .f > span { color: var(--dim); font-size: 11px; } .f em { color: var(--dim); font-size: 11px; font-style: normal; }
+    input, select { background: #0e1319; color: var(--fg); border: 1px solid var(--line); border-radius: 6px; padding: 5px 6px; font: inherit; max-width: 100%; }
+    input[type=color] { padding: 0; height: 28px; width: 56px; } input[type=range] { padding: 0; }
+    .chk { display: inline-flex; align-items: center; gap: 5px; color: var(--fg); } .chk input { margin: 0; }
+    .list { max-height: 210px; overflow: auto; border: 1px solid var(--line); border-radius: 7px; margin: 8px 0; background: #0e1319; }
+    .list.row { max-height: none; border: 0; background: none; gap: 4px; }
+    .li { padding: 5px 9px; cursor: pointer; border-bottom: 1px solid #1b232e; } .list.row .li { border: 1px solid var(--line); border-radius: 7px; background: #0e1319; }
+    .li:hover { background: #1b2430; } .li.on { background: #24406b; }
+    .hint { color: var(--dim); font-size: 12px; margin: 8px 0; } .hint.warn { color: #ffb86b; } .hint ul { margin: 4px 0; padding-left: 18px; }
+    .props { margin: 8px 0; } .props.grid { display: grid; grid-template-columns: 1fr 1fr; gap: 2px 8px; }
+    .carleft { flex: 1; padding: 12px; overflow: auto; min-width: 0; } .prev canvas, .prof { max-width: 100%; border: 1px solid var(--line); border-radius: 8px; display: block; margin-bottom: 8px; } .prof { cursor: crosshair; }
+    .upg { overflow: auto; } .page { padding: 16px; max-width: 1200px; margin: 0 auto; width: 100%; }
+    .card { background: var(--panel); border: 1px solid var(--line); border-radius: 10px; padding: 12px; margin: 12px 0; }
+    table { border-collapse: collapse; } th, td { padding: 3px 5px; text-align: left; font-weight: normal; vertical-align: top; } th { color: var(--dim); font-size: 11px; }
+    @media (max-width: 800px) { .tab { flex-direction: column; } .side { width: auto; height: 46%; border-left: 0; border-top: 1px solid var(--line); } .status { display: none; } }
+  </style>
+</head>
+<body>
+  <script type="module" src="/src/studio/studio.js"></script>
+</body>
+</html>

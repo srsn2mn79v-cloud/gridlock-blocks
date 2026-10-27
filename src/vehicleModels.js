@@ -98,74 +98,76 @@ function addMirrors(g, m, y, z, half) {
 const CAR_WHEELS = [[-1, 0.42, 1.25], [1, 0.42, 1.25], [-1, 0.42, -1.25], [1, 0.42, -1.25]];
 
 export const PLAYER_BUS_DIMS = { len: 7.2, wid: 2.0 };   // the drivable bus is a short city shuttle (the traffic bus is 10.4 long)
-export function buildCarBody(style, color, opts = {}) {
-  if (style === 'bus') return buildTrafficBody('bus', color, PLAYER_BUS_DIMS);
+// ---- player car shapes as data, so the Studio can edit them ----
+// body / glass = side profiles as [z, y] pairs (z forward, y up); parts = extra boxes (w, h, d = width, height, length; x, y, z = centre;
+// r = edge bevel; mat = paint | glass | dark | chrome | white | stripe | sign; mirror = also add the copy at -x; cast = casts a shadow).
+export const CAR_SPECS = {
+  sport: { body: [[-1.8, 0.27], [1.8, 0.27], [1.8, 0.5], [1.25, 0.63], [0.5, 0.7], [-1.2, 0.74], [-1.8, 0.7], [-1.8, 0.45]],
+    glass: { pts: [[0.6, 0.7], [0.05, 1.06], [-0.75, 1.08], [-1.35, 0.74]], w: 1.55, r: 0.03 },
+    parts: [{ n: 'roof', w: 1.2, h: 0.05, d: 0.8, x: 0, y: 1.095, z: -0.35, r: 0.02, mat: 'paint' },
+      { n: 'wing', w: 1.7, h: 0.05, d: 0.36, x: 0, y: 1.02, z: -1.68, r: 0.02, mat: 'paint', cast: 1 },
+      { n: 'strut', w: 0.07, h: 0.3, d: 0.1, x: 0.6, y: 0.86, z: -1.66, r: 0.01, mat: 'dark', mirror: 1 },
+      { n: 'splitter', w: 1.9, h: 0.05, d: 0.3, x: 0, y: 0.3, z: 1.72, r: 0.01, mat: 'dark' }] },
+  muscle: { body: [[-1.8, 0.28], [1.8, 0.28], [1.8, 0.62], [1.5, 0.86], [0.4, 0.92], [-1.5, 0.92], [-1.8, 0.84], [-1.8, 0.5]],
+    glass: { pts: [[0.3, 0.92], [-0.15, 1.3], [-0.95, 1.3], [-1.4, 0.92]], w: 1.58, r: 0.03 },
+    parts: [{ n: 'roof', w: 1.25, h: 0.05, d: 0.8, x: 0, y: 1.325, z: -0.55, r: 0.02, mat: 'paint' },
+      { n: 'stripe', w: 0.34, h: 0.02, d: 3.5, x: 0, y: 0.935, z: 0, r: 0.005, mat: 'stripe' },
+      { n: 'scoop', w: 0.7, h: 0.12, d: 0.6, x: 0, y: 0.98, z: 1.05, r: 0.03, mat: 'dark' },
+      { n: 'grille', w: 1.3, h: 0.2, d: 0.05, x: 0, y: 0.5, z: 1.82, r: 0.01, mat: 'dark' }] },
+  pickup: { body: [[-0.6, 0.3], [1.8, 0.3], [1.8, 0.62], [1.4, 0.9], [0.5, 0.95], [-0.6, 0.95]],
+    glass: { pts: [[0.5, 0.95], [0.15, 1.42], [-0.55, 1.42], [-0.6, 0.95]], w: 1.6, r: 0.04 },
+    parts: [{ n: 'roof', w: 1.5, h: 0.05, d: 0.75, x: 0, y: 1.44, z: -0.2, r: 0.02, mat: 'paint' },
+      { n: 'bed floor', w: 1.9, h: 0.12, d: 1.25, x: 0, y: 0.5, z: -1.18, r: 0.03, mat: 'dark' },
+      { n: 'bed side', w: 0.1, h: 0.5, d: 1.25, x: 0.9, y: 0.82, z: -1.18, r: 0.03, mat: 'paint', mirror: 1, cast: 1 },
+      { n: 'tailgate', w: 1.9, h: 0.5, d: 0.1, x: 0, y: 0.82, z: -1.75, r: 0.03, mat: 'paint', cast: 1 },
+      { n: 'bed front', w: 1.9, h: 0.5, d: 0.1, x: 0, y: 0.82, z: -0.58, r: 0.03, mat: 'paint' },
+      { n: 'grille', w: 1.3, h: 0.22, d: 0.05, x: 0, y: 0.52, z: 1.82, r: 0.01, mat: 'chrome' }] },
+  van: { body: [[-1.8, 0.3], [1.8, 0.3], [1.8, 0.78], [1.5, 0.98], [0.95, 1.55], [-1.8, 1.72], [-1.8, 0.5]],
+    glass: { pts: [[1.42, 1.0], [0.97, 1.48], [0.78, 1.48], [0.78, 1.0]], w: 1.6, r: 0.02 }, mirrorY: 1.2,
+    parts: [{ n: 'side window', w: 0.03, h: 0.34, d: 1.3, x: 0.955, y: 1.3, z: 0.1, r: 0.005, mat: 'glass', mirror: 1 },
+      { n: 'rear window', w: 0.03, h: 0.34, d: 0.9, x: 0.955, y: 1.3, z: -1.2, r: 0.005, mat: 'glass', mirror: 1 },
+      { n: 'grille', w: 1.3, h: 0.2, d: 0.05, x: 0, y: 0.55, z: 1.82, r: 0.01, mat: 'dark' }] },
+  taxi: { body: [[-1.8, 0.28], [1.8, 0.28], [1.8, 0.6], [1.55, 0.78], [0.7, 0.84], [-1.1, 0.84], [-1.7, 0.8], [-1.8, 0.62]],
+    glass: { pts: [[0.75, 0.84], [0.25, 1.28], [-0.75, 1.3], [-1.25, 0.86]], w: 1.58, r: 0.03 },
+    parts: [{ n: 'roof', w: 1.25, h: 0.05, d: 1.0, x: 0, y: 1.305, z: -0.25, r: 0.02, mat: 'paint' },
+      { n: 'roof sign', w: 0.62, h: 0.2, d: 0.3, x: 0, y: 1.43, z: -0.25, r: 0.03, mat: 'sign' },
+      { n: 'stripe', w: 1.93, h: 0.05, d: 3.4, x: 0, y: 0.62, z: 0, r: 0.005, mat: 'dark' }] },
+  hatch: { body: [[-1.8, 0.28], [1.8, 0.28], [1.8, 0.6], [1.55, 0.78], [0.7, 0.84], [-1.5, 0.86], [-1.8, 0.74], [-1.8, 0.5]],
+    glass: { pts: [[0.72, 0.84], [0.2, 1.3], [-1.0, 1.33], [-1.6, 0.86]], w: 1.58, r: 0.03 },
+    parts: [{ n: 'roof', w: 1.25, h: 0.05, d: 1.1, x: 0, y: 1.32, z: -0.4, r: 0.02, mat: 'paint' }] }
+};
+// custom shapes made in the Studio (localStorage 'gridlock-custom-v1' -> cars[key].model) replace the built-in ones
+export function carSpecFor(key) {
+  let c = null;
+  try { c = JSON.parse(localStorage.getItem('gridlock-custom-v1') || 'null'); } catch (e) { /* none */ }
+  const m = c && c.cars && c.cars[key] && c.cars[key].model;
+  return (m && Array.isArray(m.body) && m.body.length >= 3 ? m : null) || CAR_SPECS[key] || CAR_SPECS.hatch;
+}
+const specKey = (tag, o) => tag + JSON.stringify(o);
+export function buildCarFromSpec(spec, color, styleKey = 'hatch') {
   const g = new THREE.Group();
   const m = makeMaterials(color);
+  m.stripe = new THREE.MeshStandardMaterial({ color: 0xf2f2f2, roughness: 0.5, metalness: 0.1 });
+  m.sign = new THREE.MeshStandardMaterial({ color: 0xffffff, emissive: 0xfff0b0, emissiveIntensity: 0.9 });
   const W = 1.9;
-  switch (style) {
-    case 'sport': {
-      part(profileGeo('sport_body', [[-1.8, 0.27], [1.8, 0.27], [1.8, 0.5], [1.25, 0.63], [0.5, 0.7], [-1.2, 0.74], [-1.8, 0.7], [-1.8, 0.45]], W), m.paint, 0, 0, 0, g, true);
-      part(profileGeo('sport_glass', [[0.6, 0.7], [0.05, 1.06], [-0.75, 1.08], [-1.35, 0.74]], 1.55, 0.03), m.glass, 0, 0, 0, g);
-      part(boxGeo('sport_roof', 1.2, 0.05, 0.8, 0.02), m.paint, 0, 1.095, -0.35, g);
-      part(boxGeo('sport_wing', 1.7, 0.05, 0.36, 0.02), m.paint, 0, 1.02, -1.68, g, true);
-      [-0.6, 0.6].forEach(x => part(boxGeo('sport_strut', 0.07, 0.3, 0.1, 0.01), m.dark, x, 0.86, -1.66, g));
-      part(boxGeo('sport_splitter', 1.9, 0.05, 0.3, 0.01), m.dark, 0, 0.3, 1.72, g);
-      break;
-    }
-    case 'muscle': {
-      part(profileGeo('muscle_body', [[-1.8, 0.28], [1.8, 0.28], [1.8, 0.62], [1.5, 0.86], [0.4, 0.92], [-1.5, 0.92], [-1.8, 0.84], [-1.8, 0.5]], W), m.paint, 0, 0, 0, g, true);
-      part(profileGeo('muscle_glass', [[0.3, 0.92], [-0.15, 1.3], [-0.95, 1.3], [-1.4, 0.92]], 1.58, 0.03), m.glass, 0, 0, 0, g);
-      part(boxGeo('muscle_roof', 1.25, 0.05, 0.8, 0.02), m.paint, 0, 1.325, -0.55, g);
-      const stripe = new THREE.MeshStandardMaterial({ color: 0xf2f2f2, roughness: 0.5, metalness: 0.1 });
-      part(boxGeo('muscle_stripe', 0.34, 0.02, 3.5, 0.005), stripe, 0, 0.935, 0, g);
-      part(boxGeo('muscle_scoop', 0.7, 0.12, 0.6, 0.03), m.dark, 0, 0.98, 1.05, g);
-      part(boxGeo('muscle_grille', 1.3, 0.2, 0.05, 0.01), m.dark, 0, 0.5, 1.82, g);
-      break;
-    }
-    case 'pickup': {
-      part(profileGeo('pickup_front', [[-0.6, 0.3], [1.8, 0.3], [1.8, 0.62], [1.4, 0.9], [0.5, 0.95], [-0.6, 0.95]], W), m.paint, 0, 0, 0, g, true);
-      part(profileGeo('pickup_cab', [[0.5, 0.95], [0.15, 1.42], [-0.55, 1.42], [-0.6, 0.95]], 1.6, 0.04), m.glass, 0, 0, 0, g);
-      part(boxGeo('pickup_roof', 1.5, 0.05, 0.75, 0.02), m.paint, 0, 1.44, -0.2, g);
-      part(boxGeo('pickup_bedfloor', 1.9, 0.12, 1.25, 0.03), m.dark, 0, 0.5, -1.18, g);
-      [-0.9, 0.9].forEach(x => part(boxGeo('pickup_bedside', 0.1, 0.5, 1.25, 0.03), m.paint, x, 0.82, -1.18, g, true));
-      part(boxGeo('pickup_tail', 1.9, 0.5, 0.1, 0.03), m.paint, 0, 0.82, -1.75, g, true);
-      part(boxGeo('pickup_front2', 1.9, 0.5, 0.1, 0.03), m.paint, 0, 0.82, -0.58, g);
-      part(boxGeo('pickup_grille', 1.3, 0.22, 0.05, 0.01), m.chrome, 0, 0.52, 1.82, g);
-      break;
-    }
-    case 'van': {
-      part(profileGeo('van_body', [[-1.8, 0.3], [1.8, 0.3], [1.8, 0.78], [1.5, 0.98], [0.95, 1.55], [-1.8, 1.72], [-1.8, 0.5]], W), m.paint, 0, 0, 0, g, true);
-      part(profileGeo('van_ws', [[1.42, 1.0], [0.97, 1.48], [0.78, 1.48], [0.78, 1.0]], 1.6, 0.02), m.glass, 0, 0, 0, g);
-      [-1, 1].forEach(s => {
-        part(boxGeo('van_win', 0.03, 0.34, 1.3, 0.005), m.glass, s * 0.955, 1.3, 0.1, g);
-        part(boxGeo('van_win2', 0.03, 0.34, 0.9, 0.005), m.glass, s * 0.955, 1.3, -1.2, g);
-      });
-      part(boxGeo('van_grille', 1.3, 0.2, 0.05, 0.01), m.dark, 0, 0.55, 1.82, g);
-      break;
-    }
-    case 'taxi': {
-      part(profileGeo('taxi_body', [[-1.8, 0.28], [1.8, 0.28], [1.8, 0.6], [1.55, 0.78], [0.7, 0.84], [-1.1, 0.84], [-1.7, 0.8], [-1.8, 0.62]], W), m.paint, 0, 0, 0, g, true);
-      part(profileGeo('taxi_glass', [[0.75, 0.84], [0.25, 1.28], [-0.75, 1.3], [-1.25, 0.86]], 1.58, 0.03), m.glass, 0, 0, 0, g);
-      part(boxGeo('taxi_roof', 1.25, 0.05, 1.0, 0.02), m.paint, 0, 1.305, -0.25, g);
-      const sign = new THREE.Mesh(boxGeo('taxi_sign', 0.62, 0.2, 0.3, 0.03), new THREE.MeshStandardMaterial({ color: 0xffffff, emissive: 0xfff0b0, emissiveIntensity: 0.9 }));
-      sign.position.set(0, 1.43, -0.25); g.add(sign);
-      part(boxGeo('taxi_stripe', 1.93, 0.05, 3.4, 0.005), m.dark, 0, 0.62, 0, g);
-      break;
-    }
-    default: { // hatch
-      part(profileGeo('hatch_body', [[-1.8, 0.28], [1.8, 0.28], [1.8, 0.6], [1.55, 0.78], [0.7, 0.84], [-1.5, 0.86], [-1.8, 0.74], [-1.8, 0.5]], W), m.paint, 0, 0, 0, g, true);
-      part(profileGeo('hatch_glass', [[0.72, 0.84], [0.2, 1.3], [-1.0, 1.33], [-1.6, 0.86]], 1.58, 0.03), m.glass, 0, 0, 0, g);
-      part(boxGeo('hatch_roof', 1.25, 0.05, 1.1, 0.02), m.paint, 0, 1.32, -0.4, g);
-    }
-  }
-  addMirrors(g, m, style === 'van' ? 1.2 : 0.95, 0.55, W / 2);
+  part(profileGeo(specKey('body', spec.body), spec.body, W), m.paint, 0, 0, 0, g, true);
+  if (spec.glass) part(profileGeo(specKey('glass', spec.glass), spec.glass.pts, spec.glass.w, spec.glass.r ?? 0.03), m.glass, 0, 0, 0, g);
+  (spec.parts || []).forEach(q => {
+    const geo = boxGeo(specKey('box', [q.w, q.h, q.d, q.r ?? 0.02]), q.w, q.h, q.d, q.r ?? 0.02), mat = m[q.mat] || m.paint;
+    part(geo, mat, q.x, q.y, q.z, g, !!q.cast);
+    if (q.mirror) part(geo, mat, -q.x, q.y, q.z, g, !!q.cast);
+  });
+  addMirrors(g, m, spec.mirrorY || 0.95, 0.55, W / 2);
   part(boxGeo('bumper_f', 1.85, 0.16, 0.12, 0.03), m.dark, 0, 0.36, 1.78, g);
   part(boxGeo('bumper_r', 1.85, 0.16, 0.12, 0.03), m.dark, 0, 0.36, -1.78, g);
   addPlates(g, m, 3.7, 0.4);
   addWheels(g, CAR_WHEELS, 0.42, 0.35);
   addBlob(g, 3.6, 1.9);
   return g;
+}
+export function buildCarBody(style, color, opts = {}) {
+  if (style === 'bus') return buildTrafficBody('bus', color, PLAYER_BUS_DIMS);
+  return buildCarFromSpec(carSpecFor(style), color, style);
 }
 
 // ---- AI traffic vehicles (own dimensions; forward = +z; wheels spin via userData.wheels) ----

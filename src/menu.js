@@ -140,6 +140,7 @@ export function createMenu({ settings, limits, onChange, onOpenChange , ownedCar
         <div class="note" id="saveMsg"></div>
         <div class="note">The game saves by itself every time you buy something, finish a race or earn money. The save lives in this browser on this device: the Safari tab and the home-screen app each keep their own, and clearing website data deletes it. Download a backup to move your progress to another device or keep it safe.</div>
       </div>
+      <div class="toggles"><button class="toggle" id="openStudio">🛠 Studio: edit the map, races, cars and upgrades</button></div>
       <button class="close">Resume</button>
       <small>M or Esc toggles this menu</small>
     </div>`;
@@ -230,6 +231,7 @@ export function createMenu({ settings, limits, onChange, onOpenChange , ownedCar
     set('car', key);
   }));
   $('.close').addEventListener('click', () => close());
+  $('#openStudio').addEventListener('click', () => { location.href = './studio.html'; });
   root.addEventListener('pointerdown', e => { if (e.target === root) close(); });
 
   // ---- 3D preview: its own tiny renderer + scene, only drawn while the menu is open ----

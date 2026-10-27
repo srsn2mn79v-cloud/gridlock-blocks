@@ -303,7 +303,7 @@ export function buildSigns(city, heightAt, mapPaths) {
         const p = sgn === 1 ? s : len - s;
         let x = a.x + u.x * p + right.x * lat, z = a.z + u.z * p + right.z * lat;
         for (let k = 0; k < 6 && (distToRoad(x, z) < MARGIN || inSolid(x, z)); k++) { x += right.x * 0.8; z += right.z * 0.8; }
-        if (distToRoad(x, z) < MARGIN || inSolid(x, z)) continue;
+        if (distToRoad(x, z) < MARGIN || distToRoad(x, z) > 8 || inSolid(x, z)) continue;
         add(place(speedSignMesh(limit), x, heightAt(x, z), z, dvec), x, z);
       }
     });

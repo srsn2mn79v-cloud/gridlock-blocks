@@ -232,7 +232,11 @@ export function buildNetwork(lines, barriers, opts = {}) {
     edges.forEach(e => {
       if (e.dead) return;
       const leaf = id => deg[id] === 1 && !nodes[id].keep;
-      if ((leaf(e.from) || leaf(e.to)) && e.line.cls !== 'ramp') { e.dead = true; changed = true; }
+      if ((leaf(e.from) || leaf(e.to)) && e.line.cls !== 'ramp') {
+        // (a traced map has real dead-end streets: with opts.stubLen only short stubs are dropped)
+        if (opts.stubLen && dist([nodes[e.from].x, nodes[e.from].z], [nodes[e.to].x, nodes[e.to].z]) >= opts.stubLen) return;
+        e.dead = true; changed = true;
+      }
     });
   }
   return { nodes, edges: edges.filter(e => !e.dead) };

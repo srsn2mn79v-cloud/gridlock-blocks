@@ -20,6 +20,13 @@ export const CAR_STYLES = [
   { key: 'sport',  name: 'Sport coupe', cls: 'E', color: 0x2f6fe0, maxSpeed: 32.3, accel: 3.81, mass: 1350, brake: 1.0, handling: 1.0 }   // 200 km/h, 0-100 in 4.7 s
 ];
 
+export const BASE_STYLES = CAR_STYLES.map(s => ({ ...s }));   // the built-in values (the Studio resets to these)
+// cars edited in the Studio: per-style stat overrides (name, cls, color, maxSpeed, accel, mass, brake, handling)
+try {
+  const c = JSON.parse(localStorage.getItem('gridlock-custom-v1') || 'null');
+  if (c && c.cars) CAR_STYLES.forEach(st => { const o = c.cars[st.key] && c.cars[st.key].stats; if (o) for (const k in o) if (o[k] !== '' && o[k] != null && k in st) st[k] = o[k]; });
+} catch (e) { /* no custom data */ }
+
 // Returns a Group with the body parts plus `userData.wheels` (the four wheel meshes).
 export function buildCarModel(key = 'hatch') {
   const style = CAR_STYLES.find(s => s.key === key) || CAR_STYLES[0];

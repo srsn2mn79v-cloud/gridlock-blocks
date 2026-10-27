@@ -9,7 +9,7 @@ function rng(seed) { let s = seed >>> 0; return () => { s = (s * 1664525 + 10139
 
 export function buildTransit(city) {
   const N = city.roadNodes || {}, E = city.roadEdges || [];
-  const ave = E.filter(e => e.type === 'avenue' && (!e.structure || e.structure === 'surface') && N[e.from] && N[e.to]);
+  const ave = E.filter(e => e.type !== 'highway' && !e.ramp && (!e.structure || e.structure === 'surface') && N[e.from] && N[e.to]);
   const adj = {};
   const len = e => Math.hypot(N[e.from].x - N[e.to].x, N[e.from].z - N[e.to].z);
   ave.forEach(e => { (adj[e.from] ||= []).push({ e, to: e.to }); if (!e.oneWay) (adj[e.to] ||= []).push({ e, to: e.from }); });
@@ -31,7 +31,7 @@ export function buildTransit(city) {
       open.sort((p, q) => dist[q] - dist[p]); const u = open.pop();
       if (done.has(u)) continue; done.add(u);
       if (u === b) break;
-      for (const { e, to } of adj[u] || []) { if (banE && banE.has(e.id)) continue; if (banN && banN.has(to) && to !== b) continue; const d = dist[u] + len(e); if (dist[to] == null || d < dist[to]) { dist[to] = d; prev[to] = u; open.push(to); } }
+      for (const { e, to } of adj[u] || []) { if (banE && banE.has(e.id)) continue; if (banN && banN.has(to) && to !== b) continue; const d = dist[u] + len(e) * (e.type === 'avenue' ? 1 : 2.2); if (dist[to] == null || d < dist[to]) { dist[to] = d; prev[to] = u; open.push(to); } }
     }
     if (dist[b] == null) return null;
     const out = [b]; while (out[0] !== a) out.unshift(prev[out[0]]);
@@ -64,7 +64,7 @@ export function buildTransit(city) {
         next.set(key, rec.e);
         total += len(rec.e);
       }
-      if (bad || total < 1700 || total > 9000) continue;
+      if (bad || total < 1200 || total > 9000) continue;
       const steps = nodesSeq.map((c, i) => { const q = nodesSeq[(i + 1) % m]; return { from: c, to: q, edge: edgeBetween(c, q).e }; });
       lines.push({ id: k, name: LINE_NAMES[k], color: LINE_COLORS[k], nodes: nodesSeq, steps, next, length: total });
       break;

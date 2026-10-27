@@ -221,9 +221,9 @@ async function checkBridges() {
 
 // ---- water --------------------------------------------------------------------------------------------------------------------
 async function checkWater() {
-  const { RIVERS, LAKE_N, LAKE_S } = await imp('src/chicago/map.js');
+  const { RIVERS, LAKES } = await imp('src/chicago/map.js');
   const { nearestOnPoly, pointInPoly } = await imp('src/chicago/geom.js');
-  const wet = (x, z) => pointInPoly(x, z, LAKE_N) || pointInPoly(x, z, LAKE_S) || RIVERS.some(r => nearestOnPoly(x, z, r.pts).d < r.half - 0.5);
+  const wet = (x, z) => LAKES.some(l => pointInPoly(x, z, l)) || RIVERS.some(r => nearestOnPoly(x, z, r.pts).d < r.half - 0.5);
   const bad = [], done = new Set();
   city.roadEdges.forEach(e => {
     const A = city.roadNodes[e.from], B = city.roadNodes[e.to], L = Math.hypot(B.x - A.x, B.z - A.z);

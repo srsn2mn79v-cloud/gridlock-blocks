@@ -16,6 +16,8 @@ export const RACE_KINDS = {
 function mulberry(seed) { let a = seed >>> 0; return () => { a += 0x6D2B79F5; let t = a; t = Math.imul(t ^ (t >>> 15), t | 1); t ^= t + Math.imul(t ^ (t >>> 7), t | 61); return ((t ^ (t >>> 14)) >>> 0) / 4294967296; }; }
 
 // ---- planning (no three.js, runs in node) -----------------------------------------------------------------------------------
+import { loadCustom } from './customData.js';
+import { makeRouter, raceFromDef } from './routeTool.js';
 export function planRaces(city, districtName = () => 'City', transit = null) {
   const nodes = city.roadNodes, edges = city.roadEdges, rand = mulberry(7781);
   const usable = e => e.structure !== 'tunnel' && !e.ramp;
@@ -101,12 +103,12 @@ export function planRaces(city, districtName = () => 'City', transit = null) {
   let nC = 0;
   for (const h of order) {
     if (nC >= 3) break;
-    const s = nodes[h]; if (!farFromOthers(s.x, s.z, 380) || !clearOfDoors(s.x, s.z)) continue;
-  for (let attempt = 0; attempt < 40; attempt++) {
+    const s = nodes[h]; if (!farFromOthers(s.x, s.z, 250) || !clearOfDoors(s.x, s.z)) continue;
+  for (let attempt = 0; attempt < 150; attempt++) {
     const R = 200 + rand() * 160, a0 = rand() * Math.PI * 2, wp = [], nWp = 3 + (rand() < 0.4 ? 1 : 0);
     for (let k = 0; k < nWp; k++) {
       const a = a0 + k * (Math.PI * 2 / nWp) + (rand() - 0.5) * 0.5;
-      const n = nearestHub(s.x + Math.cos(a) * R, s.z + Math.sin(a) * R, 70);
+      const n = nearestHub(s.x + Math.cos(a) * R, s.z + Math.sin(a) * R, 130);
       if (n && n !== h && !wp.includes(n)) wp.push(n);
     }
     if (wp.length < nWp) continue;
@@ -118,7 +120,7 @@ export function planRaces(city, districtName = () => 'City', transit = null) {
     for (let i = 1; i < ids2.length; i++) { const k = ids2[i - 1] < ids2[i] ? ids2[i - 1] + '|' + ids2[i] : ids2[i] + '|' + ids2[i - 1]; if (used.has(k)) reuse = true; used.add(k); }
     if (reuse) continue;
     const P = polyOf(ids2), L = lenOf(P);
-    if (L < 900 || L > 2600) continue;
+    if (L < 700 || L > 3300) continue;
     // the start/finish line sits 50 u before the hub on the closing stretch, so the lap simply carries on through it
     const cum = [0]; for (let i = 1; i < P.length; i++) cum.push(cum[i - 1] + Math.hypot(P[i][0] - P[i - 1][0], P[i][1] - P[i - 1][1]));
     const cut = L - 50; let k = 0; while (k < P.length - 2 && cum[k + 1] <= cut) k++;
@@ -160,9 +162,12 @@ export function planRaces(city, districtName = () => 'City', transit = null) {
       starts.push([s.x, s.z]); nD++;
     }
   }
+  // races made in the Studio (checkpoints joined by the shortest road route)
+  const customDefs = loadCustom().races;
+  if (Array.isArray(customDefs) && customDefs.length) { const router = makeRouter(nodes, edges); customDefs.forEach(def => { try { const cr = raceFromDef(def, router); if (cr) races.push(cr); } catch (e) { console.warn('custom race skipped', e); } }); }
   // difficulty class: F (easier, slower rivals, smaller purse) and E (faster rivals, bigger purse) alternate within each kind
   const seen = {};
-  races.forEach(r => { seen[r.kind] = (seen[r.kind] || 0); r.cls = seen[r.kind]++ % 2 === 0 ? 'F' : 'E'; });
+  races.forEach(r => { if (r.custom) return; seen[r.kind] = (seen[r.kind] || 0); r.cls = seen[r.kind]++ % 2 === 0 ? 'F' : 'E'; });
   return races;
 }
 
@@ -185,7 +190,7 @@ export function createRaces({ city, scene, heightAt, car, world, districtName, t
     if (r.kind === 'drag') r.length = Math.min(r.length, r.cum[r.cum.length - 1]);
     const s0 = ptAt(r.pts, 0); r.start = { x: s0.x, z: s0.z, dx: s0.dx, dz: s0.dz, heading: Math.atan2(s0.dx, s0.dz) };
     if (r.kind === 'drift') r.start = { x: r.zone.x, z: r.zone.z, dx: s0.dx, dz: s0.dz, heading: Math.atan2(s0.dx, s0.dz) };
-    r.cpS = r.checkpoints.map(p => { let bs = 0, bd = 1e9; for (let i = 1; i < r.pts.length; i++) { const ax = r.pts[i - 1][0], az = r.pts[i - 1][1], bx = r.pts[i][0], bz = r.pts[i][1], l2 = (bx - ax) ** 2 + (bz - az) ** 2 || 1; const t = Math.max(0, Math.min(1, ((p[0] - ax) * (bx - ax) + (p[1] - az) * (bz - az)) / l2)); const d = Math.hypot(p[0] - ax - (bx - ax) * t, p[1] - az - (bz - az) * t); if (d < bd) { bd = d; bs = r.cum[i - 1] + (r.cum[i] - r.cum[i - 1]) * t; } } return bs; });
+    r.cpS = r.cpSfix ? r.cpSfix.slice() : r.checkpoints.map(p => { let bs = 0, bd = 1e9; for (let i = 1; i < r.pts.length; i++) { const ax = r.pts[i - 1][0], az = r.pts[i - 1][1], bx = r.pts[i][0], bz = r.pts[i][1], l2 = (bx - ax) ** 2 + (bz - az) ** 2 || 1; const t = Math.max(0, Math.min(1, ((p[0] - ax) * (bx - ax) + (p[1] - az) * (bz - az)) / l2)); const d = Math.hypot(p[0] - ax - (bx - ax) * t, p[1] - az - (bz - az) * t); if (d < bd) { bd = d; bs = r.cum[i - 1] + (r.cum[i] - r.cum[i - 1]) * t; } } return bs; });
   });
 
   // ---- gates in the street ----------------------------------------------------------------------------------------------------

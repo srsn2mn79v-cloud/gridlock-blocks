@@ -1,106 +1,58 @@
 // Lays out every road of the Chicago map (arterials, grids, the interstate and its interchanges)
 // and returns the road graph. See map.js for the coordinates this is transcribed from.
+// Lays out every road of the map (the traced streets, the interstate and its interchanges) and returns the road graph.
+// The streets come from the map data (mapdata.json / the studio); see map.js.
 import { buildNetwork, CLASSES } from './network.js';
-import { T, TP, RIVERS, LAKE_N, LAKE_S, PARKS, HIGHWAY_PX, STADIUM, fromWorld } from './map.js';
+import { T, TP, RIVERS, HIGHWAY_PX, STREETS, IXS, X0, Y0, fromWorld } from './map.js';
 import { spline, nearestOnPoly, pointInPoly, distToSeg, dist, polyLen, atLen, segInter } from './geom.js';
-
-const KM = { corridor: 46 };
 
 export function generateRoads() {
   const warnings = [];
   // ---- the interstate --------------------------------------------------------------------------------------------
   let H = spline(TP(HIGHWAY_PX), 75);
-  const cityPt = T(450, 900);
+  const cityPt = T(X0, Y0);
   const citySide = nearestOnPoly(cityPt[0], cityPt[1], H).side;
   const CAR_OFF = 11.5;      // each carriageway (3 lanes) is centred this far from the median line
-const hwBarrier = { kind: 'highway', half: 19, pts: H };
+  const hwBarrier = { kind: 'highway', half: 19, pts: H };
 
-  const inLake = (x, z) => pointInPoly(x, z, LAKE_N) || pointInPoly(x, z, LAKE_S);
-  const parksW = PARKS.map(p => p.pts);
-  const stadiumW = (() => { const c = T(STADIUM.cx, STADIUM.cy); return { x: c[0], z: c[1], r: (STADIUM.ry + 14) * 0.8 }; })();
-  function riverDist(x, z) { let best = 1e9, bhalf = 0; RIVERS.forEach(r => { const o = nearestOnPoly(x, z, r.pts); if (o.d - r.half < best) { best = o.d - r.half; bhalf = r.half; } }); return best; }
-  function allowed(x, z, f) {
-    if (inLake(x, z)) return false;
-    if (parksW.some(p => pointInPoly(x, z, p))) return false;
-    if (!f.bridge && riverDist(x, z) < 8) return false;
-    if (f.bridge && riverDist(x, z) < -0.5 && false) return false;
-    if (!f.crossHW) {
-      const h = nearestOnPoly(x, z, H);
-      if (h.d < KM.corridor || h.side !== citySide) return false;
-    }
-    return true;
-  }
+  // ---- the streets: every traced line of the map ------------------------------------------------------------------------------
   const lines = [];
-  // simpler explicit implementation (the loop above only tracks first/last of straight pieces)
-  function addLine(cls, ptsPx, f = {}) {
-    const w = ptsPx.map(p => T(p[0], p[1]));
-    const total = polyLen(w);
-    const step = 5, n = Math.max(2, Math.ceil(total / step));
-    let run = null; const runs = [];
-    for (let k = 0; k <= n; k++) {
-      const p = atLen(w, total * k / n);
-      if (allowed(p.x, p.z, f)) { if (!run) { run = { from: k, to: k }; runs.push(run); } else run.to = k; } else run = null;
-    }
-    runs.forEach(r => {
-      if ((r.to - r.from) * total / n < 28) return;
-      // keep the original vertices that fall inside the run (curves), plus clipped ends
-      const s0 = total * r.from / n, s1 = total * r.to / n;
-      const pts = [];
-      const a = atLen(w, s0); pts.push([a.x, a.z]);
-      let acc = 0;
-      for (let i = 1; i < w.length - 1; i++) { acc += dist(w[i - 1], w[i]); if (acc > s0 + 3 && acc < s1 - 3) pts.push(w[i]); }
-      const b = atLen(w, s1); pts.push([b.x, b.z]);
-      lines.push({ id: 'L' + lines.length, cls, pts, ...f });
-    });
+  STREETS.forEach((s, i) => {
+    if (!s.pts || s.pts.length < 2) return;
+    const pts = TP(s.pts);
+    lines.push({ id: 'L' + i, cls: CLASSES[s.cls] ? s.cls : 'two', pts: pts.map(p => [p[0], p[1]]), bridge: true, noBridge: 'highway', name: s.name });
+  });
+  // a point on the nearest street (used to hook the interstate and the interchange streets into the network)
+  const hook = (p, maxD) => {
+    let best = null;
+    lines.forEach(L => { for (let j = 1; j < L.pts.length; j++) {
+      const r = distToSeg(p[0], p[1], L.pts[j - 1][0], L.pts[j - 1][1], L.pts[j][0], L.pts[j][1]);
+      if (r.d < maxD && (!best || r.d < best.d)) best = { d: r.d, L, j, q: [L.pts[j - 1][0] + (L.pts[j][0] - L.pts[j - 1][0]) * r.t, L.pts[j - 1][1] + (L.pts[j][1] - L.pts[j - 1][1]) * r.t] };
+    } });
+    if (!best) return null;
+    const a = best.L.pts[best.j - 1], b = best.L.pts[best.j];
+    if (dist(best.q, a) > 4 && dist(best.q, b) > 4) best.L.pts.splice(best.j, 0, best.q);
+    return best.q;
+  };
+  { // the interstate runs from one end of the lake-shore drive to the other
+    const s0 = hook(H[0], 45), s1 = hook(H[H.length - 1], 45);
+    if (s0) H[0] = s0.slice(); else warnings.push('the interstate does not reach the street map at its first end');
+    if (s1) H[H.length - 1] = s1.slice(); else warnings.push('the interstate does not reach the street map at its last end');
   }
-  const hl = (Y, x0, x1, cls, f) => addLine(cls, [[x0, Y], [x1, Y]], f);
-  const vl = (X, y0, y1, cls, f) => addLine(cls, [[X, y0], [X, y1]], f);
-  const B = { bridge: true };
-
-  // ---- arterials -------------------------------------------------------------------------------------------------------------
-  // Lake Shore Drive: the six-lane ring along the lake, around Grant Park and back to the interstate's southern end
-  const LSD = spline(TP([[272, 262], [292, 228], [330, 205], [375, 222], [430, 258], [495, 292], [560, 305], [620, 310], [668, 325], [712, 365], [738, 425],
-    [743, 500], [745, 600], [738, 690], [722, 760], [718, 860], [738, 930], [780, 1000], [795, 1080], [788, 1180], [758, 1255], [690, 1305], [620, 1345], [580, 1425]]), 45);
-  lines.push({ id: 'LSD', cls: 'six', pts: LSD, keepEnds: true, bridge: true, noBridge: 'highway', name: 'Lake Shore Dr' });
-  // Columbus / Michigan: the avenue along the west edge of Grant Park
-  vl(650, 330, 700, 'four', B); vl(650, 700, 1262, 'six', B);
-
-  // River North and the Loop: the beige rings
-  hl(545, 250, 745, 'four', B); hl(385, 430, 745, 'four', B);
-  vl(372, 497, 1060, 'six', B); vl(505, 497, 1010, 'six', B);
-  // north grid (Gold Coast / Old Town / River North)
-  [270, 305, 345, 415, 450, 520].forEach((Y, i) => hl(Y, 252, 745, 'two'));
-  [[300, 'two'], [360, 'two'], [420, 'two'], [475, 'four'], [530, 'two'], [585, 'four'], [640, 'two'], [695, 'two']].forEach(([X, c]) => vl(X, 220, 545, c, c === 'four' ? B : {}));
-  // Old Town diagonals
-  // (one clean 45-degree diagonal, Clark-Street style, so the triangles it cuts are proper blocks, not slivers)
-  addLine('four', [[345, 535], [410, 470], [480, 400], [540, 340]]);
-  addLine('two', [[300, 480], [345, 435], [400, 380]]);
-  // Downtown grid
-  [[625, 'two'], [680, 'two'], [736, 'four'], [896, 'four'], [941, 'two']].forEach(([Y, c]) => hl(Y, 252, c === 'four' ? 718 : 650, c, c === 'four' ? B : {}));
-  hl(806, 60, 718, 'six', B);  hl(1046, 85, 575, 'four', B);
-  vl(252, 606, 1060, 'four', B); vl(315, 606, 1050, 'four', B); vl(440, 606, 1050, 'four', B); vl(575, 606, 1050, 'four', B);
-  // Industrial (west of the river) - reached over the bridges at 806 / 981 / 1046
-  [[85], [115], [145]].forEach(([X]) => vl(X, 700, 1060, 'two'));
-  [760, 870, 925, 1010].forEach(Y => hl(Y, 45, 190, 'two'));
-  // Chinatown and the south loop
-  [1090, 1135, 1180, 1230, 1270].forEach(Y => hl(Y, 260, 640, 'two'));
-  vl(372, 1060, 1260, 'six'); vl(430, 1050, 1300, 'two'); vl(505, 1010, 1340, 'six'); vl(560, 1050, 1340, 'two');
-  addLine('four', [[560, 1060], [515, 1200], [450, 1330]]);
 
   // ---- interchanges: a street goes over the interstate; slip roads (with a deceleration lane on the way off and a
   // merge lane on the way on) leave from the right-hand side of each direction and meet that street 66 units away.
   // The side away from the city has no street of its own, so the street carries on over the interstate on a bridge
   // to meet the outside ramps - that is how the "outside lane" gets its exits.
-  const IX = [
-    { street: [[-60, 415], [745, 415]], cls: 'six', no: 1, label: 'Old Town' },
-    { street: [[-60, 981], [650, 981]], cls: 'six', no: 2, label: 'Downtown' }
-  ];
-  H[0] = LSD[0].slice(); H[H.length - 1] = LSD[LSD.length - 1].slice();   // fixed before any distances along H are measured
+  const IX = IXS.map((ix, k) => {
+    const sw = TP(ix.pts); const q = hook(sw[1], 60); if (q) sw[1] = q;
+    return { sw0: sw, street: ix.pts, cls: ix.cls || 'six', no: k + 1, label: ix.label || ('Interchange ' + (k + 1)) };
+  });
   const ramps = [];
   const QD = 84, A = 165, ENTRY_END = 185;
   const needS = [];
   IX.forEach(ix => {
-    const sw = ix.street.map(p => T(p[0], p[1]));
+    const sw = ix.sw0;
     let P = null, hs = 0;
     for (let i = 1; i < H.length && !P; i++) {
       const r = segInter(sw[0], sw[1], H[i - 1], H[i]);
@@ -163,6 +115,6 @@ const hwBarrier = { kind: 'highway', half: 19, pts: H };
 
   // ---- barriers for the bridge builder -----------------------------------------------------------------------------------------------------
   const barriers = RIVERS.map(r => ({ kind: 'river', half: r.half, pts: r.pts })).concat([hwBarrier]);
-  const net = buildNetwork(lines, barriers, { warn: m => warnings.push(m), minEdge: 13 });
+  const net = buildNetwork(lines, barriers, { warn: m => warnings.push(m), minEdge: 13, stubLen: 60 });
   return { net, lines, H, warnings, IX, ramps, CAR_OFF, ENTRY_END };
 }
