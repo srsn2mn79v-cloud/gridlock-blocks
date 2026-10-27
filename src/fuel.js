@@ -1,42 +1,52 @@
-// Fuel: a tank that drains with distance (a full stock tank is 100 km), petrol stations to fill it at, and premium fuel.
+// Fuel: a tank measured in litres that drains with distance, gas stations to fill it at, three fuels.
 //
-// - Tank: level 0..1 of the current car's tank; upgrades in the yellow garage make the tank 25 % bigger per stage
-//   (range = 100 km x tankMul), so the same level is more fuel and costs more to refill.
-// - Stations: eight forecourts built in the city (chicago.js `gasStations`): a canopy over two pump lanes, a price
-//   board, a small shop. Stop on a ring (stand still) and choose regular or premium; a full tank takes 10 s.
-// - Premium costs 5x and adds 5 % top speed and acceleration for as long as the tank holds it (it mixes with what's left).
-// - Price: a full regular tank is about $100, varying by station (-12 % .. +15 %).
+// - Tank: 20 L as standard, +5 L for every tank upgrade stage in the yellow garage (a stage 4 tank holds 40 L).
+// - Consumption: regular 20 L/100 km, diesel 15 L/100 km, performance (premium) fuel 25 L/100 km.
+// - Vans, buses and pickups run on diesel and can only fill diesel; every other car takes regular or premium.
+// - Prices per litre: regular about $5, premium 5x that and adds 5 % top speed and acceleration, diesel 20-40 % over regular
+//   (each station has its own). A full 20 L tank of regular is about $100.
+// - Switching fuel: the tank has to be emptied, so you pay for a full tank of the new fuel. The pump asks first.
+// - Stations: eight forecourts (chicago.js `gasStations`): a canopy over the pump lanes, a big price board facing the street, a shop.
 import * as THREE from 'three';
-import { createGroundGlow, setGlow } from './glow.js';
+import { createGroundGlow, createHalo, setGlow } from './glow.js';
 
-export const FULL_TANK_KM = 100, FULL_TANK_PRICE = 100, PREMIUM_MUL = 5, PREMIUM_POWER = 0.05, FILL_SECONDS = 10, LITRES = 50;
+export const BASE_TANK_L = 20, TANK_STEP_L = 5, PRICE_PER_L = 5, PREMIUM_MUL = 5, PREMIUM_POWER = 0.05, FILL_SECONDS = 10;
+export const FUELS = { regular: { name: 'Regular', l100: 20 }, premium: { name: 'Performance', l100: 25 }, diesel: { name: 'Diesel', l100: 15 } };
+export const DIESEL_STYLES = ['van', 'bus', 'pickup'];
+export const dieselMul = s => 1.2 + ((Math.round((s.priceMul || 1) * 1000) * 7919) % 1000) / 1000 * 0.2;    // 1.20 .. 1.40 of the regular price
+export const pricePerL = (s, type) => PRICE_PER_L * s.priceMul * (type === 'premium' ? PREMIUM_MUL : type === 'diesel' ? dieselMul(s) : 1);
 const UNIT_M = 1.25;
 
 export function createFuel({ city, scene, heightAt, car, world, active = () => true }) {
   const stations = city.gasStations || [];
   const save = (world.save.fuel ||= {});
-  const tankMul = () => 1 + 0.25 * ((world.modsOf(car.styleKey).tank) || 0);
-  const tank = () => (save[car.styleKey] ||= { lvl: 1, prem: 0 });
-  let lowWarn = false, lastKey = null, towAsk = false;
+  const tankL = () => BASE_TANK_L + TANK_STEP_L * ((world.modsOf(car.styleKey).tank) || 0);
+  const isDiesel = () => DIESEL_STYLES.includes(car.styleKey);
+  const tank = () => {
+    const t = (save[car.styleKey] ||= { lvl: 1, type: isDiesel() ? 'diesel' : 'regular' });
+    if (!t.type) t.type = t.prem > 0.5 ? 'premium' : 'regular';       // older saves
+    if (isDiesel() && t.type !== 'diesel') t.type = 'diesel'; else if (!isDiesel() && t.type === 'diesel') t.type = 'regular';
+    return t;
+  };
+  let lowWarn = false, lastKey = null, towAsk = false, ask = null;
   const colliders = [];
 
   // ---------------------------------------------------------------- the forecourts
   const tex = (draw, w, h) => { const c = document.createElement('canvas'); c.width = w; c.height = h; draw(c.getContext('2d'), w, h); const t = new THREE.CanvasTexture(c); t.colorSpace = THREE.SRGBColorSpace; return t; };
   const white = new THREE.MeshStandardMaterial({ color: 0xeceff3, roughness: 0.7 }), red = new THREE.MeshStandardMaterial({ color: 0xd8262f, roughness: 0.6 });
   const dark = new THREE.MeshStandardMaterial({ color: 0x2a2f36, roughness: 0.7, metalness: 0.3 }), concrete = new THREE.MeshStandardMaterial({ color: 0x9aa0a8, roughness: 0.95 });
-  const lampMat = new THREE.MeshBasicMaterial({ color: 0xfff1cf });
+  const lampMat = new THREE.MeshBasicMaterial({ color: 0xfffbf0 }), ledRed = new THREE.MeshBasicMaterial({ color: 0xff3b30 });
   const pumpMat = new THREE.MeshStandardMaterial({ color: 0xf2f2f2, roughness: 0.5 }), screenMat = new THREE.MeshBasicMaterial({ color: 0x61e6a0 });
   const ringMat = new THREE.MeshBasicMaterial({ color: 0x38e07b, transparent: true, opacity: 0.95, depthWrite: false });
   const discMat = new THREE.MeshBasicMaterial({ color: 0x38e07b, transparent: true, opacity: 0.2, depthWrite: false, side: THREE.DoubleSide });
   const ringGeo = new THREE.TorusGeometry(2.3, 0.14, 8, 40), discGeo = new THREE.CircleGeometry(2.3, 40);
-  const price = (s, prem) => (2.0 * s.priceMul * (prem ? PREMIUM_MUL : 1));
   const board = s => tex((g, w, h) => {
-    g.fillStyle = '#10141c'; g.fillRect(0, 0, w, h); g.fillStyle = '#d8262f'; g.fillRect(0, 0, w, 56);
-    g.fillStyle = '#fff'; g.font = 'bold 40px system-ui'; g.textAlign = 'center'; g.textBaseline = 'middle'; g.fillText('GAS STATION', w / 2, 30);
-    g.textAlign = 'left'; g.font = 'bold 34px system-ui'; g.fillStyle = '#9fb0c6'; g.fillText('REGULAR', 24, 100); g.fillText('PREMIUM', 24, 152);
-    g.textAlign = 'right'; g.fillStyle = '#7dffa9'; g.fillText('$' + price(s, false).toFixed(2) + '/L', w - 24, 100); g.fillStyle = '#ffd21f'; g.fillText('$' + price(s, true).toFixed(2) + '/L', w - 24, 152);
-    g.textAlign = 'center'; g.font = '600 20px system-ui'; g.fillStyle = '#8796ab'; g.fillText('full tank about $' + Math.round(FULL_TANK_PRICE * s.priceMul), w / 2, 190);
-  }, 512, 208);
+    g.fillStyle = '#10141c'; g.fillRect(0, 0, w, h); g.fillStyle = '#d8262f'; g.fillRect(0, 0, w, 64);
+    g.fillStyle = '#fff'; g.font = 'bold 48px system-ui'; g.textAlign = 'center'; g.textBaseline = 'middle'; g.fillText('GAS STATION', w / 2, 34);
+    const row = (y, name, col, v) => { g.textAlign = 'left'; g.font = 'bold 46px system-ui'; g.fillStyle = '#b4c2d6'; g.fillText(name, 26, y); g.textAlign = 'right'; g.fillStyle = col; g.fillText('$' + v.toFixed(2), w - 26, y); };
+    row(112, 'REGULAR', '#7dffa9', pricePerL(s, 'regular')); row(166, 'PREMIUM', '#ffd21f', pricePerL(s, 'premium')); row(220, 'DIESEL', '#7fd0ff', pricePerL(s, 'diesel'));
+    g.textAlign = 'center'; g.font = '600 22px system-ui'; g.fillStyle = '#8796ab'; g.fillText('per litre  -  open 24 h', w / 2, 262);
+  }, 512, 288);
   const rings = [];
   stations.forEach(s => {
     const g = new THREE.Group(), y0 = heightAt(s.mx, s.mz, 0);
@@ -56,16 +66,31 @@ export function createFuel({ city, scene, heightAt, car, world, active = () => t
         solid(0.5, 0.42, x, 14 + dz);
       });
     });
-    // price board on a pole by the street
-    box(0.5, 9, 0.5, dark, 10.8, 4.5, 3); solid(0.4, 0.4, 10.8, 3);
-    const bm = new THREE.Mesh(new THREE.BoxGeometry(4.4, 2.6, 0.3), [dark, dark, dark, dark, new THREE.MeshBasicMaterial({ map: board(s) }), new THREE.MeshBasicMaterial({ map: board(s) })]);
-    bm.position.set(10.8, 9.4, 3); g.add(bm);
+    // price boards on two tall poles at the street corners of the forecourt, faces square to the street (normal along the street,
+    // so a driver coming along the road sees the board head-on, from either direction); big enough to read from a block away
+    const bmat = new THREE.MeshBasicMaterial({ map: board(s) });
+    [-11.6, 11.6].forEach(px => {
+      box(0.8, 14, 0.8, dark, px, 7, 5.6); solid(0.55, 0.55, px, 5.6);
+      const bm = new THREE.Mesh(new THREE.BoxGeometry(0.5, 7.2, 12.6), [bmat, bmat, dark, dark, dark, dark]);
+      bm.position.set(px, 16.2, 5.6); g.add(bm);
+      box(0.54, 0.7, 12.6, red, px, 20.2, 5.6);
+      s._boardX = (s._boardX || []).concat(px);
+    });
+    // a drive-in ramp over the kerb and pavement at the mouth of the forecourt
+    { const ramp = new THREE.Mesh(new THREE.BoxGeometry(15, 0.12, 4.4), concrete); ramp.position.set(0, 0.07, -0.4); ramp.rotation.x = -0.05; ramp.receiveShadow = true; g.add(ramp); }
     // shop at the back
     box(15, 4.6, 7.5, white, 0, 2.3, 31.5); box(15.3, 0.9, 7.8, red, 0, 4.7, 31.5); solid(7.6, 3.8, 0, 31.5);
     const sign = new THREE.Mesh(new THREE.PlaneGeometry(6, 1.3), new THREE.MeshBasicMaterial({ map: tex((c, w, h) => { c.fillStyle = '#d8262f'; c.fillRect(0, 0, w, h); c.fillStyle = '#fff'; c.font = 'bold 74px system-ui'; c.textAlign = 'center'; c.textBaseline = 'middle'; c.fillText('GAS  24H', w / 2, h / 2 + 3); }, 512, 112) }));
     sign.position.set(0, 3.6, 27.68); sign.rotation.y = Math.PI; g.add(sign);
     const win = new THREE.Mesh(new THREE.PlaneGeometry(9, 1.6), new THREE.MeshBasicMaterial({ color: 0xffe9b0 })); win.position.set(0, 1.9, 27.7); win.rotation.y = Math.PI; g.add(win);
-    const glow = createGroundGlow(0xfff1cf, 18, 12); glow.position.set(0, 0.07, 14); setGlow(glow, 0.5); glow.visible = true; g.add(glow); s._glow = glow;
+    // night lighting like a real forecourt: a blazing white canopy underside, red LED trim, lit shop window, light pools and halos
+    box(17.4, 0.12, 0.12, ledRed, 0, 5.2, 8.0); box(17.4, 0.12, 0.12, ledRed, 0, 5.2, 20.0);
+    s._glows = [];
+    const addGlow = (color, w, d, x, z, k) => { const gl = createGroundGlow(color, w, d); gl.position.set(x, 0.07, z); g.add(gl); s._glows.push([gl, k]); };
+    addGlow(0xfff1cf, 30, 22, 0, 14, 1); addGlow(0xfff1cf, 18, 12, 0, 14, 1); addGlow(0xffe9b0, 16, 10, 0, 24, 0.9); addGlow(0xff4b3a, 14, 6, 0, 3, 0.5);
+    s._halos = [];
+    [[0, 5.3, 14, 22], [-7.8, 5.3, 14, 10], [7.8, 5.3, 14, 10], [-11.6, 16.2, 5.6, 20], [11.6, 16.2, 5.6, 20], [0, 4.0, 27.2, 10]].forEach(([x, y, z, sz]) => { const hl = createHalo(0xfff1cf, sz); hl.position.set(x, y, z); g.add(hl); s._halos.push(hl); });
+    const glow = s._glows[0][0]; s._glow = glow;
     // the fill rings
     s._rings = s.fill.map(f => {
       const r = new THREE.Group(), t = new THREE.Mesh(ringGeo, ringMat), d = new THREE.Mesh(discGeo, discMat);
@@ -87,7 +112,7 @@ export function createFuel({ city, scene, heightAt, car, world, active = () => t
     #gaspanel { position: fixed; left: 50%; top: 22%; transform: translateX(-50%); z-index: 11; display: none; width: min(340px, 92vw); padding: 12px 14px; border-radius: 16px; background: rgba(10,14,22,.93); color: #fff; font: 14px system-ui, sans-serif; border-top: 4px solid #38e07b; box-shadow: 0 8px 30px rgba(0,0,0,.5); }
     #gaspanel h3 { margin: 0 0 2px; font-size: 17px; } #gaspanel .sub { color: #9fb0c6; font-size: 12px; margin-bottom: 8px; }
     #gaspanel .btns { display: flex; gap: 8px; } #gaspanel button { flex: 1; border: 0; border-radius: 10px; padding: 10px 6px; font: 800 13px system-ui; cursor: pointer; background: #38e07b; color: #07210f; }
-    #gaspanel button.prem { background: #ffd21f; color: #2a2100; } #gaspanel button small { display: block; font-weight: 600; opacity: .8; margin-top: 2px; }
+    #gaspanel button.prem { background: #ffd21f; color: #2a2100; } #gaspanel button.dsl { background: #7fd0ff; color: #06202e; } #gaspanel button.keep { background: #3a4660; color: #fff; } #gaspanel button small { display: block; font-weight: 600; opacity: .8; margin-top: 2px; }
     #gaspanel .bar { height: 12px; border-radius: 7px; background: rgba(255,255,255,.14); overflow: hidden; margin: 8px 0 4px; } #gaspanel .bar i { display: block; height: 100%; width: 0; background: #38e07b; }
     #towbtn { position: fixed; left: 50%; top: 22%; transform: translateX(-50%); z-index: 11; display: none; padding: 10px 18px; border: 0; border-radius: 22px; font: 800 14px system-ui; background: #ff3b30; color: #fff; cursor: pointer; }`;
   document.head.appendChild(style);
@@ -97,14 +122,40 @@ export function createFuel({ city, scene, heightAt, car, world, active = () => t
   const towBtn = document.createElement('button'); towBtn.id = 'towbtn'; towBtn.textContent = '⛽ Out of fuel - call a tow ($60, T)'; document.body.appendChild(towBtn);
 
   // ---------------------------------------------------------------- state
-  let at = null, fill = null, panelSig = '', fed = 0;
-  const cost = (s, x, prem) => FULL_TANK_PRICE * s.priceMul * tankMul() * x * (prem ? PREMIUM_MUL : 1);
-  function startFill(prem) { if (!at || fill) return; const t = tank(); if (t.lvl > 0.995) { world.toast('The tank is already full'); return; } fill = { s: at.s, prem, paid: 0, acc: 0 }; }
+  // the tank holds litres (t.l) of one fuel (t.type); t.lvl is the same as a 0..1 fraction of the tank for the gauge
+  let at = null, fill = null, panelSig = '', fed = 0, switchAsk = null;
+  const cap = () => tankL();
+  const litres = () => { const t = tank(); if (t.l === undefined) t.l = Math.min(1, t.lvl === undefined ? 1 : t.lvl) * cap(); t.l = Math.min(t.l, cap()); return t.l; };
+  const options = () => (isDiesel() ? ['diesel'] : ['regular', 'premium']);
+  const fullPrice = (s, type) => cap() * pricePerL(s, type);
+  function startFill(type, paySwitch) {
+    if (!at || fill) return;
+    const t = tank(), L = litres();
+    if (!paySwitch && L > 0.05 && t.type !== type) { switchAsk = { s: at.s, type }; panelSig = ''; return; }     // different fuel than what is in the tank: ask
+    if (!paySwitch && L > cap() - 0.05) { world.toast('The tank is already full'); return; }
+    if (paySwitch) {
+      const c = fullPrice(at.s, type);
+      if (world.cash() < c) { world.toast('Switching fuel costs a full tank ($' + Math.round(c) + ') - not enough cash'); switchAsk = null; return; }
+      world.spend(Math.round(c)); t.type = type; t.l = 0; world.toast('Tank drained - paid $' + Math.round(c) + ' for a full tank of ' + FUELS[type].name);
+      fill = { s: at.s, type, paid: c, acc: 0, free: true };
+    } else { t.type = L > 0.05 ? t.type : type; fill = { s: at.s, type: t.type, paid: 0, acc: 0 }; }
+    switchAsk = null; panelSig = '';
+  }
   function stopFill(why) { if (!fill) return; if (why) world.toast(why); fill = null; panelSig = ''; }
-  panel.addEventListener('click', e => { const b = e.target.closest('button'); if (!b) return; if (b.dataset.f) startFill(b.dataset.f === 'p'); });
+  panel.addEventListener('click', e => {
+    const b = e.target.closest('button'); if (!b) return;
+    if (b.dataset.f) startFill(b.dataset.f);
+    else if (b.dataset.sw) startFill(b.dataset.sw, true);
+    else if (b.dataset.keep) { const k = tank().type; switchAsk = null; startFill(k); }
+    else if (b.dataset.cancel) { switchAsk = null; panelSig = ''; }
+  });
   addEventListener('keydown', e => {
     if (e.repeat) return;
-    if (e.code === 'Digit1' && at && !fill) startFill(false); else if (e.code === 'Digit2' && at && !fill) startFill(true);
+    if (at && !fill && (e.code === 'Digit1' || e.code === 'Digit2')) {
+      const i = e.code === 'Digit1' ? 0 : 1;
+      if (switchAsk) { if (i === 0) startFill(switchAsk.type, true); else { const k = tank().type; switchAsk = null; startFill(k); } }
+      else { const o = options()[i]; if (o) startFill(o); }
+    } else if (e.code === 'Escape' && switchAsk) { switchAsk = null; panelSig = ''; }
     else if (e.code === 'KeyT' && car.noFuel && !world.onFoot) tow();
   });
   towBtn.addEventListener('click', () => tow());
@@ -112,21 +163,23 @@ export function createFuel({ city, scene, heightAt, car, world, active = () => t
     if (!stations.length) return;
     let b = null, bd = 1e12; stations.forEach(s => { const d = (s.x - car.x) ** 2 + (s.z - car.z) ** 2; if (d < bd) { bd = d; b = s; } });
     const f = b.fill[0]; car.teleport(f.x, f.z, heightAt(f.x, f.z, 0), Math.atan2(b.nx, b.nz));
-    const t = tank(); t.lvl = 0.06; t.prem = 0; car.noFuel = false;
+    const t = tank(); t.l = 0.06 * cap(); car.noFuel = false;
     if (world.cash() >= 60) { world.spend(60); world.toast('Towed to the nearest gas station ($60)'); } else world.toast('Towed to the nearest gas station');
   }
 
   function update(dt) {
     const key = car.styleKey;
-    if (key !== lastKey) { lastKey = key; fill = null; lowWarn = false; }
-    const t = tank(), M = tankMul(), onCity = world.mode === 'city' && !world.onFoot;
-    // drain with distance (a full stock tank = 100 km)
+    if (key !== lastKey) { lastKey = key; fill = null; switchAsk = null; lowWarn = false; }
+    const t = tank(), C = cap(), onCity = world.mode === 'city' && !world.onFoot;
+    let L = litres();
+    // drain with distance: litres per 100 km of the fuel in the tank
     if (onCity && active() && !fill) {
       const km = Math.hypot(car.vx || 0, car.vz || 0) * dt * UNIT_M / 1000;
-      t.lvl = Math.max(0, t.lvl - km / (FULL_TANK_KM * M));
+      t.l = L = Math.max(0, L - km * (FUELS[t.type] || FUELS.regular).l100 / 100);
     }
-    car.noFuel = t.lvl <= 0.0005;
-    car.fuelPower = 1 + PREMIUM_POWER * (t.lvl > 0 ? t.prem : 0);
+    t.lvl = L / C;
+    car.noFuel = L <= 0.01;
+    car.fuelPower = 1 + PREMIUM_POWER * (t.type === 'premium' && L > 0.01 ? 1 : 0);
     // near a pump ring?
     at = null;
     if (onCity && !world.modal) {
@@ -136,14 +189,16 @@ export function createFuel({ city, scene, heightAt, car, world, active = () => t
         if (at) break;
       }
     }
+    if (!at) switchAsk = null;
     if (fill && (!at || at.s !== fill.s)) stopFill('Fuelling stopped - you moved');
     if (fill) {
-      const want = Math.min(1 - t.lvl, dt / FILL_SECONDS), c = cost(fill.s, want, fill.prem);
+      const want = Math.min(C - L, dt / FILL_SECONDS * C), c = fill.free ? 0 : want * pricePerL(fill.s, fill.type);
       if (world.cash() + 0.001 < c) { stopFill('Out of cash - fuelling stopped'); }
       else {
-        const before = t.lvl; t.lvl += want; t.prem = (t.prem * before + (fill.prem ? want : 0)) / Math.max(1e-6, t.lvl);
+        t.l = L += want; t.type = fill.type;
         fill.acc += c; fill.paid += c; if (fill.acc >= 1) { const w = Math.floor(fill.acc); world.spend(w); fill.acc -= w; }
-        if (t.lvl >= 0.9999) { t.lvl = 1; if (fill.acc > 0) world.spend(Math.max(0, Math.round(fill.acc))); world.toast('Tank full - paid $' + Math.round(fill.paid)); stopFill(); world.persist && world.persist(); }
+        if (L >= C - 0.001) { t.l = L = C; if (fill.acc > 0) world.spend(Math.max(0, Math.round(fill.acc))); world.toast('Tank full - paid $' + Math.round(fill.paid)); stopFill(); world.persist && world.persist(); }
+        t.lvl = L / C;
       }
     }
     // rings pulse; only the ones nearby are shown
@@ -153,27 +208,35 @@ export function createFuel({ city, scene, heightAt, car, world, active = () => t
     // panel
     let html = '';
     if (at) {
-      const s = at.s, rp = Math.round(cost(s, 1 - t.lvl, false)), pp = Math.round(cost(s, 1 - t.lvl, true));
-      if (fill) html = `<h3>Fuelling ${fill.prem ? 'premium' : 'regular'}...</h3><div class="sub">Stay still. $${Math.round(fill.paid)} so far</div><div class="bar"><i style="width:${Math.round(t.lvl * 100)}%"></i></div>`;
-      else if (t.lvl > 0.995) html = '<h3>Tank full</h3><div class="sub">Drive on.</div>';
-      else html = `<h3>Gas station</h3><div class="sub">Tank ${Math.round(t.lvl * 100)} % - a full fill takes 10 s. Stay still while fuelling.</div><div class="btns"><button data-f="r">Regular [1]<small>$${price(s, false).toFixed(2)}/L - $${rp}</small></button><button class="prem" data-f="p">Premium [2]<small>+5% power - $${price(s, true).toFixed(2)}/L - $${pp}</small></button></div>`;
+      const s = at.s, lit = n => n.toFixed(1) + ' L';
+      if (fill) html = `<h3>Fuelling ${FUELS[fill.type].name}...</h3><div class="sub">Stay still. ${lit(L)} of ${C} L, $${Math.round(fill.paid)} paid</div><div class="bar"><i style="width:${Math.round(L / C * 100)}%"></i></div>`;
+      else if (switchAsk) {
+        const n = switchAsk.type, o = t.type, price = Math.round(fullPrice(s, n));
+        html = `<h3>Switch to ${FUELS[n].name}?</h3><div class="sub">Your tank has ${FUELS[o].name}. To switch it has to be drained and you pay a <b>full tank</b> (${C} L x $${pricePerL(s, n).toFixed(2)} = $${price}).</div><div class="btns"><button class="${n === 'premium' ? 'prem' : ''}" data-sw="${n}">Switch [1]<small>$${price}</small></button><button class="keep" data-keep="1">Keep ${FUELS[o].name} [2]<small>$${pricePerL(s, o).toFixed(2)}/L</small></button></div>`;
+      }
+      else if (L > C - 0.05) html = '<h3>Tank full</h3><div class="sub">Drive on.</div>';
+      else {
+        const btn = (o, i) => `<button class="${o === 'premium' ? 'prem' : o === 'diesel' ? 'dsl' : ''}" data-f="${o}">${FUELS[o].name} [${i + 1}]<small>${o === 'premium' ? '+5% power - ' : ''}$${pricePerL(s, o).toFixed(2)}/L - ${(FUELS[o].l100)} L/100km</small></button>`;
+        html = `<h3>Gas station</h3><div class="sub">Tank ${lit(L)} of ${C} L (${FUELS[t.type].name}) - a full fill takes 10 s. Stay still while fuelling.${isDiesel() ? ' Diesel engine.' : ''}</div><div class="btns">${options().map(btn).join('')}</div>`;
+      }
     }
-    const sig = html.replace(/\d+ so far|width:\d+%|\d+ %/g, '');
     if (html !== panelSig) { panelSig = html; panel.innerHTML = html; }
     panel.style.display = html ? 'block' : 'none';
-    // gauge
-    const pc = Math.round(t.lvl * 100);
-    hudBar.style.width = pc + '%'; if (hudPc.textContent !== pc + '%') hudPc.textContent = pc + '%';
-    hudPm.textContent = t.prem > 0.5 && t.lvl > 0 ? '+5%' : ''; hud.classList.toggle('low', t.lvl < 0.12);
+    // gauge: litres left and what is in the tank
+    const pc = Math.round(L / C * 100);
+    hudBar.style.width = pc + '%';
+    const lt = L.toFixed(L < 10 ? 1 : 0) + ' L'; if (hudPc.textContent !== lt) hudPc.textContent = lt;
+    hudPm.textContent = !(L > 0) ? '' : t.type === 'premium' ? 'PERF +5%' : t.type === 'diesel' ? 'DIESEL' : ''; hud.classList.toggle('low', t.lvl < 0.12);
     hud.style.display = world.onFoot || world.mode !== 'city' ? 'none' : 'flex';
     if (t.lvl < 0.15 && !lowWarn) { lowWarn = true; world.toast('Low fuel - find a gas station (⛽ on the map)'); }
     if (t.lvl > 0.3) lowWarn = false;
     towBtn.style.display = car.noFuel && onCity ? 'block' : 'none';
   }
 
+  const rangeKm = () => { const t = tank(); return Math.round(litres() / (FUELS[t.type] || FUELS.regular).l100 * 100); };
   return {
-    update, colliders, stations, tank, tankMul,
-    level: () => tank().lvl, premium: () => tank().prem, range: () => Math.round(tank().lvl * FULL_TANK_KM * tankMul()),
+    update, colliders, stations, tank, tankL,
+    level: () => litres() / cap(), litres, premium: () => (tank().type === 'premium' ? 1 : 0), range: rangeKm,
     markers: () => stations.map(s => ({ x: s.x, z: s.z, color: '#38e07b', label: '⛽' }))
   };
 }

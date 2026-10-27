@@ -942,7 +942,7 @@ export function createWorld({ city, scene, camera, car, input, heightAt: cityHei
       rows.push({ hint: 'Trunk: nitro tank - hold Shift to boost (+30% top speed, 2.4x acceleration), refills over time' });
       const nr = []; stageRows(nr, 'nitro', 'Nitro tank', UPG.nitro.prices, 'boost time ' + UPG.nitro.secs.join(' / ') + ' s', x => x.nitro, (mm, l) => { mm.nitro = l; }); rows.push(...nr.slice(1));
       rows.push({ hint: 'Fuel' });
-      const tr = []; stageRows(tr, 'tank', 'Fuel tank', UPG.tank.prices, '+25% tank per stage (range 125 / 150 / 175 / 200 km)', x => x.tank || 0, (mm, l) => { mm.tank = l; }); rows.push(...tr.slice(1));
+      const tr = []; stageRows(tr, 'tank', 'Fuel tank', UPG.tank.prices, '+5 L per stage (tank 25 / 30 / 35 / 40 L)', x => x.tank || 0, (mm, l) => { mm.tank = l; }); rows.push(...tr.slice(1));
       rows.push({ hint: 'HUD' });
       const hr = []; stageRows(hr, 'hud', 'HUD', UPG.hud.prices, 'stage 1 digital speedo, stage 2 adds compass + clock', x => x.hud, (mm, l) => { mm.hud = l; }); rows.push(...hr.slice(1));
       return { ...base, buy: buyBar(), rows };

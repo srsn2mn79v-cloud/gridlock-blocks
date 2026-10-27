@@ -12,7 +12,7 @@ const STORE = 'gridlock-settings-v1';
 const coarse = typeof matchMedia !== 'undefined' && matchMedia('(pointer: coarse)').matches;
 // Graphics defaults are gentler on touch devices (no ambient occlusion, medium textures).
 export const DEFAULT_SETTINGS = {
-  traffic: 40, peds: 100, hour: 22, day: 0, dynWeather: true, clockRun: true, fog: 0, rain: false, snow: false, car: 'hatch', camMode: 'chase', camDist: 9.5, camHeight: 5.2,
+  traffic: 40, peds: 100, hour: 22, day: 0, dynWeather: true, clockRun: true, fog: 0, rain: false, snow: false, car: 'hatch', camMode: 'chase', camDist: 9.5, camHeight: 5.2, camInBack: 0.5, camInUp: 0.08,
   ao: coarse ? 'off' : 'low', bloom: true, tone: true, tex: coarse ? 1 : 2, fx: true, shadow: coarse ? 1024 : 2048, quality: coarse ? 'medium' : 'high',
   taxi: true, sound: true, volume: 0.7, swapSticks: false, res: coarse ? 0.75 : 1, view: coarse ? 0.7 : 1, fps: true
 };

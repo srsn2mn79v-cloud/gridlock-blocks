@@ -67,7 +67,34 @@ export function buildSidewalkSegments(cityData) {
       });
     });
   });
-  return segments;
+  return pruneLonelySidewalks(segments);
+}
+
+// Sidewalks that go nowhere (a short pavement stub ending in nothing, or a little island of pavement joined to no other
+// pavement - typically beside slip roads) are dropped: pedestrians would walk to the end and stand there.
+export const STUB_LEN = 60, ISLAND_LEN = 150;
+export function pruneLonelySidewalks(segments) {
+  const byEdge = new Map();
+  segments.forEach(sg => { const e = byEdge.get(sg.edgeId) || { id: sg.edgeId, from: sg.fromNode, to: sg.toNode, len: 0, segs: [] }; e.len = Math.max(e.len, Math.hypot(sg.x2 - sg.x1, sg.z2 - sg.z1)); e.segs.push(sg); byEdge.set(sg.edgeId, e); });
+  const at = new Map(); const add = (n, e) => { if (!at.has(n)) at.set(n, new Set()); at.get(n).add(e); };
+  byEdge.forEach(e => { add(e.from, e); add(e.to, e); });
+  const drop = e => { byEdge.delete(e.id); at.get(e.from).delete(e); at.get(e.to).delete(e); };
+  for (let again = true; again;) {                                           // stubs: one end touches no other pavement
+    again = false;
+    for (const e of [...byEdge.values()]) {
+      const lone = n => at.get(n).size <= 1;
+      if ((lone(e.from) || lone(e.to)) && e.len < STUB_LEN) { drop(e); again = true; }
+    }
+  }
+  const seen = new Set();                                                    // islands: connected pavement shorter than ISLAND_LEN
+  for (const e0 of [...byEdge.values()]) {
+    if (seen.has(e0.id)) continue;
+    const comp = [], stack = [e0]; seen.add(e0.id);
+    while (stack.length) { const e = stack.pop(); comp.push(e); for (const n of [e.from, e.to]) at.get(n).forEach(o => { if (!seen.has(o.id)) { seen.add(o.id); stack.push(o); } }); }
+    if (comp.reduce((a, e) => a + e.len, 0) < ISLAND_LEN) comp.forEach(drop);
+  }
+  const keep = new Set(); byEdge.forEach(e => e.segs.forEach(sg => keep.add(sg)));
+  return segments.filter(sg => keep.has(sg));
 }
 
 // One merged mesh for every pavement strip: a flat top CURB_HEIGHT above the road plus the two vertical

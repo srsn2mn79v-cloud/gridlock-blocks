@@ -6,6 +6,7 @@
 //   node tools/check.mjs markings   painted lines, crosswalks and stop lines never cross or overlap another road's paint
 //   node tools/check.mjs bridges    no bridge pillar stands in a lane; low ramps have walls; freeway lanes are clear
 //   node tools/check.mjs solid      every object a car can see is solid (and a rammed collider really stops the car)
+//   node tools/check.mjs sidewalks every pavement leads somewhere (no stubs / islands, none beside slip roads)
 //   node tools/check.mjs water      no road surface lies under water without a bridge
 //   node tools/check.mjs drift      the three drift circuits: corner radius, walls, start
 //   node tools/check.mjs all
@@ -336,7 +337,20 @@ async function checkGas() {
   g.forEach(s => s.fill.forEach((f, i) => { heightAt(f.x, f.z, 0); if (heightAt.kind !== 'plaza') bad.push(s.id + ' lane ' + i + ' is on ' + heightAt.kind); }));
   return { name: 'gas', count: g.length + ' gas stations', bad };
 }
-const CHECKS = { gas: checkGas, races: checkRaces, drift: checkDrift, covered: checkCovered,  signs: checkSigns, lamps: checkLamps, buildings: checkBuildings, traffic: () => checkTraffic(+process.argv[3] || 40, +process.argv[4] || 5), markings: checkMarkings, bridges: checkBridges, solid: checkSolid, water: checkWater };
+// ---- sidewalks lead somewhere ----------------------------------------------------------------------------------------------
+async function checkSidewalks() {
+  const { buildSidewalkSegments, STUB_LEN, ISLAND_LEN } = await imp('src/sidewalks.js');
+  const segs = buildSidewalkSegments(city), bad = [];
+  const byEdge = new Map(); segs.forEach(sg => { const e = byEdge.get(sg.edgeId) || { id: sg.edgeId, from: sg.fromNode, to: sg.toNode, len: 0 }; e.len = Math.max(e.len, Math.hypot(sg.x2 - sg.x1, sg.z2 - sg.z1)); byEdge.set(sg.edgeId, e); });
+  const at = new Map(); byEdge.forEach(e => { [e.from, e.to].forEach(n => at.set(n, (at.get(n) || 0) + 1)); });
+  byEdge.forEach(e => { if ((at.get(e.from) <= 1 || at.get(e.to) <= 1) && e.len < STUB_LEN) { const n = city.roadNodes[at.get(e.from) <= 1 ? e.from : e.to]; bad.push('pavement stub of ' + r1(e.len) + ' u goes nowhere @' + r1(n.x) + ',' + r1(n.z)); } });
+  // pavement beside a slip road or the interstate: nobody should be walking there
+  const hot = city.roadEdges.filter(e => e.ramp || e.type === 'highway');
+  const hotNodes = new Set(hot.flatMap(e => [e.from, e.to]));
+  byEdge.forEach(e => { if (hotNodes.has(e.from) && hotNodes.has(e.to) && e.len < 150) bad.push('pavement between two slip-road nodes @' + r1(city.roadNodes[e.from].x) + ',' + r1(city.roadNodes[e.from].z)); });
+  return { name: 'sidewalks', count: segs.length + ' pavement segments (stubs < ' + STUB_LEN + ' u and islands < ' + ISLAND_LEN + ' u are dropped)', bad };
+}
+const CHECKS = { sidewalks: checkSidewalks, gas: checkGas, races: checkRaces, drift: checkDrift, covered: checkCovered,  signs: checkSigns, lamps: checkLamps, buildings: checkBuildings, traffic: () => checkTraffic(+process.argv[3] || 40, +process.argv[4] || 5), markings: checkMarkings, bridges: checkBridges, solid: checkSolid, water: checkWater };
 const which = process.argv[2] || 'all';
 const list = which === 'all' ? Object.keys(CHECKS) : [which];
 let failed = 0;

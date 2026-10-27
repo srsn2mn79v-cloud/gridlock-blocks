@@ -386,6 +386,75 @@ export function createTrafficSystem(cityData, scene, heightAt, count = 6, maxCou
     return car;
   }
 
+  // ---- race rivals: real cars that follow a race route but are part of the traffic: they bump you and the traffic, get bumped, brake
+  // for whatever is ahead, swerve round it, and after a crash pick the route up again from where they stopped.
+  const rivalPool = [];
+  const rivalColors = [0xe53935, 0x43a047, 0xfdd835, 0x8e24aa];
+  function addRival(o) {
+    const idx = rivalPool.filter(c => c.rival).length;
+    let car = rivalPool.find(c => !c.rival);
+    if (!car) {
+      const edge = edgeFor('sedan');
+      car = spawnOn(edge, false, { type: 'sedan', color: rivalColors[idx % 4] });
+      cars.splice(cars.indexOf(car), 1); rivalPool.push(car);
+      car.colliders.forEach(c => { colliderList.push(c); if (sink) sink.push(c); });
+    }
+    car.rival = { sample: o.sample, project: o.project, loop: !!o.loop, total: o.total, vmax: o.vmax, tau: o.tau, s: o.s0, v: 0, t: 0, lat0: o.lat, latCur: o.lat, latTarget: o.lat, maxLat: o.maxLat, finished: null, recov: 0 };
+    car.active = true; car.mesh.visible = true; car.knock = null; car.wreck = false; car.crashTimer = 0; car.ghost = 0; car.speed = 0; car.line = null; car.mesh.rotation.set(0, 0, 0);
+    car.colliders.forEach(c => { c.blocksCar = true; });
+    const p = o.sample(o.s0); car.mesh.position.set(p.x - p.dz * o.lat, heightAt ? heightAt(p.x, p.z, 0) : 0, p.z + p.dx * o.lat);
+    car.mesh.userData.full.visible = true; car.mesh.userData.lite.visible = false; car._lodInit = true; car.far = false;
+    return car;
+  }
+  function clearRivals() { rivalPool.forEach(c => { c.rival = null; c.active = false; c.mesh.visible = false; c.knock = null; c.colliders.forEach(k => { k.blocksCar = false; k.x = 1e6; k.z = 1e6; }); }); }
+  function rivalStep(car, dt, now, nbC) {
+    const R = car.rival, m = car.mesh;
+    if (car.knock) {
+      updateKnocked(car, dt, now, lastPlayer);
+      const k = car.knock;
+      if (k.age > 2 && Math.hypot(k.vx, k.vz) < 0.6 && !k.air) {       // back on its wheels: carry on from the nearest point of the route
+        R.s = R.project(k.x, k.z, R.s); R.v = 0; R.recov = 2;
+        const q = R.sample(R.s); R.latCur = (k.x - q.x) * -q.dz + (k.z - q.z) * q.dx;
+        car.knock = null; car.wreck = false; car.crashTimer = 0; m.rotation.set(0, m.rotation.y, 0);
+      }
+      return;
+    }
+    R.t += dt;
+    const p = R.sample(R.s), fx = p.dx, fz = p.dz, rx = -p.dz, rz = p.dx;
+    let vt = R.vmax * (1 - Math.exp(-Math.max(0, R.t) / R.tau));
+    const p2 = R.sample(R.s + 14), dTh = Math.abs(Math.atan2(fx * p2.dz - fz * p2.dx, fx * p2.dx + fz * p2.dz));
+    vt *= 1 - Math.min(0.55, dTh * 0.9);
+    if (R.recov > 0) { R.recov -= dt; vt = Math.min(vt, 9); }
+    let nearest = 1e9, osp = 0, side = 0;
+    for (let i = 0; i < nbC.length; i++) {
+      const o = nbC[i]; if (o === car || (o.rival && o.knock)) continue;
+      const dx = px(o) - m.position.x, dz = pz(o) - m.position.z, ah = dx * fx + dz * fz, lt = dx * rx + dz * rz - R.latCur;
+      if (ah > 0 && ah < 16 + R.v * 1.2 && Math.abs(lt) < 2.7) { if (ah < nearest) { nearest = ah; osp = o.speed || 0; side = lt >= 0 ? -1 : 1; } }
+    }
+    if (nearest < 1e8) {
+      const room = R.maxLat - Math.abs(R.latCur + side * 3.2) > -0.2;
+      R.latTarget = Math.max(-R.maxLat, Math.min(R.maxLat, R.latCur + (room ? side : -side) * 3.2));
+      vt = Math.min(vt, Math.max(0, (nearest - 5) * 1.4) + osp * 0.9);
+    } else R.latTarget = R.lat0;
+    if (R.finished != null) vt = 0;
+    else if (R.s >= R.total) R.finished = R.t;
+    R.v += Math.max(-14 * dt, Math.min(5.5 * dt, vt - R.v));
+    R.s += R.v * dt;
+    R.latCur += (R.latTarget - R.latCur) * Math.min(1, dt * 2.4);
+    const x = p.x + rx * R.latCur, z = p.z + rz * R.latCur;
+    car.speed = R.v; car.hdg = Math.atan2(fz, fx); car.braking = R.v > vt + 0.6; car.crashTimer = 0;
+    const y = heightAt ? heightAt(x, z, m.position.y) : 0;
+    m.position.set(x, y, z);
+    const yaw = Math.atan2(fx, fz) + Math.max(-0.4, Math.min(0.4, (R.latTarget - R.latCur) * 0.12));
+    m.rotation.y += normalizeAngle(yaw - m.rotation.y) * (1 - Math.exp(-dt * 10));
+    if (heightAt) { const hx = Math.sin(m.rotation.y), hz = Math.cos(m.rotation.y); m.rotation.x = Math.atan2(heightAt(x - hx * 1.7, z - hz * 1.7, y) - heightAt(x + hx * 1.7, z + hz * 1.7, y), 3.4); }
+    if (car.wheels) { const sp = R.v * dt / (m.userData.wheelR || 0.4); car.wheels.forEach(w => { w.rotation.x += sp; }); }
+    const u = m.userData;
+    u.tailMat.emissiveIntensity = car.braking ? 2.6 : 1.0; setGlow(u.tailPool, car.braking ? 0.3 : 0.08); setGlow(u.headPool, 0.4);
+    u.tailHalos.forEach(h => { h.material.opacity = car.braking ? 0.75 : 0.22; h.visible = true; });
+    syncColliders(car, x, z, m.rotation.y);
+  }
+
   if (drivable.length) {
     for (let i = 0; i < count; i++) {
       const edge = edgeFor(TYPE_CYCLE[cars.length % TYPE_CYCLE.length]);
@@ -407,8 +476,9 @@ export function createTrafficSystem(cityData, scene, heightAt, count = 6, maxCou
 
   // Emergency services and winter service: always-present vehicles outside the density slider. Police cars, ambulances and fire engines patrol like
   // everyone else and now and then run "code 3" (lights + siren, faster). Snowploughs only come out while it snows (setPlows).
+  // emergency vehicles on patrol: about 20 % of the old number (and their sirens run a fifth as often)
   const svcCars = [];
-  [['police', 3], ['ambulance', 2], ['fire', 1], ['plow', 6]].forEach(([t, n]) => {
+  [['police', 1], ['ambulance', 1], ['fire', 0], ['plow', 6]].forEach(([t, n]) => {
     for (let i = 0; i < n && drivable.length; i++) {
       const edge = edgeFor(t), c = spawnOn(edge, edge.oneWay ? false : Math.random() < 0.5, { type: t });
       c.sirenT = 10 + Math.random() * 60;
@@ -626,7 +696,7 @@ export function createTrafficSystem(cityData, scene, heightAt, count = 6, maxCou
     u.hazardMat.emissiveIntensity = hazardOn ? 3 : 0;
     u.hazardHalos.forEach(h => { h.material.opacity = hazardOn ? 0.9 : 0; h.visible = hazardOn; });
     // wrecks clear away once the player has left them well behind
-    if (playerCar && k.age > 20 && Math.hypot(k.x - playerCar.x, k.z - playerCar.z) > 90) respawnAway(car, playerCar);
+    if (!car.rival && playerCar && k.age > 20 && Math.hypot(k.x - playerCar.x, k.z - playerCar.z) > 90) respawnAway(car, playerCar);
   }
   let clearZone = null;     // {x,z,r}: races keep this area free of traffic
   const inClear = (x, z) => !!clearZone && Math.hypot(x - clearZone.x, z - clearZone.z) < clearZone.r;
@@ -677,8 +747,8 @@ export function createTrafficSystem(cityData, scene, heightAt, count = 6, maxCou
     lastPlayer = playerCar || lastPlayer;
     const under = !!playerCar && (playerCar.y < -1.2 || playerCar.x > 4000);
     if (playerCar && !under) recycleFar(playerCar);
-    const act = cars.filter(c => c.active);
-    if (clearZone && playerCar) for (const c of act) { if (c.mesh.position.x < 9e4 && inClear(c.mesh.position.x, c.mesh.position.z) && !c.knock) respawnAway(c, playerCar); }
+    const act = cars.filter(c => c.active).concat(rivalPool.filter(c => c.rival));
+    if (clearZone && playerCar) for (const c of act) { if (!c.rival && c.mesh.position.x < 9e4 && inClear(c.mesh.position.x, c.mesh.position.z) && !c.knock) respawnAway(c, playerCar); }
     if (playerCar) {
       playerObs.x = under ? 1e6 : playerCar.x; playerObs.z = under ? 1e6 : playerCar.z; playerObs.speed = Math.abs(playerCar.speed || 0);
       playerObs.hdg = Math.atan2(Math.cos(playerCar.heading), Math.sin(playerCar.heading));
@@ -697,10 +767,11 @@ export function createTrafficSystem(cityData, scene, heightAt, count = 6, maxCou
     act.forEach(car => {
       if (car.svc && car.svc !== 'plow') {
         car.sirenT = (car.sirenT ?? 30) - dt;
-        if (car.sirenT <= 0) { car.siren = !car.siren; car.sirenT = car.siren ? 20 + Math.random() * 25 : 35 + Math.random() * 90; car.targetSpeed *= car.siren ? 1.3 : 1 / 1.3; }
+        if (car.sirenT <= 0) { car.siren = !car.siren; car.sirenT = car.siren ? 20 + Math.random() * 25 : (35 + Math.random() * 90) * 5; car.targetSpeed *= car.siren ? 1.3 : 1 / 1.3; }
       }
       const nb = car._nb = nearOf(car);
       const nbC = (playerCar && Math.abs(playerObs.x - car.mesh.position.x) < 70 && Math.abs(playerObs.z - car.mesh.position.z) < 70) ? nb.concat([playerObs]) : nb;
+      if (car.rival) { rivalStep(car, dt, now, nbC); return; }
       const a = nodes[car.from], b = nodes[car.to];
       if (!a || !b) return;
       if (car.knock) { updateKnocked(car, dt, now, playerCar); return; }
@@ -1063,6 +1134,10 @@ export function createTrafficSystem(cityData, scene, heightAt, count = 6, maxCou
               B.mesh.position.x += nx * mvB; B.mesh.position.z += nz * mvB;
               if (A.knock) { A.knock.x = A.mesh.position.x; A.knock.z = A.mesh.position.z; }
               if (B.knock) { B.knock.x = B.mesh.position.x; B.knock.z = B.mesh.position.z; }
+              for (const [X, Y] of [[A, B], [B, A]]) if (X.rival && !X.knock && !Y.rival && !Y.knock && X.rival.v > 4) {      // a rival ploughing into traffic knocks the car away
+                const dvx = Math.cos(X.hdg) * X.rival.v * 0.8, dvz = Math.sin(X.hdg) * X.rival.v * 0.8;
+                Y.applyImpact(dvx, dvz, (Math.random() - 0.5) * 3, X.rival.v * 0.8, Math.random() < 0.5 ? 1 : -1); X.rival.v *= 0.55;
+              }
               A.speed *= 0.5; B.speed *= 0.5;
               syncColliders(A, A.mesh.position.x, A.mesh.position.z, A.mesh.rotation.y);
               syncColliders(B, B.mesh.position.x, B.mesh.position.z, B.mesh.rotation.y);
@@ -1114,5 +1189,5 @@ export function createTrafficSystem(cityData, scene, heightAt, count = 6, maxCou
     clearZone = z;
     if (z && lastPlayer) cars.forEach(c => { if (c.active && inClear(c.mesh.position.x, c.mesh.position.z)) respawnAway(c, lastPlayer); });
   }
-  return { update, events, setClearZone, colliders: colliderList, cars, svcCars, setPlows, setCount, activeCount, maxCount, setSink(arr) { sink = arr; } };
+  return { update, events, setClearZone, addRival, clearRivals, rivalPool, colliders: colliderList, cars, svcCars, setPlows, setCount, activeCount, maxCount, setSink(arr) { sink = arr; } };
 }

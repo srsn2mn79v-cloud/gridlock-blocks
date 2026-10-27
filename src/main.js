@@ -455,7 +455,7 @@ world.setArena(arena.heightAt);
 let lastRev = null;
 const races = createRaces({ city, scene, heightAt, car, world, transit, arena, collisionWorld,
   gearbox: { setManual: v => drive.setManual(v), shiftUp: () => drive.shiftUp(), shiftDown: () => drive.shiftDown(), state: () => lastRev },
-  tune: { settings, limits: { traffic: traffic.maxCount, peds: pedestrians.maxCount }, clearZone: z => traffic.setClearZone(z),
+  tune: { rivals: { add: o => traffic.addRival(o), clear: () => traffic.clearRivals() }, settings, limits: { traffic: traffic.maxCount, peds: pedestrians.maxCount }, clearZone: z => traffic.setClearZone(z),
     set: (k, v) => { menu.set(k, v); } }, districtName: (x, z) => { const [X, Y] = fromWorld(x, z); const d = districtAt(X, Y); return d ? d.name : 'City'; } });
 collisionWorld.push(...races.solids);
 const harbour = createHarbour({ city, scene });
@@ -555,7 +555,7 @@ addEventListener('keydown', e => { if (e.code === 'KeyN' && !e.repeat) toggleDay
 
 // ---- camera views: chase / bumper / top / inside, with a small tuner (distance + height) that leaves the car in view ----
 const interior = createInterior({ car, input });
-const camRig = createCameraRig({ camera, car, getOffset: () => camOffset, interior, onMode: mode => { settings.camMode = mode; saveSettings(settings); camSync(); } });
+const camRig = createCameraRig({ camera, car, getOffset: () => camOffset, interior, getInside: () => ({ back: Number(settings.camInBack ?? 0.5), up: Number(settings.camInUp ?? 0.08) }), onMode: mode => { settings.camMode = mode; saveSettings(settings); camSync(); } });
 const camBtn = document.createElement('button'); camBtn.id = 'cambtn'; camBtn.textContent = '📷'; camBtn.tabIndex = -1; camBtn.setAttribute('aria-label', 'Camera views');
 const camPanel = document.createElement('div'); camPanel.id = 'campanel';
 const camStyle = document.createElement('style');
@@ -599,10 +599,14 @@ addEventListener('keydown', e => { if (e.code === 'KeyU' && !e.repeat && !e.targ
 let stuckT = 0;
 setInterval(() => { if (!world.onFoot && world.mode === 'city' && input.forward && Math.abs(car.speed) < 0.4 && !fuel.noFuelNow?.() && !car.noFuel) { stuckT++; if (stuckT === 4) world.toast('Stuck? Press U (or the ⟲ button) to reset the car onto the road'); } else stuckT = 0; }, 1000);
 camPanel.innerHTML = '<div class="seg">' + CAM_MODES.map(([k, n]) => `<button data-m="${k}">${n}</button>`).join('') + '</div>' +
-  '<div class="tune"><label>Distance <b class="vd"></b></label><input type="range" data-k="camDist" min="4" max="18" step="0.5"><label>Height <b class="vh"></b></label><input type="range" data-k="camHeight" min="1.5" max="11" step="0.25"></div>';
+  '<div class="tune"><label>Distance <b class="vd"></b></label><input type="range" data-k="camDist" min="4" max="18" step="0.5"><label>Height <b class="vh"></b></label><input type="range" data-k="camHeight" min="1.5" max="11" step="0.25"></div>' +
+  '<div class="tune in"><label>Seat back <b class="ib"></b></label><input type="range" data-k="camInBack" min="0" max="1" step="0.05"><label>Eye height <b class="iu"></b></label><input type="range" data-k="camInUp" min="-0.1" max="0.35" step="0.01"></div>';
 function camSync() {
   camPanel.querySelectorAll('.seg button').forEach(b => b.classList.toggle('on', b.dataset.m === camRig.mode));
-  camPanel.querySelector('.tune').style.display = camRig.mode === 'chase' || camRig.mode === 'top' ? '' : 'none';
+  camPanel.querySelector('.tune:not(.in)').style.display = camRig.mode === 'chase' || camRig.mode === 'top' ? '' : 'none';
+  camPanel.querySelector('.tune.in').style.display = camRig.mode === 'inside' ? '' : 'none';
+  camPanel.querySelector('.ib').textContent = (+(settings.camInBack ?? 0.5)).toFixed(2); camPanel.querySelector('.iu').textContent = (+(settings.camInUp ?? 0.08)).toFixed(2);
+  camPanel.querySelector('[data-k=camInBack]').value = settings.camInBack ?? 0.5; camPanel.querySelector('[data-k=camInUp]').value = settings.camInUp ?? 0.08;
   camPanel.querySelector('.vd').textContent = (+settings.camDist).toFixed(1); camPanel.querySelector('.vh').textContent = (+settings.camHeight).toFixed(1);
   camPanel.querySelector('[data-k=camDist]').value = settings.camDist; camPanel.querySelector('[data-k=camHeight]').value = settings.camHeight;
   camPanel.querySelector('[data-k=camDist]').disabled = camRig.mode !== 'chase';

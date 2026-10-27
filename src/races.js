@@ -1,6 +1,6 @@
 // Street races: drag (straight line), drift (score in a zone), circuit (one lap of the city through checkpoints) and
 // sprint (a one-off path from A to B). Start gates stand on the street, every race has a pin on the map, and the top
-// three get $5000 / $3000 / $1500. Opponents are ghost cars that follow the route (they never collide with you).
+// three get $5000 / $3000 / $1500. Opponents are real cars in the traffic that follow the route: they bump you and the traffic, and brake and swerve for what is ahead.
 // The route generator is plain data + the road graph, so tools/check.mjs can run it in node (see `planRaces`).
 import * as THREE from 'three';
 
@@ -325,6 +325,29 @@ export function createRaces({ city, scene, heightAt, car, world, districtName, t
   };
   const gs = (g, t) => g.v * (t - g.tau * (1 - Math.exp(-t / g.tau)));
   const gTime = (g, L) => { let lo = 0, hi = 600; for (let i = 0; i < 40; i++) { const mid = (lo + hi) / 2; if (gs(g, mid) < L) lo = mid; else hi = mid; } return hi; };
+  // the rivals are real cars in the traffic (see traffic.js addRival): they follow the route, but bump and get bumped like anyone else
+  function spawnRivals(r, run) {
+    tune.rivals.clear();
+    const L = r.length, loop = r.kind === 'circuit', total = L * run.laps, p0 = ptAt(r.pts, 0), pE = ptAt(r.pts, L);
+    const sample = s => {
+      if (s < 0) return { x: p0.x + p0.dx * s, z: p0.z + p0.dz * s, dx: p0.dx, dz: p0.dz };
+      if (loop) return ptAt(r.pts, s % L);
+      if (s > L) return { x: pE.x + pE.dx * (s - L), z: pE.z + pE.dz * (s - L), dx: pE.dx, dz: pE.dz };
+      return ptAt(r.pts, s);
+    };
+    const project = (x, z, hint) => {
+      let best = hint, bd = 1e12;
+      for (let s = hint - 40; s <= hint + 160; s += 3) { const q = sample(s), d = (q.x - x) ** 2 + (q.z - z) ** 2; if (d < bd) { bd = d; best = s; } }
+      return best;
+    };
+    run.rivals = run.ghosts.map(gh => {
+      const lat = (r.kind === 'drag' ? gh.lat : gh.lat * 0.25) * Math.min(1, Math.max(0.5, (r.width - 6) / 12)) + 1.4;
+      const car = tune.rivals.add({ sample, project, loop, total, vmax: gh.v, tau: gh.tau, lat, maxLat: Math.max(2, r.width / 2 - 2.4), s0: -gh.back });
+      car.rival.t = -3.2;
+      return car;
+    });
+  }
+  const rivalS = (run, i) => (run.rivals && run.rivals[i] && run.rivals[i].rival ? run.rivals[i].rival.s : 0);
   const driftTargets = [16000, 10500, 6200];
 
 
@@ -436,6 +459,7 @@ export function createRaces({ city, scene, heightAt, car, world, districtName, t
     const K = RACE_KINDS[r.kind];
     run = { r, K, laps: r.kind === 'circuit' ? (r.laps || 1) : 1, lapIdx: 0, lapT0: 0, bestLap: 0, t: -3.2, phase: 'count', cp: 0, ghosts: r.kind === 'drift' ? [] : ghostSetup(r), progress: 0, score: 0, chain: 0, chainT: 0, mult: 1, bank: 0, calm: 0, lost: '', best: 0 };
     document.documentElement.style.setProperty('--race', K.color);
+    if (r.kind !== 'drift' && tune && tune.rivals) spawnRivals(r, run);
     let x = r.start.x, z = r.start.z, h = r.start.heading;
     if (r.kind === 'drag' || r.kind === 'circuit' || r.kind === 'sprint') { const p = ptAt(r.pts, 0), px = -p.dz; x += px * Math.min(1.6, r.width / 5); z += p.dx * Math.min(1.6, r.width / 5); }
     if (r.track && arena) {
@@ -456,6 +480,7 @@ export function createRaces({ city, scene, heightAt, car, world, districtName, t
       const g = run.r.start; car.teleport(g.x + g.dx * 12, g.z + g.dz * 12, heightAt(g.x, g.z), g.heading); car.speed = 0; car.vx = 0; car.vz = 0;
     }
     if (gearbox) { gearbox.setManual(false); } dialEl.style.display = 'none'; shiftEl.style.display = 'none';
+    if (tune && tune.rivals) tune.rivals.clear();
     if (tune) { if (tune.clearZone) tune.clearZone(null); if (restore) { tune.set('traffic', restore.traffic); tune.set('peds', restore.peds); restore = null; } }
     run = null; hud.style.display = 'none'; countEl.style.display = 'none'; quitBtn.style.display = 'none';
     rings.forEach(m => { m.visible = false; }); beacon.visible = false; guide.visible = false; zoneRing.visible = false; ghostMeshes.forEach(m => { m.visible = false; });
@@ -477,7 +502,7 @@ export function createRaces({ city, scene, heightAt, car, world, districtName, t
       place = rows.findIndex(x => x.me); rows.forEach(x => { x.val = x.val.toLocaleString('en-US') + ' pts'; });
       const prev = save[r.id] || {}; if (!prev.best || mineScore > prev.best) save[r.id] = { ...prev, best: mineScore };
     } else {
-      const t = timeOrScore, g = run.ghosts.map(gh => gTime(gh, r.length * run.laps));
+      const t = timeOrScore, g = run.ghosts.map((gh, i) => { const R = run.rivals && run.rivals[i] && run.rivals[i].rival; return R ? (R.finished != null ? R.finished : t + Math.max(0, r.length * run.laps - R.s) / Math.max(8, R.vmax * 0.8)) : gTime(gh, r.length * run.laps); });
       const names = ['Rival A', 'Rival B', 'Rival C'];
       rows = g.map((tt, i) => ({ name: names[i], tt })).concat([{ name: 'You', tt: t, me: true }]).sort((a, b) => a.tt - b.tt);
       place = rows.findIndex(x => x.me); rows.forEach(x => { x.val = fmt(x.tt); });
@@ -543,15 +568,15 @@ export function createRaces({ city, scene, heightAt, car, world, districtName, t
       countEl.style.display = 'flex'; countEl.textContent = n > 0 ? String(n) : 'GO!'; countEl.style.color = n > 0 ? '#fff' : K.color;
       hud.innerHTML = `<div class="big">${K.name.toUpperCase()}</div><small>${r.name}</small>`;
       if (t >= 0) { run.phase = 'go'; setTimeout(() => { if (!run || run.phase !== 'go') countEl.style.display = 'none'; else if (run.t > 0.8) countEl.style.display = 'none'; }, 900); }
-      if (t < 0) { placeGhosts(r, 0, true); return; }
+      if (t < 0) { if (!run.rivals) placeGhosts(r, 0, true); return; }
     }
     if (t > 0.9) countEl.style.display = 'none';
     if (r.kind === 'drift') return driftStep(dt);
     // ghosts
-    placeGhosts(r, t, false);
+    if (!run.rivals) placeGhosts(r, t, false);
     // progress / checkpoints
     run.progress = progressOf(r, run.progress);
-    let posN = 1; run.ghosts.forEach(gh => { if (gs(gh, t) > run.lapIdx * r.length + run.progress) posN++; });
+    let posN = 1; run.ghosts.forEach((gh, i) => { if ((run.rivals ? rivalS(run, i) : gs(gh, t)) > run.lapIdx * r.length + run.progress) posN++; });
     if (r.kind === 'drag') {
       hud.innerHTML = `<div class="big">${fmt(t)}</div><small>POS ${posN}/4 &middot; ${Math.max(0, Math.round((r.length - run.progress) * 1.25))} m to go</small>`;
       if (run.progress >= r.length - 0.5 && t > 1) finish(t);

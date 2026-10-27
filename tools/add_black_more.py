@@ -42,15 +42,15 @@ def on_lm_outline(p):
     for x0, y0, x1, y1 in LM:
         if x0 - 3 <= p[0] <= x1 + 3 and y0 - 3 <= p[1] <= y1 + 3 and min(abs(p[0] - x0), abs(p[0] - x1), abs(p[1] - y0), abs(p[1] - y1)) < 2.5: return True
     return False
-new = []
+new = []; rej = []
 for ci, cj, path in edges:
-    if ci == cj or len(path) < 18: continue
+    if ci == cj or len(path) < 18: rej.append(('short/loop', path)); continue
     pts = to_poly(path, cen[ci] if ci >= 0 else None, cen[cj] if cj >= 0 else None, 1.6)
     L = plen(pts)
-    if L < 6 or ((cj < 0 or ci < 0) and L < 12): continue
+    if L < 6 or ((cj < 0 or ci < 0) and L < 12): rej.append(('len%d' % L, pts)); continue
     dense = [[pts[i][0] + (pts[i + 1][0] - pts[i][0]) * t / 4, pts[i][1] + (pts[i + 1][1] - pts[i][1]) * t / 4] for i in range(len(pts) - 1) for t in range(4)]
-    if np.mean([on_lm_outline(p) for p in dense]) > 0.5: continue
-    if np.mean([min(dseg(q, hw[i], hw[i + 1])[0] for i in range(len(hw) - 1)) < 38 for q in dense]) > 0.7: continue   # interchange arcs
+    if np.mean([on_lm_outline(p) for p in dense]) > 0.5: rej.append(('lm', pts)); continue
+    if np.mean([min(dseg(q, hw[i], hw[i + 1])[0] for i in range(len(hw) - 1)) < 38 for q in dense]) > 0.7: rej.append(('hw', pts)); continue   # interchange arcs
     # water on one side = the outline of a pier or landmark
     side = 0; n = 0
     for i in range(len(pts) - 1):
@@ -58,19 +58,22 @@ for ci, cj, path in edges:
         for t in (0.25, 0.75):
             mx, my = a[0] + (b[0] - a[0]) * t, a[1] + (b[1] - a[1]) * t
             side += wat(mx + nx * 3, my + ny * 3) or wat(mx - nx * 3, my - ny * 3); n += 1
-    if n and side / n > 0.35: continue
-    if np.mean([wat(q[0], q[1]) for q in dense]) > 0.1: continue                                   # a bank line, not a road
+    if n and side / n > 0.35: rej.append(('water', pts)); continue
+    if np.mean([wat(q[0], q[1]) for q in dense]) > 0.1: rej.append(('bank', pts)); continue                                   # a bank line, not a road
     linked = 0
     for end in (0, -1):
         d, q = nearest(pts[end])
         if d < 6: pts.insert(0, list(q)) if end == 0 else pts.append(list(q)); linked += 1
-    if linked == 0 or (L < 10 and linked < 2): continue                                              # lettering and specks float free
+    if linked == 0 or (L < 10 and linked < 2): rej.append(('float', pts)); continue                                              # lettering and specks float free
     new.append(pts)
 print('new black roads', len(new), 'total length', round(sum(plen(p) for p in new)))
 if DRY:
     out = cv2.resize(im, None, fx=3, fy=3)
     for pl in existing: cv2.polylines(out, [np.array(pl) .__mul__(3).astype(np.int32)], False, (255, 255, 255), 1)
     for pl in new: cv2.polylines(out, [(np.array(pl) * 3).astype(np.int32)], False, (255, 0, 255), 2)
+    cols = {'lm': (0, 165, 255), 'hw': (0, 0, 255), 'water': (255, 0, 0), 'bank': (255, 255, 0), 'float': (0, 255, 0)}
+    for why, pl in rej:
+        c = cols.get(why, (200, 200, 200)); cv2.polylines(out, [(np.array(pl) * 3).astype(np.int32)], False, c, 2)
     cv2.imwrite('/tmp/claude-0/-home-claude/c8dde71d-e3f7-56ec-bf2b-8d3fccfb4cee/scratchpad/black_more.png', out); sys.exit()
 for pts in new: md['streets'].append({'cls': 'two', 'pts': [[round(x * SCALE, 1), round(y * SCALE, 1)] for x, y in pts]})
 json.dump(md, open(os.path.join(P, 'mapdata.json'), 'w'))

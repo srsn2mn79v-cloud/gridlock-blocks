@@ -73,20 +73,20 @@ export function createInput() {
       #touch .tb.brake.down { background: rgba(220,70,60,0.7); }
       #touch .tb.on { background: rgba(255,190,50,0.6); border-color: rgba(255,230,150,0.9); color: #1a1405; }
       #touch .steer { bottom: max(22px, env(safe-area-inset-bottom)); width: 22vw; max-width: 130px; min-width: 76px; height: 22vw; max-height: 130px; min-height: 76px; font-size: 38px; }
-      #touch .pedal { right: max(18px, env(safe-area-inset-right)); width: 24vw; max-width: 140px; min-width: 84px; font-size: 20px; }
-      #touch #tgrid { position: absolute; right: calc(max(18px, env(safe-area-inset-right)) + min(24vw, 110px) + 12px); bottom: max(22px, env(safe-area-inset-bottom)); display: grid; grid-template-columns: repeat(3, 38px); gap: 6px; pointer-events: none; }
+      #touch .pedal { right: max(14px, env(safe-area-inset-right)); width: 68px; font-size: 18px; }
+      #touch #tgrid { position: absolute; right: calc(max(14px, env(safe-area-inset-right)) + 68px + 10px); bottom: max(22px, env(safe-area-inset-bottom)); display: grid; grid-template-columns: repeat(3, 38px); gap: 6px; pointer-events: none; }
       #touch #tgrid .tb { position: static; width: 38px; height: 38px; min-width: 0; font-size: 14px; border-radius: 50%; padding: 0; pointer-events: auto; }
       #touch #tgrid .tb.ft { display: none; } #touch.foot #tgrid .tb.ft { display: flex; }
       #touch .small { top: max(12px, env(safe-area-inset-top)); width: 54px; height: 44px; font-size: 18px; border-radius: 12px; }
-      #touch .wheel { left: max(18px, env(safe-area-inset-left)); bottom: max(22px, env(safe-area-inset-bottom)); width: min(46vw, 300px); height: 96px; border-radius: 48px; }
+      #touch .wheel { left: max(18px, env(safe-area-inset-left)); bottom: max(22px, env(safe-area-inset-bottom)); width: min(40vw, 260px); height: 62px; border-radius: 31px; }
       #touch .wheel .hint { font-size: 11px; opacity: .6; pointer-events: none; }
-      #touch .wheel .knob { position: absolute; left: calc(50% - 30px); top: 18px; width: 60px; height: 60px; border-radius: 50%; background: rgba(230,240,255,.55); pointer-events: none; }
+      #touch .wheel .knob { position: absolute; left: calc(50% - 21px); top: 10px; width: 42px; height: 42px; border-radius: 50%; background: rgba(230,240,255,.55); pointer-events: none; }
       #touch .wheel.down .knob { background: rgba(110,170,240,.9); }
-      #touch .hand { left: max(18px, env(safe-area-inset-left)); bottom: calc(max(22px, env(safe-area-inset-bottom)) + 112px); width: 96px; height: 52px; font-size: 14px; letter-spacing: .5px; }
+      #touch .hand { left: max(18px, env(safe-area-inset-left)); bottom: calc(max(22px, env(safe-area-inset-bottom)) + 76px); width: 88px; height: 44px; font-size: 14px; letter-spacing: .5px; }
       #touch .hand.down { background: rgba(255,150,40,.75); }
-      #touch .gas { right: max(18px, env(safe-area-inset-right)); bottom: calc(max(22px, env(safe-area-inset-bottom)) + 74px); width: min(24vw, 110px); min-width: 84px; height: min(40vh, 190px); overflow: hidden; align-items: flex-start; justify-content: center; }
+      #touch .gas { right: max(14px, env(safe-area-inset-right)); bottom: calc(max(22px, env(safe-area-inset-bottom)) + 62px); width: 68px; height: min(26vh, 120px); overflow: hidden; align-items: flex-start; justify-content: center; }
       #touch .gas .fill { position: absolute; left: 0; right: 0; bottom: 0; height: 0; background: rgba(80,200,120,.55); pointer-events: none; }
-      #touch .gas .lbl { position: relative; margin-top: 10px; font-size: 16px; text-align: center; pointer-events: none; }
+      #touch .gas .lbl { position: relative; margin-top: 8px; font-size: 14px; text-align: center; pointer-events: none; }
       html.touch #hud small { display: none; }
       #touch .ft { display: none; }
       #touch.foot .ft { display: block; }
@@ -147,7 +147,7 @@ export function createInput() {
     root.appendChild(wheel);
     const knob = wheel.querySelector('.knob');
     const steerFrom = e => {
-      const r = wheel.getBoundingClientRect(), half = r.width / 2 - 34;
+      const r = wheel.getBoundingClientRect(), half = r.width / 2 - 26;
       const dx = e.clientX - (r.left + r.width / 2);
       const ax = Math.max(-1, Math.min(1, -dx / half));
       // progressive: the first half of the slide barely turns, full lock only at the far end
@@ -179,7 +179,7 @@ export function createInput() {
     ['pointerup', 'pointercancel', 'lostpointercapture'].forEach(n => gas.addEventListener(n, gasUp));
     gas.addEventListener('contextmenu', e => e.preventDefault());
     // Brake/reverse: like the S/Down key, brakes first and only reverses once nearly stopped.
-    holdButton('BRAKE', 'back', 'pedal brake', { bottom: 'max(22px, env(safe-area-inset-bottom))', height: 'min(14vw, 84px)', minHeight: '60px' });
+    holdButton('BRAKE', 'back', 'pedal brake', { bottom: 'max(22px, env(safe-area-inset-bottom))', height: 'min(12vw, 56px)', minHeight: '46px' });
 
     // handbrake: throws the tail out for drifting (the keyboard's Space while on the gas)
     holdButton('HANDBRAKE', 'handbrake', 'hand', {});

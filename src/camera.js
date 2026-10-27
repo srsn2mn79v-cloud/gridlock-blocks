@@ -40,7 +40,7 @@ export function updateFollowCamera(camera, car, offset, dt, blocked) {
 
 // ---- camera views: chase (tunable distance/height), front bumper, top-down, inside the car ----------------------------------------
 export const CAM_MODES = [['chase', 'Chase'], ['bumper', 'Bumper'], ['top', 'Top'], ['inside', 'Inside']];
-export function createCameraRig({ camera, car, getOffset, interior, onMode }) {
+export function createCameraRig({ camera, car, getOffset, interior, onMode, getInside = () => ({ back: 0.5, up: 0.08 }) }) {
   let mode = 'chase', prev = 'chase';
   const eye = new THREE.Vector3(), look = new THREE.Vector3();
   const rig = {
@@ -76,10 +76,12 @@ export function createCameraRig({ camera, car, getOffset, interior, onMode }) {
       // inside: the driver's eye, a little left of centre
       const k = interior.root.position.y, side = 0.4;
       const cs = Math.cos(car.heading), sn = Math.sin(car.heading);
-      eye.set(car.x + cs * side + sin * 0.02, car.y + 1.08 + k, car.z - sn * side + cos * 0.02);
+      // seated behind the wheel (not on top of the dash): the wheel, the dash and the road ahead are all in view; the seat can be moved in the camera panel
+      const ins = getInside(), fwd = 0.02 - ins.back;
+      eye.set(car.x + cs * side + sin * fwd, car.y + 1.08 + k + ins.up, car.z - sn * side + cos * fwd);
       camera.position.copy(eye);
       camera.up.set(Math.sin(roll), Math.cos(roll), 0);
-      look.set(eye.x + sin * 12, eye.y - 0.22 - pitch * 6 + (car.vy || 0) * 0, eye.z + cos * 12);
+      look.set(eye.x + sin * 12, eye.y - 0.5 - pitch * 6 + (car.vy || 0) * 0, eye.z + cos * 12);
       camera.lookAt(look);
     }
   };
