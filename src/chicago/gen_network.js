@@ -45,23 +45,37 @@ export function generateRoads() {
   // The side away from the city has no street of its own, so the street carries on over the interstate on a bridge
   // to meet the outside ramps - that is how the "outside lane" gets its exits.
   const IX = IXS.map((ix, k) => {
-    const sw = TP(ix.pts); const q = hook(sw[1], 60); if (q) sw[1] = q;
-    return { sw0: sw, street: ix.pts, cls: ix.cls || 'six', no: k + 1, label: ix.label || ('Interchange ' + (k + 1)) };
+    const sw = TP(ix.pts); const q = hook(sw[sw.length - 1], 60); if (q) sw[sw.length - 1] = q;
+    return { sw, ramps: (ix.ramps || []).map(r => TP(r)), cls: ix.cls || 'six', no: k + 1, label: ix.label || ('Interchange ' + (k + 1)) };
   });
   const ramps = [];
-  const QD = 84, A = 165, ENTRY_END = 185;
+  const LEAD = 45, ENTRY_END = LEAD;
   const needS = [];
+  // arclength of the interstate at the point nearest to p, and which side of it p is on (+1 = right of the path)
+  const along = p => {
+    let best = null, acc = 0;
+    for (let i = 1; i < H.length; i++) {
+      const l = dist(H[i - 1], H[i]), r = distToSeg(p[0], p[1], H[i - 1][0], H[i - 1][1], H[i][0], H[i][1]);
+      if (!best || r.d < best.d) { const dx = (H[i][0] - H[i - 1][0]) / l, dz = (H[i][1] - H[i - 1][1]) / l; best = { d: r.d, s: acc + r.t * l, side: ((p[0] - H[i - 1][0]) * -dz + (p[1] - H[i - 1][1]) * dx) > 0 ? 1 : -1 }; }
+      acc += l;
+    }
+    return best;
+  };
   IX.forEach(ix => {
-    const sw = ix.sw0;
+    const sw = ix.sw;
     let P = null, hs = 0;
-    for (let i = 1; i < H.length && !P; i++) {
-      const r = segInter(sw[0], sw[1], H[i - 1], H[i]);
-      if (r) { P = [sw[0][0] + (sw[1][0] - sw[0][0]) * r.t, sw[0][1] + (sw[1][1] - sw[0][1]) * r.t]; hs = 0; for (let k = 1; k < i; k++) hs += dist(H[k - 1], H[k]); hs += dist(H[i - 1], P); }
+    for (let j = 1; j < sw.length && !P; j++) for (let i = 1; i < H.length && !P; i++) {
+      const r = segInter(sw[j - 1], sw[j], H[i - 1], H[i]);
+      if (r) { P = [sw[j - 1][0] + (sw[j][0] - sw[j - 1][0]) * r.t, sw[j - 1][1] + (sw[j][1] - sw[j - 1][1]) * r.t]; hs = 0; for (let k = 1; k < i; k++) hs += dist(H[k - 1], H[k]); hs += dist(H[i - 1], P); }
     }
     if (!P) { warnings.push('interchange street misses the highway: ' + ix.label); return; }
-    const len = dist(sw[0], sw[1]), u = [(sw[1][0] - sw[0][0]) / len, (sw[1][1] - sw[0][1]) / len];
-    Object.assign(ix, { P, hs, uIn: u, sw, Qin: [P[0] + u[0] * QD, P[1] + u[1] * QD], Qout: [P[0] - u[0] * QD, P[1] - u[1] * QD] });
-    needS.push(hs - A, hs + ENTRY_END, hs + A, hs - ENTRY_END);
+    Object.assign(ix, { P, hs });
+    ix.ramps.forEach(r => {
+      const e = along(r[0]); r.info = e; r.junction = dist(r[r.length - 1], sw[0]) < dist(r[r.length - 1], sw[1]) ? sw[0] : sw[1];
+      const f = e.side, exitKind = (f > 0 ? e.s < hs : e.s > hs);   // the right-hand carriageway of the side the arc is on; upstream of the street = exit
+      r.f = f; r.kind = exitKind ? 'exit' : 'entry';
+      needS.push(e.s - f * (exitKind ? LEAD : -LEAD), e.s);
+    });
   });
   // put vertices into the interstate where the slip roads leave and rejoin it
   needS.sort((a, b) => a - b).forEach(s => {
@@ -88,33 +102,26 @@ export function generateRoads() {
   }
   IX.forEach(ix => {
     if (!ix.P) return;
-    const { hs, P } = ix;
-    const rp = hwPoint(hs), inDot = rp.rx * ix.uIn[0] + rp.rz * ix.uIn[1];
-    [1, -1].forEach(f => {                          // f=+1 travels along the path, f=-1 against it
-      const inside = (inDot * f) > 0;               // the right-hand side of this direction is the city side
-      const Q = inside ? ix.Qin : ix.Qout;
-      const sAt = a => hs + f * (a - A);
-      const lat = (a, l) => { const h = hwPoint(sAt(a)); const L = l < 10 ? CAR_OFF + l * 0.75 : l + 9; return [h.x + h.rx * f * L, h.z + h.rz * f * L]; };
-      // Q in the ramp's own frame: aq along the interstate (A = level with the street), lq out from the carriageway. Both ramps
-      // swing out with eased lateral growth and arrive at the street running parallel to the interstate, i.e. square on.
-      const tg = hwPoint(hs + 1), tgx = tg.x - rp.x, tgz = tg.z - rp.z, tl = Math.hypot(tgx, tgz) || 1;
-      const qx = Q[0] - rp.x, qz = Q[1] - rp.z;
-      const aq = A + ((qx * tgx + qz * tgz) / tl) * f, lq = (qx * rp.rx + qz * rp.rz) * f - 9;
-      const sm = k => k * k * (3 - 2 * k);
-      const swingOut = [0.18, 0.36, 0.54, 0.72, 0.88].map(k => lat(70 + (aq - 28 - 70) * k, 14.5 + (lq - 14.5) * sm(k)));
-      const exitPts = [lat(0, 0), lat(30, 14.5), lat(70, 14.5), ...swingOut, lat(aq - 12, lq), Q];
-      const swingIn = [0.2, 0.4, 0.6, 0.8, 1].map(k => lat(aq + 14 + 82 * k, lq + (14.5 - lq) * sm(k)));
-      const entryPts = [Q, lat(aq + 12, lq), ...swingIn, lat(A + 135, 14.5), lat(A + 170, 5), lat(A + ENTRY_END, 0)];
-      ramps.push({ pts: exitPts, kind: 'exit', f, ix, inside });
-      ramps.push({ pts: entryPts, kind: 'entry', f, ix, inside });
+    ix.ramps.forEach(r => {
+      const { f, kind } = r, e = r.info, ex = kind === 'exit';
+      const carr = s => { const h = hwPoint(s); return [h.x + h.rx * f * CAR_OFF, h.z + h.rz * f * CAR_OFF]; };
+      const arc = r.slice(0, -1).concat([r.junction]);
+      const sm = k => k * k * (3 - 2 * k), blend = [];
+      for (let k = 0; k <= 4; k++) {
+        const w = sm(k / 4), s0 = e.s + f * (ex ? -1 : 1) * LEAD * (1 - k / 4), c = carr(s0);
+        blend.push([c[0] + (arc[0][0] - c[0]) * w, c[1] + (arc[0][1] - c[1]) * w]);
+      }
+      if (ex) ramps.push({ pts: blend.concat(arc.slice(1)), kind, f, ix, inside: true });
+      else { const q = arc.slice().reverse().concat(blend.slice().reverse().slice(1)); ramps.push({ pts: q, kind, f, ix, inside: true }); }
     });
-    // the street: outside meeting point -> over the interstate -> inside meeting point -> into the city
-    lines.push({ id: 'IXS' + ix.no, cls: ix.cls, pts: [ix.Qout, ix.Qin, ix.sw[1]], bridge: true, crossHW: true, ixStreet: true });
+    // the street: outer junction -> over the interstate -> inner junction -> into the city
+    const d0 = [ix.sw[0][0] - ix.sw[1][0], ix.sw[0][1] - ix.sw[1][1]], l0 = Math.hypot(d0[0], d0[1]) || 1;   // a short tail beyond the outer junction gives the bridge room (the tail itself is pruned as a stub)
+    lines.push({ id: 'IXS' + ix.no, cls: ix.cls, pts: [[ix.sw[0][0] + d0[0] / l0 * 70, ix.sw[0][1] + d0[1] / l0 * 70], ...ix.sw], bridge: true, crossHW: true, ixStreet: true });
   });
   ramps.forEach((r, i) => lines.push({ id: 'RP' + i, cls: 'ramp', pts: r.pts, noJoin: true, ramp: r }));
 
   // ---- barriers for the bridge builder -----------------------------------------------------------------------------------------------------
   const barriers = RIVERS.map(r => ({ kind: 'river', half: r.half, pts: r.pts })).concat([hwBarrier]);
-  const net = buildNetwork(lines, barriers, { warn: m => warnings.push(m), minEdge: 13, stubLen: 60 });
+  const net = buildNetwork(lines, barriers, { warn: m => warnings.push(m), minEdge: 13, stubLen: 90 });
   return { net, lines, H, warnings, IX, ramps, CAR_OFF, ENTRY_END };
 }

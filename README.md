@@ -767,3 +767,8 @@ function per new type) whenever you want it — say the word and I'll add them.
 - The thin black lines on the map are roads (small streets, causeways to the piers, highway exit ramps), not park paths. `tools/add_black_roads.py` traces them and adds them after `build_mapdata.py`; ramps next to the highway are left to the interchange code. Highway exits are now the three on the map: top-left diamond (Wrigley), west clover, bottom lens (McCormick); the stray exit at Old Town is gone.
 - Roads to Navy Pier, the Filtration Plant, Adler Planetarium and Meigs Field are back (on thin causeway decks, which the water check now treats as dry).
 - Bus lines may use some local streets (at most 55 % of a line) and tolerate sharper turns.
+
+### Fix (same day): road sanity pass
+- `tools/clean_map.py` (run after add_black_roads + dedupe, before build_interchanges): straightens wiggly streets, closes gaps between a dead end and the street it points at (up to ~40 m anywhere, ~100 m when collinear, further across rivers), and drops isolated pieces shorter than ~140 m. The network builder now also prunes dead-end stubs under 90 units.
+- `tools/build_interchanges.py` traces the three interchanges (clover, Wrigley diamond, McCormick lens) from the black lines of the map as real arcs; `gen_network.js` builds the slip roads from those arcs (exit/entry decided by which side of the interstate and which side of the cross street they sit), with a short blend onto the carriageway. Streets that only traced a ramp are removed.
+- Order of the tools: build_mapdata, add_black_roads, dedupe_streets, clean_map, build_interchanges.
