@@ -35,9 +35,10 @@ function normalizeAngle(a) {
 
 // Cruising speeds in world units/s; the HUD shows units*6.2 as km/h, so these sit just under
 // the posted limits of 40 / 60 / 100 (see junctionRules.js).
-const typeSpeed = { local: 6.3, avenue: 9.5, highway: 15.8 };
+const typeSpeed = { local: 40 / KMH_PER_U, avenue: 60 / KMH_PER_U, highway: 98 / KMH_PER_U };   // the posted limits of junctionRules.js
 const bodyColors = [0x3a6ea5, 0x8a8a8a, 0x5a9e5a, 0xb5543a, 0xcac35a, 0x6a4a8a];
 
+import { KMH_PER_U, SPEED_SCALE } from './units.js';
 import { bodyLift } from './bodyLift.js';
 import { addServiceGear, SERVICE_BASE, SERVICE_COLOR, isService } from './serviceVehicles.js';
 import { buildTrafficBody, TRAFFIC_DIMS } from './vehicleModels.js';
@@ -46,15 +47,15 @@ import { buildTrafficBody, TRAFFIC_DIMS } from './vehicleModels.js';
 // they accelerate / brake (units/s^2), and the circles that make up their collision shape
 // (offsets along the vehicle, so buses and trucks are not one big round blob).
 const VEH = {
-  sedan: { mass: 1300, speedMul: 1.0,  accel: 3.4, brake: 13,  circles: [-0.75, 0.75], r: 1.0 },
-  taxi:  { mass: 1500, speedMul: 1.1,  accel: 3.8, brake: 13,  circles: [-0.75, 0.75], r: 1.02 },
-  van:   { mass: 2400, speedMul: 0.92, accel: 2.6, brake: 11,  circles: [-1.3, 1.3], r: 1.1 },
-  truck: { mass: 7500, speedMul: 0.8,  accel: 1.5, brake: 8.5, circles: [-2.6, 0, 2.6], r: 1.3 },
-  bus:   { mass: 11000, speedMul: 0.74, accel: 1.7, brake: 9,  circles: [-3.8, -1.3, 1.3, 3.8], r: 1.4 },
-  police:    { mass: 1700, speedMul: 1.2,  accel: 4.6, brake: 14, circles: [-0.75, 0.75], r: 1.0 },
-  ambulance: { mass: 2900, speedMul: 1.12, accel: 3.4, brake: 12, circles: [-1.3, 1.3], r: 1.1 },
-  fire:      { mass: 9000, speedMul: 1.0,  accel: 2.2, brake: 9,  circles: [-2.6, 0, 2.6], r: 1.3 },
-  plow:      { mass: 8500, speedMul: 0.5,  accel: 1.6, brake: 9,  circles: [-2.6, 0, 2.6], r: 1.3 }
+  sedan: { mass: 1300, speedMul: 1.0,  accel: 4.7, brake: 17.9,  circles: [-0.75, 0.75], r: 1.0 },
+  taxi:  { mass: 1500, speedMul: 1.1,  accel: 5.2, brake: 17.9,  circles: [-0.75, 0.75], r: 1.02 },
+  van:   { mass: 2400, speedMul: 0.92, accel: 3.6, brake: 15.2,  circles: [-1.3, 1.3], r: 1.1 },
+  truck: { mass: 7500, speedMul: 0.8,  accel: 2.1, brake: 11.7, circles: [-2.6, 0, 2.6], r: 1.3 },
+  bus:   { mass: 11000, speedMul: 0.74, accel: 2.3, brake: 12.4,  circles: [-3.8, -1.3, 1.3, 3.8], r: 1.4 },
+  police:    { mass: 1700, speedMul: 1.2,  accel: 6.3, brake: 19.3, circles: [-0.75, 0.75], r: 1.0 },
+  ambulance: { mass: 2900, speedMul: 1.12, accel: 4.7, brake: 16.5, circles: [-1.3, 1.3], r: 1.1 },
+  fire:      { mass: 9000, speedMul: 1.0,  accel: 3.0, brake: 12.4,  circles: [-2.6, 0, 2.6], r: 1.3 },
+  plow:      { mass: 8500, speedMul: 0.5,  accel: 2.2, brake: 12.4,  circles: [-2.6, 0, 2.6], r: 1.3 }
 };
 // mix that repeats down the pool so any density slider position gets a believable blend
 const TYPE_CYCLE = ['sedan', 'sedan', 'taxi', 'sedan', 'van', 'sedan', 'bus', 'sedan', 'truck', 'sedan', 'taxi', 'van', 'sedan', 'sedan', 'truck', 'bus'];
@@ -233,7 +234,7 @@ export function createTrafficSystem(cityData, scene, heightAt, count = 6, maxCou
     return { x: p0.x + (p1.x - p0.x) * u, z: p0.z + (p1.z - p0.z) * u, heading: h, idx: i };
   }
   // Fastest sensible speed for the bends just ahead (lateral acceleration limit).
-  const LAT_ACC = 6.5;
+  const LAT_ACC = 6.5 * SPEED_SCALE * SPEED_SCALE;
   function curveCap(path, idx, s, speed) {
     const look = 5 + speed * 0.7;
     let k = Math.max(path.curv[idx - 1] || 0, path.curv[idx] || 0);

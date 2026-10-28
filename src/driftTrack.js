@@ -7,7 +7,9 @@ import { createGroundGlow, setGlow } from './glow.js';
 
 export const ARENA_X = -9000, ARENA_STEP = 900;
 export const inArena = x => x < -6000;
-const WIDTH = 22, WALL_GAP = 2.6, BONUS_FROM_WALL = 3.2, BONUS_MARGIN = 0.5;   // units (1 u = 1.25 m): the bonus band is the 4 m next to either wall
+// units (1 u = 1.25 m). TRACK_SCALE shrinks every layout below to half its length and width (a quarter of the area); the extra-points band
+// next to each wall is twice as wide as it was (6.4 u + 1 u of margin instead of 3.2 + 0.5), i.e. about 9 m from the wall.
+const TRACK_SCALE = 0.5, WIDTH = 18, WALL_GAP = 2.6, BONUS_FROM_WALL = 6.4, BONUS_MARGIN = 1.0;
 
 // ---- centrelines ---------------------------------------------------------------------------------
 function fillet(poly, R, step = 3) {
@@ -97,7 +99,7 @@ export function createDriftTracks({ scene }) {
   const pools = [];
 
   DEFS.forEach((def, ti) => {
-    const { pts: raw, length } = def.poly();
+    const big = def.poly(), { pts: raw, length } = resample(big.pts.map(p => [p[0] * TRACK_SCALE, p[1] * TRACK_SCALE]), 4);
     let cx = 0, cz = 0; raw.forEach(p => { cx += p[0]; cz += p[1]; }); cx /= raw.length; cz /= raw.length;
     const ox = ARENA_X, oz = ti * ARENA_STEP;
     const pts = raw.map(p => [p[0] - cx + ox, p[1] - cz + oz]);

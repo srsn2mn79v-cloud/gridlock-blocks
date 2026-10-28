@@ -780,6 +780,9 @@ function per new type) whenever you want it — say the word and I'll add them.
 
 ## Latest additions
 
+- **True speeds.** The HUD's km/h used 6.2 per world unit/s but 1 u = 1.25 m, so it showed ~38 % more than the car covered. `src/units.js` now holds `KMH_PER_U = 4.5` and every speed and acceleration (cars, traffic and its limits, rivals, class reference speeds, reverse, stat bars, taxi time limit) was multiplied by 6.2/4.5, so a car shows the same km/h as before but really covers that ground.
+- **Drift circuits** are half the length and width (a quarter of the area; lap 280-360 m, 18 u wide) and the extra-points band next to each wall is twice as wide.
+
 - **Road map rebuilt from the clean map image.** The street layer (`streets` in `src/chicago/mapdata.json`) was re-traced from the clean map (tan avenues, maroon streets, black roads): 349 traced pieces, merged into 143 long, straight streets (gentle curves only where the map has them). Roads hidden behind map labels (Art Institute, Sears Tower, Dearborn Station, Field Museum, Wrigley Field, John Hancock Center, McCormick Place) are connected. `tools/apply_new_map.py <chains.json>` applies it (set `RIVERS_JSON` to the output of `node tools/export_rivers.mjs <file>` so roads are tested against the game's own water): it keeps roads out of the water except real bridge crossings, joins dead ends over dry land and adds a Shedd Aquarium deck.
 - **Interchanges use standard layouts.** Wrigley (north-west) and McCormick (south-west) are *diamonds* with straight slip roads; the west one is a *partial cloverleaf*. Slip-road lanes no longer run over a river.
 - Lamps keep clear of junction corners.

@@ -85,7 +85,7 @@ export class Car {
     this.vx = 0; this.vz = 0;   // real world velocity: trails the heading when grip is low
     this.grip = 1;              // 1 dry road, lower when wet / snowy (set from main.js)
     this.steerAngle = 0; // eased "steering wheel" angle, see update()
-    this.maxReverse = -10;
+    this.maxReverse = -13.8;
     this.collisionRadius = 1.1; // used by collision.js for car-vs-world hit tests
     // YXZ so yaw (heading) applies first in world space, then pitch/roll apply in the
     // car's own local frame — the nose tips and the body leans relative to where it's

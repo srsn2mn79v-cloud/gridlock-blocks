@@ -300,14 +300,14 @@ async function checkCovered() {
   return { name: 'covered', count: n + ' sample points', bad };
 }
 
-// drift circuits: corners wide enough to drift (radius >= 24 u), walls clear of the road, tracks far from each other and from the city
+// drift circuits: corners wide enough to drift (radius >= 12 u), walls clear of the road, tracks far from each other and from the city
 async function checkDrift() {
   const { createDriftTracks } = await imp('src/driftTrack.js');
   const d = createDriftTracks({ scene: new THREE.Scene() }), bad = [];
   d.tracks.forEach(t => {
-    if (t.minR < 24) bad.push(t.id + ' tightest corner ' + t.minR + ' u');
+    if (t.minR < 12) bad.push(t.id + ' tightest corner ' + t.minR + ' u');
     let close = 0; t.wall.forEach(w => { if (t.distFrom(w.x, w.z) < t.width / 2 + 2) close++; }); if (close) bad.push(t.id + ': ' + close + ' wall posts inside the track');
-    if (t.length < 450 || t.length > 1400) bad.push(t.id + ' lap ' + t.length + ' m');
+    if (t.length < 250 || t.length > 700) bad.push(t.id + ' lap ' + t.length + ' m');
     if (d.heightAt(t.pts[0][0], t.pts[0][1]) !== 0 || d.heightAt.kind !== 'road') bad.push(t.id + ' start is not road');
   });
   return { name: 'drift', count: d.tracks.length + ' circuits', bad };

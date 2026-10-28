@@ -5,6 +5,7 @@
 //
 // Route finding is plain Dijkstra over the road graph (one-way streets respected); the guide
 // re-plans a few times a second so missing a turn just gives you a new route.
+import { SPEED_SCALE } from './units.js';
 import * as THREE from 'three';
 import { buildEdgesByNode, intersectionClearance } from './roadMath.js';
 import { hasSidewalks } from './sidewalks.js';
@@ -432,7 +433,7 @@ export function createTaxi({ city, scene, heightAt, snowing = () => false }) {
           replan(car, fare.drop);
           total = cum[cum.length - 1];
           fare.base = Math.round(12 + total * 0.16);
-          fare.limit = total / 9 + 25;
+          fare.limit = total / (9 * SPEED_SCALE) + 25;
           routeT = 0.35;
           toast('Passenger on board – fare $' + fare.base);
         } else {

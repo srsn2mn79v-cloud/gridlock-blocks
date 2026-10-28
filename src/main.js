@@ -1,3 +1,4 @@
+import { KMH_PER_U } from './units.js';
 import * as THREE from 'three';
 import { buildChicago } from './chicago/chicago.js';
 import { buildRoads } from './generators/roads.js';
@@ -654,7 +655,7 @@ document.body.appendChild(dash);
 const dashSpd = dash.querySelector('.spd'), dashGear = dash.querySelector('.gear'), dashFill = dash.querySelector('.fill');
 let dashShown = '';
 function dashFrame(dt, rev) {
-  const kmh = Math.round(Math.hypot(car.vx || 0, car.vz || 0) * 6.2);
+  const kmh = Math.round(Math.hypot(car.vx || 0, car.vz || 0) * KMH_PER_U);
   if (dashSpd.textContent !== String(kmh)) dashSpd.textContent = kmh;
   const g = String(rev.gear); if (dashGear.textContent !== g) dashGear.textContent = g;
   dashFill.style.width = Math.round(Math.max(0, (rev.r - 0.1) / 0.9) * 100) + '%';
@@ -692,7 +693,7 @@ let fxShake = 0, fxPrevImp = 0, fxHitCool = 0, fxSp = 0, baseFov = camera.fov, f
 const _sd = new THREE.Vector3();
 function fxFrame(dt) {
   fxClock += dt;
-  const kmh = world.onFoot ? 0 : Math.hypot(car.vx, car.vz) * 6.2;
+  const kmh = world.onFoot ? 0 : Math.hypot(car.vx, car.vz) * KMH_PER_U;
   const target = Math.max(0, Math.min(1, (kmh - 110) / 190));
   fxSp += (target - fxSp) * Math.min(1, dt * 2.2);
   // shake only at the moment of a crash: one kick per new impact (impactSpeed lingers while you stay in contact), gone in ~0.4 s
@@ -730,7 +731,7 @@ function audioFrame(dt) {
   {
     const inside = camRig.mode === 'inside' && !world.onFoot;
     if (interior.root.visible !== inside) { interior.setVisible(inside); if (car.model) car.model.visible = !inside; document.body.classList.toggle('cam-inside', inside); if (inside) interior.fit(); }
-    if (inside) interior.update(dt, { kmh: Math.hypot(car.vx || 0, car.vz || 0) * 6.2, maxKmh: car.maxSpeed * 6.2, rpm: rev.r, gear: rev.gear, fuel: fuel.level(),
+    if (inside) interior.update(dt, { kmh: Math.hypot(car.vx || 0, car.vz || 0) * KMH_PER_U, maxKmh: car.maxSpeed * KMH_PER_U, rpm: rev.r, gear: rev.gear, fuel: fuel.level(),
       blinkL: car.blinkers.frontLeft.material.emissiveIntensity > 0.5, blinkR: car.blinkers.frontRight.material.emissiveIntensity > 0.5, lights: !!input.lightsOn, lit: !!input.lightsOn || env.nightK > 0.5 });
   }
   dash.style.display = world.onFoot ? 'none' : 'block';
@@ -883,7 +884,7 @@ function animate() {
       splashEl.style.display = 'flex';
     }
 
-    speedEl.textContent = Math.round(Math.hypot(car.vx, car.vz) * 6.2) + ' km/h · ' + (world.carClassInfo ? world.carClassInfo().cls : '') + (car.grip < 0.8 ? (car.grip < 0.55 ? ' ❄ icy' : ' 💧 wet') : '');
+    speedEl.textContent = Math.round(Math.hypot(car.vx, car.vz) * KMH_PER_U) + ' km/h · ' + (world.carClassInfo ? world.carClassInfo().cls : '') + (car.grip < 0.8 ? (car.grip < 0.55 ? ' ❄ icy' : ' 💧 wet') : '');
   }
 
   if (!window.__freeCam) { if (hail.cabCam()) hail.updateCamera(dt); else if (world.onFoot) world.updateCamera(dt); else camRig.update(dt, camBlocked); }

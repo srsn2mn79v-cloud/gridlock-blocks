@@ -2,6 +2,7 @@
 // apartment and shop doors, apartments + garages, the dealership and the four tuning shops, and the
 // car modifications themselves (paint, decals, neon, body kits, performance parts, nitro, HUD).
 // Everything is saved to localStorage ('gridlock.world'); money is the taxi wallet (taxi.getCash()).
+import { KMH_PER_U } from './units.js';
 import * as THREE from 'three';
 import { CAR_STYLES, buildCarModel } from './carModels.js';
 import { createShowroom } from './showroom.js';
@@ -247,7 +248,7 @@ export function createWorld({ setGarageHoles, city, scene, camera, car, input, h
     const effAccel = accel * Math.pow(st.mass / mass, 0.8), hm = handlingMul * Math.pow(1100 / mass, 0.25), brk = brakeMul * Math.pow(1100 / mass, 0.3);
     const r = (v, lo, hi) => Math.max(0, Math.min(100, Math.round((v - lo) / (hi - lo) * 100)));
     return { mass, maxSpeed, accel, gripBonus, brakeMul, handlingMul,
-      bars: [['Speed', r(maxSpeed, 14, 38)], ['Acceleration', r(effAccel, 1.4, 5)], ['Handling', r(hm, 0.6, 1.6)], ['Braking', r(brk, 0.6, 1.9)], ['Grip', Math.max(0, Math.min(100, Math.round(40 + gripBonus * 200)))]] };
+      bars: [['Speed', r(maxSpeed, 19, 52)], ['Acceleration', r(effAccel, 1.9, 6.9)], ['Handling', r(hm, 0.6, 1.6)], ['Braking', r(brk, 0.6, 1.9)], ['Grip', Math.max(0, Math.min(100, Math.round(40 + gripBonus * 200)))]] };
   }
 
   function applyMods(override) {
@@ -324,7 +325,7 @@ export function createWorld({ setGarageHoles, city, scene, camera, car, input, h
     const now = performance.now();
     if (!force && now - clusterT < 90) return; clusterT = now;
     cluster.style.display = onFoot ? 'none' : 'block';
-    const kmh = Math.round(Math.hypot(car.vx || 0, car.vz || 0) * 6.2);
+    const kmh = Math.round(Math.hypot(car.vx || 0, car.vz || 0) * KMH_PER_U);
     let html = '';
     if (m.hud) {
       html += `<div class="big">${kmh}<small> km/h</small></div>`;
@@ -922,7 +923,7 @@ export function createWorld({ setGarageHoles, city, scene, camera, car, input, h
       const need = save.bought.length + picked >= slots;
       return { ...base, buy: buyBar(), right: `Garage ${save.bought.length + picked}/${slots}`, rows: [{ hint: need ? (slots ? 'Your garage bays are full - a new car needs a free bay for the car you drive now. Buy or rent a flat with a bigger garage first.' : 'You need a garage first: a new car goes home with you and your current car is parked in your garage. Buy a flat with a garage from an estate agent.') : 'The car you drive now is parked in a free garage bay and you drive away in the new one.' }].concat(CAR_STYLES.filter(cs => !cs.job).map(cs => {
         const owned = ownedCars().includes(cs.key), price = CAR_PRICE[cs.key] || 0, g = 'car.' + cs.key, chosen = cartMap.has(g), full = save.bought.length + picked >= slots && !chosen;
-        return { name: cs.name, sub: `Class ${cs.cls} · ${Math.round(cs.maxSpeed * 6.2)} km/h · 0-100 ${zeroTo100(cs.accel, cs.maxSpeed, cs.mass).toFixed(1)} s · ${cs.mass} kg · ${owned ? 'Owned' : money(price)}`, sel: modal.preview === cs.key || chosen,
+        return { name: cs.name, sub: `Class ${cs.cls} · ${Math.round(cs.maxSpeed * KMH_PER_U)} km/h · 0-100 ${zeroTo100(cs.accel, cs.maxSpeed, cs.mass).toFixed(1)} s · ${cs.mass} kg · ${owned ? 'Owned' : money(price)}`, sel: modal.preview === cs.key || chosen,
           btn: owned ? 'Owned' : chosen ? 'Selected' : full ? 'No garage' : 'Select', disabled: owned || full,
           focus: () => { modal.preview = cs.key; showPreview(cs.key); refreshPanel(); },
           act: () => { if (owned) return; if (chosen) cartMap.delete(g); else cartMap.set(g, { group: g, key: cs.key, name: cs.name, price, apply: () => {}, commit: () => { save.bought.push(cs.key); } }); refreshPanel(); } };
@@ -1087,7 +1088,7 @@ export function createWorld({ setGarageHoles, city, scene, camera, car, input, h
       rows.push({ name: 'Races', sub: `${plays} run · ${wins} won` });
     } else if (modal.tab === 1) {
       // your cars grouped by the house they live at (each flat has its own garage)
-      const nameOf = k => (CAR_STYLES.find(c => c.key === k) || {}).name || k, info = k => { const cs = CAR_STYLES.find(c => c.key === k); return cs ? `Class ${cs.cls} · ${Math.round(cs.maxSpeed * 6.2)} km/h` : ''; };
+      const nameOf = k => (CAR_STYLES.find(c => c.key === k) || {}).name || k, info = k => { const cs = CAR_STYLES.find(c => c.key === k); return cs ? `Class ${cs.cls} · ${Math.round(cs.maxSpeed * KMH_PER_U)} km/h` : ''; };
       const drivingNow = owned.includes(car.styleKey) ? car.styleKey : null;
       if (drivingNow) { rows.push({ hint: 'Driving now' }); rows.push({ name: nameOf(drivingNow), sub: info(drivingNow) }); }
       const homes = city.apartments.filter(a => save.apts[a.id]);

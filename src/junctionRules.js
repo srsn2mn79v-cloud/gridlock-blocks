@@ -32,6 +32,6 @@ export function computeStopApproaches(city) {
   return { stops, allWay };
 }
 
-// Posted limits in km/h (the HUD shows speed * 6.2 as km/h).
+// Posted limits in km/h (the HUD shows speed * KMH_PER_U, see units.js, as km/h).
 export const SPEED_LIMITS = { local: 40, avenue: 60, highway: 100 };
 export const speedLimitFor = e => e.speedLimit || SPEED_LIMITS[e.type] || 40;

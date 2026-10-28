@@ -1,10 +1,11 @@
 // Car classes (Test Drive Unlimited style): F (slowest) .. A (fastest) and G (classic, reserved for
 // collectables). Every style has a base class; fitting EVERY upgrade lifts a car one class.
 // Pure data + a tiny integrator, so tools and the menu can use it without three.js.
+import { KMH_PER_U } from './units.js';
 export const CLASS_ORDER = ['F', 'E', 'D', 'C', 'B', 'A'];          // slowest -> fastest (G = classic, not part of the ladder)
 export const CLASS_COLOR = { G: '#c9a227', A: '#ff3b3b', B: '#ff8a1f', C: '#e8d21f', D: '#7ed321', E: '#2fb5ff', F: '#9aa4b2' };
 // the reference speed (world units/s) of a typical car in a class: the ghosts in a race of that class run at this pace
-export const CLASS_REF_SPEED = { F: 22, E: 31, D: 40, C: 48, B: 56, A: 66 };
+export const CLASS_REF_SPEED = { F: 30, E: 43, D: 55, C: 66, B: 77, A: 91 };
 export const CLASS_PRIZE_MUL = { F: 1, E: 1.8, D: 3, C: 5, B: 8, A: 14 };
 
 export const classIndex = c => Math.max(0, CLASS_ORDER.indexOf(c));
@@ -23,7 +24,7 @@ export function carClass(baseClass, mods) {
 }
 // 0-100 km/h in seconds with car.js's longitudinal model (full throttle, dry road)
 export function zeroTo100(accel, maxSpeed, mass = 1100, baseMass = mass) {
-  let v = 0, t = 0; const dt = 0.01, target = 100 / 6.2;
+  let v = 0, t = 0; const dt = 0.01, target = 100 / KMH_PER_U;
   if (maxSpeed < target) return Infinity;
   while (v < target && t < 60) {
     const k = Math.min(1, v / maxSpeed);

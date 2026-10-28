@@ -2,6 +2,7 @@
 // switches; and a car picker with a 3D model turning slowly in the middle. The game pauses
 // while it's open, but the world keeps rendering behind the (translucent) panel, so time of
 // day, fog, rain and snow can be judged live as you drag.
+import { KMH_PER_U } from './units.js';
 import * as THREE from 'three';
 import { CAR_STYLES, buildCarModel } from './carModels.js';
 import { zeroTo100, CLASS_COLOR } from './classes.js';
@@ -159,7 +160,7 @@ export function createMenu({ settings, limits, onChange, onOpenChange , ownedCar
     root.querySelectorAll('.toggle').forEach(b => b.classList.toggle('on', !!settings[b.dataset.t]));
     const cs = CAR_STYLES.find(c => c.key === settings.car) || CAR_STYLES[0];
     $('.carname').textContent = cs.name;
-    $('.stats').innerHTML = `<b style="color:${CLASS_COLOR[cs.cls]}">Class ${cs.cls}</b> · Top ${Math.round(cs.maxSpeed * 6.2)} km/h · 0-100 ≈ ${zeroTo100(cs.accel, cs.maxSpeed, cs.mass).toFixed(1)} s · ${cs.mass} kg`;
+    $('.stats').innerHTML = `<b style="color:${CLASS_COLOR[cs.cls]}">Class ${cs.cls}</b> · Top ${Math.round(cs.maxSpeed * KMH_PER_U)} km/h · 0-100 ≈ ${zeroTo100(cs.accel, cs.maxSpeed, cs.mass).toFixed(1)} s · ${cs.mass} kg`;
     root.querySelectorAll('.seg').forEach(seg => seg.querySelectorAll('button').forEach(b => b.classList.toggle('on', String(settings[seg.dataset.seg]) === b.dataset.v)));
   }
   function set(k, v) {
