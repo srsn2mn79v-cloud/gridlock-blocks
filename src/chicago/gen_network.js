@@ -77,7 +77,10 @@ export function generateRoads() {
       const sg = exitKind ? f : -f;                                  // direction of travel along the interstate as seen from the ramp's outward end
       let ia = 0; while (ia < r.length - 3 && along(r[ia]).d < 50) ia++;
       const sa = along(r[ia]).s, total = polyLen(H);
-      const room = sg > 0 ? sa - 135 : total - 135 - sa, xh = Math.max(100, Math.min(XH, room));       // near the interstate's ends the slip road gets less room
+      const room = sg > 0 ? sa - 135 : total - 135 - sa; let xh = Math.max(100, Math.min(XH, room));       // near the interstate's ends the slip road gets less room
+      const laneWet = x0 => { for (let x = 0; x <= xh; x += 10) { const s = Math.max(0, Math.min(total, x0 + sg * x)), p = atLen(H, s), l = 23 * f;
+        if (RIVERS.some(rv => nearestOnPoly(p.x - p.dz * l, p.z + p.dx * l, rv.pts).d < rv.half + 4)) return true; } return false; };
+      while (xh > 100 && laneWet(sa - sg * xh)) xh -= 10;                                               // the extra lane must not run over a river
       r.plan = { ia, sg, xh, s0: Math.max(0, Math.min(total, sa - sg * xh)) };
       needS.push(r.plan.s0);
     });

@@ -779,6 +779,10 @@ function per new type) whenever you want it — say the word and I'll add them.
 - traffic.js: `car.hwJoin` - no lane changes for the first 80 u (100 m) after joining the interstate from a ramp.
 
 ## Latest additions
+
+- **Road map rebuilt from the clean map image.** The street layer (`streets` in `src/chicago/mapdata.json`) was re-traced from the clean map (tan avenues, maroon streets, black roads): 349 traced pieces, merged into 143 long, straight streets (gentle curves only where the map has them). Roads hidden behind map labels (Art Institute, Sears Tower, Dearborn Station, Field Museum, Wrigley Field, John Hancock Center, McCormick Place) are connected. `tools/apply_new_map.py <chains.json>` applies it (set `RIVERS_JSON` to the output of `node tools/export_rivers.mjs <file>` so roads are tested against the game's own water): it keeps roads out of the water except real bridge crossings, joins dead ends over dry land and adds a Shedd Aquarium deck.
+- **Interchanges use standard layouts.** Wrigley (north-west) and McCormick (south-west) are *diamonds* with straight slip roads; the west one is a *partial cloverleaf*. Slip-road lanes no longer run over a river.
+- Lamps keep clear of junction corners.
 - **Gas price towers**: ground-standing LED boards (~4 m), regular/diesel/premium rows, face the street.
 - **Front wheels** steer with the real cornering angle (bicycle model, eased).
 - **Flats**: `node tools/check_flats.mjs` walks every flat layout (flood fill, walker radius 0.32) and fails if a room, bed, wardrobe, desk, lift or exit cannot be reached. Sofa/TV slide clear of doors; dressers sit against walls.

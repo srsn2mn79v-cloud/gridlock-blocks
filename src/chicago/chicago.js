@@ -460,8 +460,9 @@ export function buildChicago() {
       const t = c1 + k * step; let placed = false;
       for (const sd of [side, -side]) { for (const off of [2.2, 2.9, 3.6]) {
         const p = sidePoint(e, t, sd, e.width / 2 + off);
-        if (roadClear(p.x, p.z) < 2.3 || inWater(p.x, p.z, 1) || parcelsHit(p.x, p.z, 1.0) || outsideHW(p.x, p.z, 0)) continue;
+        if (roadClear(p.x, p.z) < 3.0 || inWater(p.x, p.z, 1) || parcelsHit(p.x, p.z, 1.0) || outsideHW(p.x, p.z, 0)) continue;
         if (!propOK(p.x, p.z, 9, lampList)) continue;
+        if (Object.keys(nodes).some(ni => { const nd = nodes[ni]; return (byNode[ni] || []).length >= 3 && Math.abs(nd.x - p.x) < 17 && Math.abs(nd.z - p.z) < 17 && Math.hypot(nd.x - p.x, nd.z - p.z) < 17; })) continue;      // the corner fillets of a junction reach further than its edges
         lampList.push({ type: 'light', x: r2(p.x), z: r2(p.z), rotation: Math.round(Math.atan2((a.x + (b.x - a.x) * (t / len)) - p.x, (a.z + (b.z - a.z) * (t / len)) - p.z) * 180 / Math.PI) });
         placed = true; break;
       } if (placed) break; }
