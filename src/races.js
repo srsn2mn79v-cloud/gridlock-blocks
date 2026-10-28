@@ -17,6 +17,7 @@ function mulberry(seed) { let a = seed >>> 0; return () => { a += 0x6D2B79F5; le
 
 // ---- planning (no three.js, runs in node) -----------------------------------------------------------------------------------
 import { loadCustom } from './customData.js';
+import { LAKES, RIVERS } from './chicago/map.js';
 import { makeRouter, raceFromDef } from './routeTool.js';
 export function planRaces(city, districtName = () => 'City', transit = null) {
   const nodes = city.roadNodes, edges = city.roadEdges, rand = mulberry(7781);
@@ -272,7 +273,7 @@ export function createRaces({ city, scene, heightAt, car, world, districtName, t
     #racemenu { position: fixed; inset: 0; z-index: 20; display: none; align-items: center; justify-content: center; background: rgba(4,8,14,.62); font-family: system-ui, sans-serif; }
     #racemenu .box { width: min(440px, 94vw); max-height: 94vh; overflow: auto; padding: 14px 16px; border-radius: 16px; background: rgba(12,16,26,.97); color: #fff; border-top: 5px solid var(--race, #ffd21f); box-shadow: 0 10px 40px rgba(0,0,0,.6); }
     #racemenu h2 { margin: 0; font-size: 21px; } #racemenu .sub { color: #aab7c8; font-size: 12px; margin: 2px 0 8px; }
-    #racemenu canvas { width: 100%; height: min(56vw, 34vh); max-height: 260px; object-fit: contain; border-radius: 10px; background: #0b1119; display: block; }
+    #racemenu canvas { width: 100%; height: min(78vw, 46vh); max-height: 380px; object-fit: contain; border-radius: 10px; background: #0b1119; display: block; }
     #racemenu .stats { display: grid; grid-template-columns: 1fr 1fr; gap: 6px; margin: 10px 0; }
     #racemenu .stat { background: rgba(255,255,255,.07); border-radius: 8px; padding: 6px 9px; font-size: 12px; color: #aab7c8; } #racemenu .stat b { display: block; font-size: 17px; color: #fff; }
     #racemenu .btns { display: flex; gap: 8px; margin-top: 8px; } #racemenu button { flex: 1; border: 0; border-radius: 10px; padding: 11px 6px; font: 800 14px system-ui; cursor: pointer; background: rgba(255,255,255,.12); color: #fff; }
@@ -356,14 +357,20 @@ export function createRaces({ city, scene, heightAt, car, world, districtName, t
   const SNAP_KEYS = ['traffic', 'peds', 'hour', 'fog', 'rain', 'snow', 'dynWeather', 'clockRun'];
   let menuR = null, snap = null, tuning = false, restore = null;
   function drawRoute(cv, r) {
-    const W = cv.width = 640, H = cv.height = 400, g = cv.getContext('2d');
+    const W = cv.width = 640, H = cv.height = r.track ? 400 : 560, g = cv.getContext('2d');      // street races show the whole city (taller than wide)
     let pts = r.pts, closed = false;
     if (r.track && arena) { const T = arena.byId(r.track); if (T) { pts = T.pts; closed = true; } }
     let x0 = 1e9, x1 = -1e9, z0 = 1e9, z1 = -1e9; pts.forEach(p => { x0 = Math.min(x0, p[0]); x1 = Math.max(x1, p[0]); z0 = Math.min(z0, p[1]); z1 = Math.max(z1, p[1]); });
-    const pad = r.track ? 20 : 90; x0 -= pad; x1 += pad; z0 -= pad; z1 += pad;
+    if (!r.track) { x0 = 1e9; x1 = -1e9; z0 = 1e9; z1 = -1e9; Object.values(city.roadNodes).forEach(n => { x0 = Math.min(x0, n.x); x1 = Math.max(x1, n.x); z0 = Math.min(z0, n.z); z1 = Math.max(z1, n.z); }); }      // the whole city, not just the route
+    const pad = r.track ? 20 : 60; x0 -= pad; x1 += pad; z0 -= pad; z1 += pad;
     const sc = Math.min(W / (x1 - x0), H / (z1 - z0)), ox = (W - (x1 - x0) * sc) / 2 - x0 * sc, oz = (H - (z1 - z0) * sc) / 2 - z0 * sc;
-    const X = x => x * sc + ox, Z = z => z * sc + oz;
+    // the whole-city view is drawn like the map: north up, the lake on the right (the world's x axis points west)
+    const flip = !r.track, X = flip ? (x => (x1 - x) * sc + (W - (x1 - x0) * sc) / 2) : (x => x * sc + ox), Z = flip ? (z => (z1 - z) * sc + (H - (z1 - z0) * sc) / 2) : (z => z * sc + oz);
     g.fillStyle = '#0b1119'; g.fillRect(0, 0, W, H);
+    if (flip) {          // water for orientation: the lake and the rivers
+      g.fillStyle = 'rgba(52,104,160,.38)'; LAKES.forEach(l => { g.beginPath(); l.forEach((p, i) => i ? g.lineTo(X(p[0]), Z(p[1])) : g.moveTo(X(p[0]), Z(p[1]))); g.closePath(); g.fill(); });
+      g.strokeStyle = 'rgba(52,104,160,.38)'; g.lineCap = 'round'; g.lineJoin = 'round'; RIVERS.forEach(rv => { g.lineWidth = rv.half * 2 * sc; g.beginPath(); rv.pts.forEach((p, i) => i ? g.lineTo(X(p[0]), Z(p[1])) : g.moveTo(X(p[0]), Z(p[1]))); g.stroke(); });
+    }
     if (!r.track) {      // the surrounding streets, faint
       g.strokeStyle = 'rgba(160,180,210,.28)'; g.lineWidth = 2;
       const nodes = city.roadNodes; g.beginPath();
@@ -450,7 +457,7 @@ export function createRaces({ city, scene, heightAt, car, world, districtName, t
         tune.set('traffic', rt.traffic); tune.set('peds', rt.peds);
         if (!r.track && tune.clearZone) tune.clearZone({ x: r.start.x, z: r.start.z, r: r.kind === 'drag' ? Math.max(250, r.length + 40) : 250 });   // 250 u = 312 m
       }
-      begin(r);
+      try { begin(r); } catch (err) { console.error(err); end('The race could not start'); }      // never leave the loading screen up (it freezes the car)
       setTimeout(() => { loadEl.style.display = 'none'; }, 450);
     }, 700);
   }
@@ -630,14 +637,15 @@ export function createRaces({ city, scene, heightAt, car, world, districtName, t
     let slip = 0;
     if (sp > 6) { const fx = Math.sin(car.heading), fz = Math.cos(car.heading), vx = car.vx / sp, vz = car.vz / sp; slip = Math.abs(Math.atan2(fx * vz - fz * vx, fx * vx + fz * vz)); if (car.speed < -1) slip = 0; }
     const sliding = sp > 8 && slip > 0.2 && inZone && !car.airborne;
-    if ((car.impactSpeed || 0) > 2.5) { car.impactSpeed = 0; if (run.chain > 0) run.lost = 'Crash! chain lost'; run.chain = 0; run.chainT = 0; run.mult = 1; }
+    const wallHit = car.wallHit || 0; car.wallHit = 0;                 // a tyre wall (or anything else fixed) hit hard enough also ends the chain
+    if ((car.impactSpeed || 0) > 2.5 || wallHit > 2.2) { car.impactSpeed = 0; if (run.chain > 0) run.lost = 'Crash! chain lost'; run.chain = 0; run.chainT = 0; run.mult = 1; }
     if (sliding) {
       run.calm = 0; run.chainT += dt;
       const bonus = !!(T && T.inBonus && T.inBonus(car.x, car.z));
       run.mult = 1 + Math.min(3, run.chainT * 0.3);
       // points shrink the longer one slide goes on, and every slide scrubs speed off: you have to straighten up and
       // build speed again between drifts, so the circuit can't be chained by just holding gas and steering
-      run.chain += dt * 55 * Math.min(1.6, slip / 0.6) * Math.min(2, sp / 16) * Math.max(0.4, 1 - run.chainT * 0.1) * (bonus ? 2.5 : 1);
+      run.chain += dt * 55 * Math.min(2.0, slip / 0.6) * Math.min(2, sp / 16) * Math.max(0.4, 1 - run.chainT * 0.1) * (bonus ? 2.5 : 1);
       const bleed = Math.exp(-dt * (0.2 + 0.3 * Math.min(1, slip / 0.7)));
       car.vx *= bleed; car.vz *= bleed; car.speed *= bleed;
       run.bonusNow = bonus;

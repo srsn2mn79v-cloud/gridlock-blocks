@@ -220,7 +220,7 @@ export class Car {
     const hm = (this.handlingMul || 1) * Math.pow(1100 / this.mass, 0.25);   // suspension/tyres, and lighter cars turn in quicker
     // a real car's turning circle: about 6.5 m radius at a walking pace (bicycle model: yaw rate <= speed / radius)
     const rMin = 5.3 * Math.max(1, (this.dimLen || 3.6) / 3.6) * (hand ? 0.75 : assist ? 0.85 : 1) / Math.max(0.7, this.handlingMul || 1) ** 0.5;
-    const turnRate = Math.min(2.45 * hm * relax * (hand ? 1.25 : assist ? 1.15 : 1), speedAbs / rMin) * (this.speed < 0 ? -1 : 1);
+    const turnRate = Math.min(2.45 * hm * relax * (hand ? 1.25 : assist ? (this.driftAssist ? 1.35 : 1.15) : 1), speedAbs / rMin) * (this.speed < 0 ? -1 : 1);
     const wMax = (58 * hm * Math.pow(g, 1.5) * (hand ? 1.15 : assist ? 1.2 : 1)) / Math.max(speedAbs, 1);
     let w = 0;
     if (!air) w = Math.max(-wMax, Math.min(wMax, this.steerAngle * turnRate));
@@ -230,7 +230,7 @@ export class Car {
     // velocity follows the heading; the lag is the slide
     const fx = Math.sin(this.heading), fz = Math.cos(this.heading);
     if (!air) {
-      const kFollow = hand ? (this.driftAssist ? 1.7 : 2.6) : assist ? 2.0 : this.driftAssist ? 5 * Math.pow(g, 2.2) : 15 * Math.pow(g, 2.2);
+      const kFollow = hand ? (this.driftAssist ? 1.2 : 2.6) : assist ? (this.driftAssist ? 1.25 : 2.0) : this.driftAssist ? 3 * Math.pow(g, 2.2) : 15 * Math.pow(g, 2.2);   // drift circuits: a looser tail, so the slide angle gets bigger
       const follow = 1 - Math.exp(-kFollow * dt);
       this.vx += (fx * this.speed - this.vx) * follow;
       this.vz += (fz * this.speed - this.vz) * follow;

@@ -408,6 +408,7 @@ export function createTrafficSystem(cityData, scene, heightAt, count = 6, maxCou
     return car;
   }
   function clearRivals() { rivalPool.forEach(c => { c.rival = null; c.active = false; c.mesh.visible = false; c.knock = null; c.colliders.forEach(k => { k.blocksCar = false; k.x = 1e6; k.z = 1e6; }); }); }
+  const px = o => (o.isPlayer ? o.x : o.mesh.position.x), pz = o => (o.isPlayer ? o.z : o.mesh.position.z);
   function rivalStep(car, dt, now, nbC) {
     const R = car.rival, m = car.mesh;
     if (car.knock) {
@@ -425,7 +426,7 @@ export function createTrafficSystem(cityData, scene, heightAt, count = 6, maxCou
     let vt = R.vmax * (1 - Math.exp(-Math.max(0, R.t) / R.tau));
     const p2 = R.sample(R.s + 14), dTh = Math.abs(Math.atan2(fx * p2.dz - fz * p2.dx, fx * p2.dx + fz * p2.dz));
     vt *= 1 - Math.min(0.55, dTh * 0.9);
-    if (R.recov > 0) { R.recov -= dt; vt = Math.min(vt, 9); }
+    if (R.recov > 0) { R.recov -= dt; vt = Math.min(vt, 9 * SPEED_SCALE); }
     let nearest = 1e9, osp = 0, side = 0;
     for (let i = 0; i < nbC.length; i++) {
       const o = nbC[i]; if (o === car || (o.rival && o.knock)) continue;
@@ -439,7 +440,7 @@ export function createTrafficSystem(cityData, scene, heightAt, count = 6, maxCou
     } else R.latTarget = R.lat0;
     if (R.finished != null) vt = 0;
     else if (R.s >= R.total) R.finished = R.t;
-    R.v += Math.max(-14 * dt, Math.min(5.5 * dt, vt - R.v));
+    R.v += Math.max(-14 * SPEED_SCALE * dt, Math.min(5.5 * SPEED_SCALE * dt, vt - R.v));
     R.s += R.v * dt;
     R.latCur += (R.latTarget - R.latCur) * Math.min(1, dt * 2.4);
     const x = p.x + rx * R.latCur, z = p.z + rz * R.latCur;

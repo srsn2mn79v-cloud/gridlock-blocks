@@ -780,6 +780,10 @@ function per new type) whenever you want it — say the word and I'll add them.
 
 ## Latest additions
 
+- **Sprint/circuit/drag no longer freeze the game.** Race rivals threw an error on every frame once the race began (`px is not defined` in `traffic.js`), which stopped the whole update loop; the loading screen also stayed up if `begin()` failed. Both fixed, and `node tools/check.mjs rivals` runs the rivals on every planned route (the races check also confirms every start is clear and drivable).
+- **Drift:** hitting a tyre wall (or any fixed object) hard cancels the combo in progress (banked points are kept); the circuit car is looser (a bigger slide angle, which keeps paying up to ~70 degrees).
+- **Race menu map** shows the whole city (north up, lake and rivers, route on top).
+
 - **True speeds.** The HUD's km/h used 6.2 per world unit/s but 1 u = 1.25 m, so it showed ~38 % more than the car covered. `src/units.js` now holds `KMH_PER_U = 4.5` and every speed and acceleration (cars, traffic and its limits, rivals, class reference speeds, reverse, stat bars, taxi time limit) was multiplied by 6.2/4.5, so a car shows the same km/h as before but really covers that ground.
 - **Drift circuits** are half the length and width (a quarter of the area; lap 280-360 m, 18 u wide) and the extra-points band next to each wall is twice as wide.
 

@@ -9,6 +9,7 @@
 //   node tools/check.mjs sidewalks every pavement leads somewhere (no stubs / islands, none beside slip roads)
 //   node tools/check.mjs water      no road surface lies under water without a bridge
 //   node tools/check.mjs drift      the three drift circuits: corner radius, walls, start
+//   node tools/check.mjs rivals     race rivals run their routes without errors
 //   node tools/check.mjs all
 // Exit code 1 if anything fails. Add new checks to CHECKS below.
 import { fileURLToPath, pathToFileURL } from 'node:url';
@@ -326,6 +327,28 @@ async function checkRaces() {
     const last = r.checkpoints[r.checkpoints.length - 1];
     if (Math.hypot(last[0] - a[0], last[1] - a[1]) > 3) bad.push(r.id + ' final checkpoint is not the start line');
   });
+  // every start (the player's slot and the three rival slots behind it) is free of obstacles and on the street level, and the player can drive off from it
+  {
+    const { buildProps } = await imp('src/generators/props.js');
+    const { buildSigns } = await imp('src/generators/signs.js');
+    const { buildCollisionWorld, resolveCarCollisions } = await imp('src/collision.js');
+    const st = await structures();
+    const props = buildProps(city).instances, signs = buildSigns(city, heightAt, roads.userData.mapPaths).instances;
+    const parcelsInst = (city.parcels || []).filter(p => p.type === 'building').map(p => ({ type: 'building', footprint: p.footprint }));
+    const world3 = buildCollisionWorld(props.concat(signs), parcelsInst).concat(st.colliders);
+    plan.filter(r => !r.track).forEach(r => {
+      const p = r.pts[0], q = r.pts[1], l = Math.hypot(q[0] - p[0], q[1] - p[1]) || 1, dx = (q[0] - p[0]) / l, dz = (q[1] - p[1]) / l;
+      const off = Math.min(1.6, r.width / 5), x = p[0] - dz * off, z = p[1] + dx * off, h = Math.atan2(dx, dz);
+      const car = { x, z, y: 0, heading: h, speed: 0, collisionRadius: 1.1, massFactor: 1 }, x0 = car.x, z0 = car.z;
+      resolveCarCollisions(car, world3, 1 / 60);
+      const pushed = Math.hypot(car.x - x0, car.z - z0);
+      if (pushed > 0.05) bad.push(r.id + ' (' + r.kind + ') starts inside an obstacle (pushed ' + r1(pushed) + ' u)');
+      car.speed = 10;
+      for (let k = 0; k < 120; k++) { car.x += Math.sin(h) * car.speed / 60; car.z += Math.cos(h) * car.speed / 60; resolveCarCollisions(car, world3, 1 / 60); car.speed = Math.max(car.speed, 8); }
+      const gone = Math.hypot(car.x - x0, car.z - z0);
+      if (gone < 10) bad.push(r.id + ' (' + r.kind + ') cannot drive off the start: moved only ' + r1(gone) + ' u in 2 s');
+    });
+  }
   return { name: 'races', count: Object.entries(by).map(([k, v]) => v + ' ' + k).join(', '), bad };
 }
 // gas stations: enough of them, every pump lane sits on the paved forecourt, nothing (building/road) overlaps it
@@ -350,7 +373,24 @@ async function checkSidewalks() {
   byEdge.forEach(e => { if (hotNodes.has(e.from) && hotNodes.has(e.to) && e.len < 150) bad.push('pavement between two slip-road nodes @' + r1(city.roadNodes[e.from].x) + ',' + r1(city.roadNodes[e.from].z)); });
   return { name: 'sidewalks', count: segs.length + ' pavement segments (stubs < ' + STUB_LEN + ' u and islands < ' + ISLAND_LEN + ' u are dropped)', bad };
 }
-const CHECKS = { sidewalks: checkSidewalks, gas: checkGas, races: checkRaces, drift: checkDrift, covered: checkCovered,  signs: checkSigns, lamps: checkLamps, buildings: checkBuildings, traffic: () => checkTraffic(+process.argv[3] || 40, +process.argv[4] || 5), markings: checkMarkings, bridges: checkBridges, solid: checkSolid, water: checkWater };
+// race rivals: the cars that run a race route next to the traffic (this once threw every frame and froze the game at the start of a sprint)
+async function checkRivals() {
+  const { createTrafficSystem } = await imp('src/traffic.js'); const { buildTransit } = await imp('src/transit.js'); const { planRaces } = await imp('src/races.js');
+  const bad = [], plan = planRaces(city, () => 'City').filter(r => r.kind !== 'drift');
+  const tr = createTrafficSystem(city, new THREE.Scene(), heightAt, 25, 25, buildTransit(city));
+  plan.forEach(r => {
+    const pts = r.pts, cum = [0]; for (let i = 1; i < pts.length; i++) cum.push(cum[i - 1] + Math.hypot(pts[i][0] - pts[i - 1][0], pts[i][1] - pts[i - 1][1]));
+    const at = s => { s = Math.max(0, Math.min(cum[cum.length - 1], s)); let i = 1; while (i < cum.length - 1 && cum[i] < s) i++; const l = cum[i] - cum[i - 1] || 1, t = (s - cum[i - 1]) / l, dx = (pts[i][0] - pts[i - 1][0]) / l, dz = (pts[i][1] - pts[i - 1][1]) / l; return { x: pts[i - 1][0] + dx * l * t, z: pts[i - 1][1] + dz * l * t, dx, dz }; };
+    try {
+      tr.clearRivals(); [0, 1, 2].forEach(i => tr.addRival({ sample: at, project: (x, z, h) => h, loop: false, total: r.length, vmax: 25, tau: 3, lat: i - 1, maxLat: 5, s0: -5 - i * 4 }));
+      const player = { x: pts[0][0], z: pts[0][1], y: 0, heading: 0, speed: 0 };
+      for (let k = 0; k < 15 * 40; k++) { T += 66; tr.update(1 / 15, player); }
+    } catch (e) { bad.push(r.id + ' (' + r.kind + '): ' + e.message); }
+  });
+  tr.clearRivals();
+  return { name: 'rivals', count: plan.length + ' routes', bad };
+}
+const CHECKS = { rivals: checkRivals, sidewalks: checkSidewalks, gas: checkGas, races: checkRaces, drift: checkDrift, covered: checkCovered,  signs: checkSigns, lamps: checkLamps, buildings: checkBuildings, traffic: () => checkTraffic(+process.argv[3] || 40, +process.argv[4] || 5), markings: checkMarkings, bridges: checkBridges, solid: checkSolid, water: checkWater };
 const which = process.argv[2] || 'all';
 const list = which === 'all' ? Object.keys(CHECKS) : [which];
 let failed = 0;

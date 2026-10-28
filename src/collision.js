@@ -92,6 +92,7 @@ function impact(car, nx, nz) {
 function applyBounce(car, nx, nz, dt) {
   const { impactFraction } = impact(car, nx, nz);
   const lossPerSecond = 6 * (car.massFactor || 1);   // heavier vehicles bleed more speed on objects
+  car.wallHit = Math.max(car.wallHit || 0, Math.abs(car.speed) * impactFraction);   // how hard it hit (drift events read and clear this)
   car.speed *= Math.max(0, 1 - impactFraction * lossPerSecond * dt);
 }
 
@@ -102,6 +103,7 @@ function applyBounce(car, nx, nz, dt) {
 function applyRedirect(car, nx, nz, dt) {
   const { impactFraction, turnSign } = impact(car, nx, nz);
   const DEFLECT_RATE = 3.2; // rad/sec at a fully head-on hit
+  car.wallHit = Math.max(car.wallHit || 0, Math.abs(car.speed) * impactFraction);
   car.heading += turnSign * impactFraction * DEFLECT_RATE * dt;
   car.speed *= Math.max(0, 1 - impactFraction * 1.5 * (car.massFactor || 1) * dt);
 }
