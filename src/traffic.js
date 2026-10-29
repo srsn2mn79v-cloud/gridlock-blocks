@@ -326,7 +326,7 @@ export function createTrafficSystem(cityData, scene, heightAt, count = 6, maxCou
     car.from = reversed ? edge.to : edge.from;
     car.to = reversed ? edge.from : edge.to;
     car.speed = 0;
-    car.targetSpeed = (typeSpeed[edge.type] || 8) * car.veh.speedMul;
+    car.targetSpeed = (edge.speedLimit ? edge.speedLimit / KMH_PER_U * (edge.type === 'highway' ? 0.82 : 1) : (typeSpeed[edge.type] || 8)) * car.veh.speedMul;
     car.width = edge.width || 9;
     car.lanes = Math.max(1, edge.lanes || 1);
     car.oneWay = !!edge.oneWay;
@@ -1047,7 +1047,7 @@ export function createTrafficSystem(cityData, scene, heightAt, count = 6, maxCou
           car.to = otherEnd(next, car.from);
           car.prevType = car.edge && car.edge.type; car.edge = next;
           car.stopCleared = false; car.dwell = 0; car.dwellNeeded = 1.0 + Math.random() * 1.2;
-          car.targetSpeed = (typeSpeed[next.type] || 8) * car.veh.speedMul * (next.type === 'highway' ? (car.pace || 1) : 1) * (car.siren ? 1.3 : 1);
+          car.targetSpeed = (next.speedLimit ? next.speedLimit / KMH_PER_U * (next.type === 'highway' ? 0.82 : 1) : (typeSpeed[next.type] || 8)) * car.veh.speedMul * (next.type === 'highway' ? (car.pace || 1) : 1) * (car.siren ? 1.3 : 1);
           car.width = next.width || 9;
           car.lanes = Math.max(1, next.lanes || 1);
           car.oneWay = !!next.oneWay;

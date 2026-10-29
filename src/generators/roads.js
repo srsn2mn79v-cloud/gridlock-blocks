@@ -105,13 +105,14 @@ function orientAlongGrade(mesh, ax, ay, az, bx, by, bz, perpX, perpZ) {
 // local/avenue did.
 let markEdge = null;      // the road whose paint is being queued (see the paint queue further down)
 function addLine(group, a, b, heading, perpX, perpZ, offset, segLen, dashed, mat, ph) {
+  const ay = a.y + (a.bank ? offset * Math.sin(a.bank) : 0), by = b.y + (b.bank ? offset * Math.sin(b.bank) : 0);   // banked corners: paint follows the tilted surface
   const ax = a.x + perpX * offset, az = a.z + perpZ * offset;
   const bx = b.x + perpX * offset, bz = b.z + perpZ * offset;
   if (!dashed) {
-    const mx = (ax + bx) / 2, mz = (az + bz) / 2, my = (a.y + b.y) / 2;
+    const mx = (ax + bx) / 2, mz = (az + bz) / 2, my = (ay + by) / 2;
     const line = new THREE.Mesh(new THREE.BoxGeometry(segLen, 0.015, 0.14), mat || edgeMat);
     line.position.set(mx, my + LANE_LIFT, mz);
-    orientAlongGrade(line, ax, a.y, az, bx, b.y, bz, perpX, perpZ);
+    orientAlongGrade(line, ax, ay, az, bx, by, bz, perpX, perpZ);
     group.add(line);
     return;
   }
@@ -126,13 +127,13 @@ function addLine(group, a, b, heading, perpX, perpZ, offset, segLen, dashed, mat
     if (c >= DASH_LEN - 1e-6) { d = Math.min(segLen, d + Math.max(1e-6, cycle - c)); continue; }
     const dashEnd = Math.min(segLen, d + (DASH_LEN - c));
     const t0 = d / segLen, t1 = dashEnd / segLen, tMid = (t0 + t1) / 2;
-    const mx = ax + (bx - ax) * tMid, mz = az + (bz - az) * tMid, my = a.y + (b.y - a.y) * tMid;
+    const mx = ax + (bx - ax) * tMid, mz = az + (bz - az) * tMid, my = ay + (by - ay) * tMid;
     const dash = new THREE.Mesh(new THREE.BoxGeometry(dashEnd - d, 0.015, 0.16), mat || dashMat);
     dash.position.set(mx, my + LANE_LIFT, mz);
     orientAlongGrade(
       dash,
-      ax + (bx - ax) * t0, a.y + (b.y - a.y) * t0, az + (bz - az) * t0,
-      ax + (bx - ax) * t1, a.y + (b.y - a.y) * t1, az + (bz - az) * t1,
+      ax + (bx - ax) * t0, ay + (by - ay) * t0, az + (bz - az) * t0,
+      ax + (bx - ax) * t1, ay + (by - ay) * t1, az + (bz - az) * t1,
       perpX, perpZ
     );
     group.add(dash);
@@ -162,6 +163,7 @@ const reflectorBaseMats = {
   yellow: new THREE.MeshStandardMaterial({ color: 0xcfa012, roughness: 0.55, metalness: 0.1, envMapIntensity: 0.1, emissive: 0xffc93f, emissiveIntensity: 0.04 })
 };
 function addReflectors(group, a, b, heading, perpX, perpZ, offset, segLen, colorKey, spacing = 4, ph) {
+  const ay = a.y + (a.bank ? offset * Math.sin(a.bank) : 0), by = b.y + (b.bank ? offset * Math.sin(b.bank) : 0);   // banked corners: paint follows the tilted surface
   const ax = a.x + perpX * offset, az = a.z + perpZ * offset;
   const bx = b.x + perpX * offset, bz = b.z + perpZ * offset;
   group.userData.reflectors ||= [];
@@ -170,10 +172,10 @@ function addReflectors(group, a, b, heading, perpX, perpZ, offset, segLen, color
   let d = ph && ph.next !== undefined ? ph.next : spacing / 2;
   while (d < segLen) {
     const t = d / segLen;
-    const mx = ax + (bx - ax) * t, mz = az + (bz - az) * t, my = a.y + (b.y - a.y) * t;
+    const mx = ax + (bx - ax) * t, mz = az + (bz - az) * t, my = ay + (by - ay) * t;
     const stud = new THREE.Object3D();
     stud.position.set(mx, my + LANE_LIFT + 0.015, mz);
-    orientAlongGrade(stud, ax, a.y, az, bx, b.y, bz, perpX, perpZ);
+    orientAlongGrade(stud, ax, ay, az, bx, by, bz, perpX, perpZ);
     stud.updateMatrix();
     group.userData.reflectors.push({ matrix: stud.matrix.clone(), colorKey, x: mx, y: my, z: mz });
     d += spacing;
@@ -577,9 +579,11 @@ export function buildRoads(cityData) {
     const pts = [], banks = [], widths = [];
     c.samples.forEach(s => {
       const t = c.length > 0 ? s.l / c.length : 0;
-      pts.push({ x: s.x, z: s.z, y: curveElevationAt(nodeId, s.l, c.trim, nodes, vcByNode) });
+      const wAt = w1 + (w2 - w1) * t;
+      // a banked ribbon tilts about its centre line: lift the centre so the low edge stays on the ground
+      pts.push({ x: s.x, z: s.z, y: curveElevationAt(nodeId, s.l, c.trim, nodes, vcByNode) + (wAt / 2) * Math.abs(Math.sin(s.bankRad)), bank: s.bankRad });
       banks.push(s.bankRad);
-      widths.push(w1 + (w2 - w1) * t);
+      widths.push(wAt);
     });
     group.add(buildRibbon(pts, widths, roadColor[c.type] || 0x3c3f44, banks, LIFT_BY_TYPE[c.type] ?? ROAD_LIFT));
     (group.userData.mapPaths ||= []).push({ type: c.type, width: Math.max(w1, w2), minY: Math.min(...pts.map(p => p.y)), pts: pts.map(p => [p.x, p.z]) });

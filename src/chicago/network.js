@@ -4,20 +4,22 @@
 import { dist, distToSeg, segInter } from './geom.js';
 
 export const CLASSES = {
-  hw:   { type: 'highway', width: 15, lanes: 3, sidewalks: false, oneWay: true },
-  six:  { type: 'avenue',  width: 24, lanes: 3 },
-  four: { type: 'avenue',  width: 16, lanes: 2 },
-  two:  { type: 'local',   width: 9,  lanes: 1 },
-  ramp: { type: 'avenue',  width: 8,  lanes: 1, sidewalks: false, ramp: true, oneWay: true }
+  // lane 3 m (hw 3.6 m + 3 m shoulders), 1 u = 1.25 m; speedLimit in km/h
+  hw:   { type: 'highway', width: 13.4, lanes: 3, sidewalks: false, oneWay: true, speedLimit: 120, maxGrade: 0.06 },
+  six:  { type: 'avenue',  width: 16,   lanes: 3, speedLimit: 120, maxGrade: 0.06 },   // express road (orange)
+  four: { type: 'avenue',  width: 14.4, lanes: 3, speedLimit: 70,  maxGrade: 0.06 },   // main arterial (yellow)
+  two:  { type: 'local',   width: 5,    lanes: 1, speedLimit: 50,  maxGrade: 0.15 },   // residential (black)
+  ramp: { type: 'avenue',  width: 7.7,  lanes: 1, sidewalks: false, ramp: true, oneWay: true, speedLimit: 60, maxGrade: 0.06 }
 };
 
 // How a line crosses a barrier: deck vertices at +-d1 (raised to `h`), approach vertices at +-d2 (ground).
 function bridgeProfile(lineCls, barrier) {
-  if (barrier.kind === 'river') {
-    return lineCls === 'hw' ? { d1: barrier.half + 10, d2: barrier.half + 70, h: 4 }
-      : { d1: barrier.half + 5, d2: barrier.half + 20, h: 3.2 };
-  }
-  return { d1: barrier.half + 6, d2: barrier.half + 44, h: 7.5 };      // over the interstate (both carriageways and the median)
+  // approach length comes from the class's grade limit: d2 = d1 + h / (0.95 * maxGrade)
+  const g = 0.95 * (CLASSES[lineCls] ? CLASSES[lineCls].maxGrade : 0.06);
+  let d1, h;
+  if (barrier.kind === 'river') { d1 = barrier.half + (lineCls === 'hw' ? 10 : 5); h = lineCls === 'hw' ? 3.2 : 2.4; }
+  else { d1 = barrier.half + 6; h = 4.6; }                       // over the interstate: ~5.7 m clearance
+  return { d1, d2: d1 + h / g, h };
 }
 
 export function buildNetwork(lines, barriers, opts = {}) {

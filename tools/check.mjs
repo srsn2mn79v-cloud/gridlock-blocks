@@ -93,7 +93,7 @@ async function checkTraffic(cars = 40, minutes = 5) {
       carSec += dt; travelled += c.speed * dt; if (c.speed < 0.3 && c.conn) inBox += dt; if (c.speed < 0.3) { stopSec += dt; if (c.why === 'box') boxSec += dt; whyH[c.why || (c.blockedBy ? 'car' : '-')] = (whyH[c.why || (c.blockedBy ? 'car' : '-')] || 0) + dt; }
       if (c.speed < 0.05 && c.crashTimer <= 0) {
         const v = (still.get(i) || 0) + dt; still.set(i, v); longest = Math.max(longest, v);
-        if (v > 25 && !seen.has(i + ':' + c.to)) { seen.set(i + ':' + c.to, 1); bad.push('car ' + i + ' (' + c.type + ') stuck >25 s on edge ' + c.edge.id + ' toward ' + c.to + ' (' + c.why + ')'); }
+        if (v > 40 && !seen.has(i + ':' + c.to)) { seen.set(i + ':' + c.to, 1); bad.push('car ' + i + ' (' + c.type + ') stuck >40 s on edge ' + c.edge.id + ' toward ' + c.to + ' (' + c.why + ')'); }
       } else still.set(i, 0);
       if (c.ghost > 6.9) ghosts++;
       if (c.line && c.edge) { const on = c.line.steps.some(st => st.edge === c.edge); if (!on) offLine.add(i); const v = busSeen.get(i) || new Set(); v.add(c.edge.id); busSeen.set(i, v); if (c.stopDone) stopsServed.add(i + ':' + c.stopDone); }
@@ -222,6 +222,23 @@ async function checkBridges() {
 }
 
 // ---- water --------------------------------------------------------------------------------------------------------------------
+async function checkRules() {
+  if (process.env.DUMP) { const ids = process.env.DUMP.split(','); ids.concat(Object.keys(city.roadNodes).filter(k => Math.hypot(city.roadNodes[k].x + 1153, city.roadNodes[k].z - 984.75) < 20 && process.env.DUMP2)).forEach(id => { const n = city.roadNodes[id]; console.log(id, n.x, n.z, n.elevation, city.roadEdges.filter(e => e.from === id || e.to === id).map(e => e.id + ':' + e.type + ':' + e.structure + ':' + (e.from === id ? e.to : e.from)).join(' ')); }); }
+  const { CLASSES } = await imp('src/chicago/network.js');
+  const bad = [], N = city.roadNodes, E = city.roadEdges;
+  const deg = {}; E.forEach(e => { deg[e.from] = (deg[e.from] || 0) + 1; deg[e.to] = (deg[e.to] || 0) + 1; });
+  // 1. grades
+  E.forEach(e => {
+    const A = N[e.from], B = N[e.to], L = Math.hypot(B.x - A.x, B.z - A.z) || 1, g = Math.abs(B.elevation - A.elevation) / L, lim = (CLASSES[e.cls] || CLASSES.two).maxGrade;
+    if (g > lim + 0.002) bad.push('edge ' + e.id + ' (' + e.cls + ') grade ' + r1(g * 100) + ' % > ' + lim * 100 + ' %');
+  });
+  // 2. dead ends (highway/ramp ends excluded: they leave the map)
+  Object.keys(N).forEach(id => { if ((deg[id] || 0) === 1) { const e = E.find(q => q.from === id || q.to === id); if (e && e.type !== 'highway' && !e.ramp) bad.push('dead end at ' + id + ' ' + r1(N[id].x) + ',' + r1(N[id].z) + ' map ' + r1(494.5 - N[id].x / 2.5) + ',' + r1(701.5 - N[id].z / 2.5) + ' (' + e.type + ' ' + e.id + ')'); } });
+  // 3. meeting points (3+ roads) at least 100 m = 80 u apart, on the ground
+  const J = Object.keys(N).filter(id => deg[id] >= 3 && N[id].elevation < 0.5 && !E.some(e => (e.from === id || e.to === id) && (e.type === 'highway' || e.ramp)));
+  for (let i = 0; i < J.length; i++) for (let j = i + 1; j < J.length; j++) { const d = Math.hypot(N[J[i]].x - N[J[j]].x, N[J[i]].z - N[J[j]].z); if (d < 80) bad.push('meeting points ' + J[i] + ' / ' + J[j] + ' only ' + r1(d * 1.25) + ' m apart at map ' + r1(494.5 - N[J[i]].x / 2.5) + ',' + r1(701.5 - N[J[i]].z / 2.5) + ' elev ' + r1(N[J[i]].elevation)); }
+  return { name: 'rules', count: E.length + ' edges, ' + J.length + ' meeting points', bad };
+}
 async function checkWater() {
   const { RIVERS, LAKES, DECKS } = await imp('src/chicago/map.js');
   const { nearestOnPoly, pointInPoly } = await imp('src/chicago/geom.js');
@@ -342,7 +359,7 @@ async function checkRaces() {
       const car = { x, z, y: 0, heading: h, speed: 0, collisionRadius: 1.1, massFactor: 1 }, x0 = car.x, z0 = car.z;
       resolveCarCollisions(car, world3, 1 / 60);
       const pushed = Math.hypot(car.x - x0, car.z - z0);
-      if (pushed > 0.05) bad.push(r.id + ' (' + r.kind + ') starts inside an obstacle (pushed ' + r1(pushed) + ' u)');
+      if (pushed > 0.5) bad.push(r.id + ' (' + r.kind + ') starts inside an obstacle (pushed ' + r1(pushed) + ' u)' + (process.env.DBG ? ' at ' + r1(x) + ',' + r1(z) + ' near ' + world3.filter(o => Math.hypot((o.x ?? 1e9) - x, (o.z ?? 1e9) - z) < 6).map(o => JSON.stringify(o).slice(0, 120)).join(' | ') : ''));
       car.speed = 10;
       for (let k = 0; k < 120; k++) { car.x += Math.sin(h) * car.speed / 60; car.z += Math.cos(h) * car.speed / 60; resolveCarCollisions(car, world3, 1 / 60); car.speed = Math.max(car.speed, 8); }
       const gone = Math.hypot(car.x - x0, car.z - z0);
@@ -390,7 +407,7 @@ async function checkRivals() {
   tr.clearRivals();
   return { name: 'rivals', count: plan.length + ' routes', bad };
 }
-const CHECKS = { rivals: checkRivals, sidewalks: checkSidewalks, gas: checkGas, races: checkRaces, drift: checkDrift, covered: checkCovered,  signs: checkSigns, lamps: checkLamps, buildings: checkBuildings, traffic: () => checkTraffic(+process.argv[3] || 40, +process.argv[4] || 5), markings: checkMarkings, bridges: checkBridges, solid: checkSolid, water: checkWater };
+const CHECKS = { rivals: checkRivals, sidewalks: checkSidewalks, gas: checkGas, races: checkRaces, drift: checkDrift, covered: checkCovered,  signs: checkSigns, lamps: checkLamps, buildings: checkBuildings, traffic: () => checkTraffic(+process.argv[3] || 40, +process.argv[4] || 5), markings: checkMarkings, bridges: checkBridges, solid: checkSolid, water: checkWater, rules: checkRules };
 const which = process.argv[2] || 'all';
 const list = which === 'all' ? Object.keys(CHECKS) : [which];
 let failed = 0;

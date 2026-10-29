@@ -74,14 +74,14 @@ export function createFuel({ city, scene, heightAt, car, world, active = () => t
         solid(0.5, 0.42, x, 14 + dz);
       });
     });
-    // price towers standing on the ground at the street corners of the forecourt (about 4 m tall), faces square to the street
+    // price towers standing on the ground at the street corners of the forecourt (6 m tall, right behind the pavement), faces square to the street
     // (normal along the street, so a driver coming along the road sees the board head-on from either direction)
     const bmat = new THREE.MeshBasicMaterial({ map: board(s) });
-    const TH = 3.2, TW = TH * 512 / 880;
+    const TH = 4.8, TW = TH * 512 / 880, BZ = 3.0;     // 4.8 u = 6 m; BZ = how far in from the pavement edge
     [-11.6, 11.6].forEach(px => {
-      box(0.9, 0.25, TW + 0.5, concrete, px, 0.125, 5.6);
+      box(0.9, 0.25, TW + 0.5, concrete, px, 0.125, BZ);
       const bm = new THREE.Mesh(new THREE.BoxGeometry(0.4, TH, TW), [bmat, bmat, dark, dark, dark, dark]);
-      bm.position.set(px, 0.25 + TH / 2, 5.6); g.add(bm); solid(0.5, TW / 2 + 0.2, px, 5.6);
+      bm.position.set(px, 0.25 + TH / 2, BZ); g.add(bm); solid(0.5, TW / 2 + 0.2, px, BZ);
       s._boardX = (s._boardX || []).concat(px);
     });
     // a drive-in ramp over the kerb and pavement at the mouth of the forecourt
@@ -97,7 +97,7 @@ export function createFuel({ city, scene, heightAt, car, world, active = () => t
     const addGlow = (color, w, d, x, z, k) => { const gl = createGroundGlow(color, w, d); gl.position.set(x, 0.07, z); g.add(gl); s._glows.push([gl, k]); };
     addGlow(0xfff1cf, 30, 22, 0, 14, 1); addGlow(0xfff1cf, 18, 12, 0, 14, 1); addGlow(0xffe9b0, 16, 10, 0, 24, 0.9); addGlow(0xff4b3a, 14, 6, 0, 3, 0.5);
     s._halos = [];
-    [[0, 5.3, 14, 22], [-7.8, 5.3, 14, 10], [7.8, 5.3, 14, 10], [-11.6, 2.2, 5.6, 9], [11.6, 2.2, 5.6, 9], [0, 4.0, 27.2, 10]].forEach(([x, y, z, sz]) => { const hl = createHalo(0xfff1cf, sz); hl.position.set(x, y, z); g.add(hl); s._halos.push(hl); });
+    [[0, 5.3, 14, 22], [-7.8, 5.3, 14, 10], [7.8, 5.3, 14, 10], [-11.6, 3.4, 3.0, 11], [11.6, 3.4, 3.0, 11], [0, 4.0, 27.2, 10]].forEach(([x, y, z, sz]) => { const hl = createHalo(0xfff1cf, sz); hl.position.set(x, y, z); g.add(hl); s._halos.push(hl); });
     const glow = s._glows[0][0]; s._glow = glow;
     // the fill rings
     s._rings = s.fill.map(f => {

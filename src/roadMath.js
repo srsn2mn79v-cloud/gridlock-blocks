@@ -21,8 +21,8 @@
 //
 // Same simplified, game-appropriate numbers as the city editor (not an exact
 // civil-engineering spec) — see the editor's comments for the reasoning.
-export const designSpeedKmh = { local: 40, avenue: 60, highway: 100 };
-export const frictionAssumed = { local: 0.17, avenue: 0.14, highway: 0.10 };
+export const designSpeedKmh = { local: 40, avenue: 70, highway: 120 };
+export const frictionAssumed = { local: 0.17, avenue: 0.14, highway: 0.09 };
 // Highway corners are sized for a real sweeping bend (a 90-degree turn at the 60-unit trim
 // below comes out at roughly a 60-unit radius), not the tight joint a street corner is.
 export const cornerTrim = { local: 4, avenue: 7, highway: 60 };
@@ -200,7 +200,9 @@ export function buildHorizontalCurve(nodeId, nodes, edgesByNode) {
   // Superelevation (road banking) is a highway thing only: on ordinary city streets a
   // tilted corner just reads as a road that's broken, so local/avenue corners stay flat
   // (and the car stays level through them — terrain.js reads the same bank value).
-  const bankMax = 0; // roads are level everywhere: banked ribbons dipped through the ground plane and warped the paint
+  // Highways bank by tan(theta) = v^2 / (r g) (v design speed, r radius in metres, g = 9.81), capped at 10 degrees; the
+  // ribbon is lifted by half its width x sin(bank) (roads.js / terrain.js) so the low edge never dips under the ground.
+  const bankMax = type === 'highway' ? Math.min(0.175, Math.atan((((designSpeedKmh.highway) / 3.6) ** 2) / (Math.max(R, 5) * 1.25 * 9.81))) : 0;
 
   // Re-integrate at the final (possibly scaled) R/Ls/Lc for the actual drawable samples.
   const Ltotal0 = 2 * Ls + Lc;

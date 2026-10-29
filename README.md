@@ -797,3 +797,9 @@ function per new type) whenever you want it — say the word and I'll add them.
 - **Garages**: an owned apartment's ramp is cut into the ground plane (`setGarageHoles`) and always drawn, so the car never sinks under the street.
 - **Shop car parks**: `shop.bays` (chicago.js) + painted lines (`shopBays.js`), about half of the bays hold a parked car.
 - **Tyre snow**: small flakes thrown sideways in a low arc (puffs.js).
+
+### Road rules (latest)
+- Road classes: highway 3 lanes/carriageway (3.6 m + 3 m shoulders, 120 km/h), express road (orange, 3 lanes, 120), main arterial (yellow, 3 lanes, 70), residential (1 lane, 50). Limits in `src/chicago/network.js` `CLASSES`.
+- Only the interstate curves; every other road is a straight point-to-point line. No dead ends, meeting points >= 100 m apart (`tools/regraph.py`, checked by `node tools/check.mjs rules`).
+- Bridge approaches are sized from each class's max grade (6 % / 15 %). Interstate bend radius >= ~690 m, banked by tan(theta) = v^2/(r g).
+- District edges are snapped to gaps between roads (`tools/snap_districts.py`).

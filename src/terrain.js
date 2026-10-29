@@ -145,7 +145,7 @@ export function createGroundSampler(cityData) {
       if (Math.abs(bank) > 0.0005) {
         const hd = Math.atan2(p1.z - p0.z, p1.x - p0.x);
         const lateral = (x - best.px) * Math.sin(hd) + (z - best.pz) * -Math.cos(hd);
-        y = yc + lateral * Math.sin(bank);
+        y = yc + lateral * Math.sin(bank) + corner.halfWidth * Math.abs(Math.sin(bank));
       }
       consider(best.d, y, 'road');
     }

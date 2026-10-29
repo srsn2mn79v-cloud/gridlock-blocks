@@ -2,6 +2,7 @@
 // street furniture, parked cars, buildings (by district), parks and water, the five coloured
 // shops hidden in alleys, and apartments to buy. Deterministic (seeded) so every load is the same city.
 import { generateRoads } from './gen_network.js';
+import { CLASSES } from './network.js';
 import { buildEdgesByNode, intersectionClearance } from '../roadMath.js';
 import { S, T, TP, fromWorld, LAKES, DECKS, SPOTS, MAP, X0, Y0, RIVERS, PARKS, LANDMARKS, STADIUM, districtAt, DISTRICTS } from './map.js';
 import { rng, dist, distToSeg, pointInPoly, ribbonPoly, nearestOnPoly, atLen, polyLen } from './geom.js';
@@ -41,12 +42,12 @@ export function buildChicago() {
   const idOf = {}; let ni = 0;
   const nodes = {};
   R.net.nodes.forEach((n, i) => { if (!used.has(i)) return; const id = 'n' + ni++; idOf[i] = id; nodes[id] = { x: r2(n.x), z: r2(n.z), elevation: r2(n.elev) }; });
-  const CL = { hw: { type: 'highway', width: 15, lanes: 3 }, six: { type: 'avenue', width: 24, lanes: 3 }, four: { type: 'avenue', width: 16, lanes: 2 },
-    two: { type: 'local', width: 9 }, ramp: { type: 'avenue', width: 8, lanes: 1 } };
+  const CL = CLASSES;
   const edges = R.net.edges.map((e, i) => {
     const c = CL[e.line.cls];
     const o = { id: 'e' + i, from: idOf[e.from], to: idOf[e.to], width: c.width, type: c.type, structure: e.deckEdge ? 'bridge' : 'surface' };
     if (c.lanes) o.lanes = c.lanes;
+    o.speedLimit = c.speedLimit;
     if (e.line.cls === 'hw' || e.line.cls === 'ramp') o.sidewalks = false;
     if (e.line.cls === 'ramp') { o.oneWay = true; o.ramp = true; o.lanes = 1; }
     if (e.line.cls === 'hw') o.oneWay = true;
@@ -556,7 +557,7 @@ export function buildChicago() {
     [1, -1].forEach(side => {
       for (let t = c1; t < len - c2; t += 7.4) {
         if (rand() > dens) continue;
-        const off = e.width / 2 - (e.cls === 'two' ? 0.15 : 0.6);
+        const off = e.width / 2 + 1.3;      // roads have no spare lane any more: cars park up on the kerbside pavement
         const p = sidePoint(e, t, side, off);
         if (roadClear(p.x, p.z) < -2.5 || inWater(p.x, p.z, 2) || parcelsHit(p.x, p.z, 0.3) || outsideHW(p.x, p.z, 0)) continue;
         if (!propOK(p.x, p.z, 3.6, parked) || !propOK(p.x, p.z, 2.6, lampList) || !propOK(p.x, p.z, 2.4, treeList) || !propOK(p.x, p.z, 3, props.filter(q => q.type === 'trafficlight'))) continue;
@@ -613,7 +614,14 @@ export function buildChicago() {
   [['Wrigley Green', 'fountain'], ['Hancock Green', 'fountain'], ['Riverwalk Park', 'fountain'], ['Grant Park Strip', 'fountain']].forEach(([name, type]) => {
     const pk = PARKS.find(p => p.name === name); if (!pk) return;
     const xs = pk.pts.map(p => p[0]), zs = pk.pts.map(p => p[1]);
-    props.push({ type, x: r2((Math.min(...xs) + Math.max(...xs)) / 2), z: r2((Math.min(...zs) + Math.max(...zs)) / 2), rotation: 0 });
+    // the spot in the park that is furthest from every road (the park's centre can be crossed by a street)
+    let best = null;
+    for (let i = 0; i <= 16; i++) for (let j = 0; j <= 16; j++) {
+      const x = Math.min(...xs) + (Math.max(...xs) - Math.min(...xs)) * i / 16, z = Math.min(...zs) + (Math.max(...zs) - Math.min(...zs)) * j / 16;
+      if (!pointInPoly(x, z, pk.pts)) continue;
+      const c = roadClear(x, z); if (!best || c > best.c) best = { x, z, c };
+    }
+    if (best && best.c > 5) props.push({ type, x: r2(best.x), z: r2(best.z), rotation: 0 });
   });
 
   // ---------------------------------------------------------------- gameplay: spawn on Michigan-ish street downtown + checkpoints

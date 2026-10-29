@@ -74,7 +74,7 @@ export function planRaces(city, districtName = () => 'City', transit = null) {
       while (total < 470 && guard++ < 14) {
         let best = null, bd = 0.985;
         (adj[cur] || []).forEach(o => {
-          if (o.to === prevN || o.e.width < 15 || o.e.structure === 'bridge' || !flat(o.to)) return;
+          if (o.to === prevN || o.e.width < 13 || o.e.structure === 'bridge' || !flat(o.to)) return;
           const dx = nodes[o.to].x - nodes[cur].x, dz = nodes[o.to].z - nodes[cur].z, l = Math.hypot(dx, dz) || 1;
           const c = (dx / l) * dir0[0] + (dz / l) * dir0[1];
           if (c > bd) { bd = c; best = o; }
@@ -652,6 +652,8 @@ export function createRaces({ city, scene, heightAt, car, world, districtName, t
       run.lost = '';
     } else {
       run.calm += dt; run.bonusNow = false;
+      // standing still or reversing costs points slowly (the score never goes below zero)
+      if (!car.airborne && (sp < 2.5 || car.speed < -0.5)) { const loss = (run.bank > 0 ? 35 : 0) * dt; run.bank = Math.max(0, run.bank - loss); run.chain = Math.max(0, run.chain - 60 * dt); if (run.bank > 0 || run.chain > 0) run.lost = car.speed < -0.5 ? 'Reversing: losing points' : 'Standing still: losing points'; }
       if (run.chain > 0 && (run.calm > 0.7 || !inZone)) {
         if (inZone) { run.bank += run.chain * run.mult; run.lost = '+' + Math.round(run.chain * run.mult); } else run.lost = 'Left the zone - chain lost';
         run.chain = 0; run.chainT = 0; run.mult = 1;
