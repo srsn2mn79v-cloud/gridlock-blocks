@@ -832,3 +832,8 @@ Three arterial crossings of the river are now bridged (`gen_network.js`, "river 
 spanned the river but were too short for ramps borrow road from both banks, and pairs of arterials that stopped opposite
 each other are joined. `RB_ALLOW` lists the crossings that pass every check; the other four candidates each left a
 dead-end side street, so they are off. Try one with `RB=0,2,5,1 node tools/check.mjs rules`.
+
+## Town life, slice 1 (street furniture)
+Fire hydrants, mailboxes and café sets (table + chairs, busy districts only) line the streets (`chicago.js`, "street furniture").
+A hit hydrant pops off and sprays water for ~12 s (`src/spray.js`); mailboxes and café sets are light and get launched.
+Still to come in this phase: storefronts, parks with seating, food stands, gyms.

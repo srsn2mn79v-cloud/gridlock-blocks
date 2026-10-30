@@ -557,6 +557,27 @@ export function buildChicago() {
       treeList.push({ type: rand() < 0.3 ? 'bush' : (rand() < 0.5 ? 'oak' : 'tree'), x: r2(p.x), z: r2(p.z), rotation: Math.floor(rand() * 360) });
     }
   });
+  // street furniture: fire hydrants and mailboxes along the kerb of the streets, café sets (a table and chairs) outside the busy districts' buildings
+  const CAFE_DISTRICTS = ['Gold Coast', 'Old Town', 'Chinatown', 'Loop Edge', 'Downtown', 'River North'];
+  edges.forEach(e => {
+    if ((e.cls !== 'two' && e.cls !== 'four') || e.structure === 'bridge' || nodes[e.from].elevation > 0.5 || nodes[e.to].elevation > 0.5) return;
+    const a = nodes[e.from], b = nodes[e.to], len = Math.hypot(b.x - a.x, b.z - a.z);
+    const mid = fromWorld((a.x + b.x) / 2, (a.z + b.z) / 2), dis = districtAt(mid[0], mid[1]);
+    const c1 = intersectionClearance(e.from, e, byNode) + 7, c2 = intersectionClearance(e.to, e, byNode) + 7;
+    const okAt = (p, r, near) => roadClear(p.x, p.z) >= near && roadClear(p.x, p.z, false, true) <= 6 && !inWater(p.x, p.z, 2) && !parcelsHit(p.x, p.z, r) && !outsideHW(p.x, p.z, 0) && !inDrive(p.x, p.z, 2.5)
+      && propOK(p.x, p.z, 5, treeList) && propOK(p.x, p.z, 3.5, lampList) && !driveways.some(d => Math.hypot(d.x - p.x, d.z - p.z) < d.hw + 4);
+    for (let t = c1 + rand() * 20; t < len - c2; t += 48 + rand() * 30) {
+      const side = rand() < 0.5 ? 1 : -1, p = sidePoint(e, t, side, e.width / 2 + 2.1);
+      if (!okAt(p, 0.5, 0.8)) continue;
+      treeList.push({ type: rand() < 0.6 ? 'hydrant' : 'mailbox', x: r2(p.x), z: r2(p.z), rotation: Math.round(Math.atan2(p.ux, p.uz) * 180 / Math.PI) });
+    }
+    if (dis && CAFE_DISTRICTS.includes(dis.name)) for (let t = c1 + 6 + rand() * 25; t < len - c2; t += 60 + rand() * 40) {
+      if (rand() < 0.45) continue;
+      const side = rand() < 0.5 ? 1 : -1, p = sidePoint(e, t, side, e.width / 2 + 4.3);
+      if (!okAt(p, 1.5, 2.6)) continue;
+      treeList.push({ type: 'cafeset', x: r2(p.x), z: r2(p.z), rotation: Math.floor(rand() * 360) });
+    }
+  });
   props.push(...treeList);
   // pedestrian path lights: low posts on a loose grid through the parks (they glow at night, see props.js / main.js)
   PARKS.forEach(pk => {
@@ -581,7 +602,7 @@ export function buildChicago() {
     [1, -1].forEach(side => {
       for (let t = c1; t < len - c2; t += 7.4) {
         if (rand() > dens) continue;
-        const off = e.width / 2 + (e.cls === 'two' ? 0 : 0.7);      // parked cars stand half on the road, half on the kerb (a local street's lanes leave room for it; on an avenue the cars sit a little further out)
+        const off = e.width / 2 + (e.cls === 'two' ? 0.35 : 0.7);      // parked cars stand half on the road, half on the kerb (a local street's lanes leave room for it; on an avenue the cars sit a little further out)
         const p = sidePoint(e, t, side, off);
         if (driveways.some(d => Math.hypot(d.x - p.x, d.z - p.z) < d.hw + 6)) continue;
         if (roadClear(p.x, p.z) < -0.7 || inWater(p.x, p.z, 2) || parcelsHit(p.x, p.z, 0.3) || outsideHW(p.x, p.z, 0)) continue;

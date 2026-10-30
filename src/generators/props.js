@@ -107,6 +107,42 @@ function benchMesh() {
   return mesh;
 }
 
+
+// ---- street furniture (Phase 2 town life) ----------------------------------------------------------------------------------------
+function hydrantMesh() {
+  const g = new THREE.Group(), red = new THREE.MeshStandardMaterial({ color: 0xc0392b, roughness: 0.55 }), cap = new THREE.MeshStandardMaterial({ color: 0xe8e8e8, roughness: 0.5 });
+  const body = new THREE.Mesh(new THREE.CylinderGeometry(0.2, 0.25, 0.62, 10), red); body.position.y = 0.38;
+  const base = new THREE.Mesh(new THREE.CylinderGeometry(0.29, 0.3, 0.1, 10), red); base.position.y = 0.05;
+  const dome = new THREE.Mesh(new THREE.SphereGeometry(0.21, 10, 6, 0, Math.PI * 2, 0, Math.PI / 2), cap); dome.position.y = 0.69;
+  const nub1 = new THREE.Mesh(new THREE.CylinderGeometry(0.07, 0.07, 0.5, 8), red); nub1.rotation.z = Math.PI / 2; nub1.position.y = 0.45;
+  g.add(body, base, dome, nub1);
+  g.children.forEach(c => { c.castShadow = true; });
+  return g;
+}
+function mailboxMesh() {
+  const g = new THREE.Group(), blue = new THREE.MeshStandardMaterial({ color: 0x2457a6, roughness: 0.5 }), dark = new THREE.MeshStandardMaterial({ color: 0x2a2f36, roughness: 0.6 });
+  const post = new THREE.Mesh(new THREE.BoxGeometry(0.12, 0.7, 0.12), dark); post.position.y = 0.35;
+  const box = new THREE.Mesh(new THREE.CylinderGeometry(0.28, 0.28, 0.6, 12, 1, false, 0, Math.PI), blue); box.rotation.z = Math.PI / 2; box.rotation.y = 0; box.position.y = 0.98;
+  const body = new THREE.Mesh(new THREE.BoxGeometry(0.6, 0.28, 0.56), blue); body.position.y = 0.84;
+  g.add(post, body, box);
+  g.children.forEach(c => { c.castShadow = true; });
+  return g;
+}
+function cafeSetMesh() {
+  const g = new THREE.Group(), wood = new THREE.MeshStandardMaterial({ color: 0xb98b5e, roughness: 0.7 }), metal = new THREE.MeshStandardMaterial({ color: 0x3b4048, roughness: 0.5, metalness: 0.3 });
+  const top = new THREE.Mesh(new THREE.CylinderGeometry(0.55, 0.55, 0.06, 14), wood); top.position.y = 0.78;
+  const leg = new THREE.Mesh(new THREE.CylinderGeometry(0.06, 0.12, 0.76, 8), metal); leg.position.y = 0.38;
+  g.add(top, leg);
+  [[0.95, 0], [-0.95, 0], [0, 0.95]].forEach(([x, z], i) => {
+    const seat = new THREE.Mesh(new THREE.BoxGeometry(0.42, 0.06, 0.42), wood); seat.position.set(x, 0.45, z);
+    const back = new THREE.Mesh(new THREE.BoxGeometry(0.42, 0.4, 0.05), wood); back.position.set(x * 1.18, 0.7, z * 1.18); back.rotation.y = Math.atan2(x, z);
+    const legs = new THREE.Mesh(new THREE.BoxGeometry(0.36, 0.44, 0.36), metal); legs.position.set(x, 0.22, z);
+    g.add(seat, back, legs);
+  });
+  g.children.forEach(c => { c.castShadow = true; });
+  return g;
+}
+
 function plasterMat(c) { const m = new THREE.MeshStandardMaterial({ color: c }); m.userData.snow = { plaster: true }; return m; }
 function signMesh() {
   const g = new THREE.Group();
@@ -360,7 +396,7 @@ function shopSignMesh(p) {
   return g;
 }
 
-const COLLAPSE_TYPES = new Set(['light', 'trafficlight', 'bench', 'shoplamp', 'shopsign', 'fountain', 'gazebo', 'foodstand', 'sign', 'oneway']);
+const COLLAPSE_TYPES = new Set(['hydrant', 'mailbox', 'cafeset', 'light', 'trafficlight', 'bench', 'shoplamp', 'shopsign', 'fountain', 'gazebo', 'foodstand', 'sign', 'oneway']);
 const MERGE_TYPES = new Set(['oak', 'bush', 'tree']);
 function mergeStaticProps(meshes) {
   const out = new THREE.Group(), mats = new Map(), buckets = new Map();
@@ -391,7 +427,7 @@ const builders = {
   shoplamp: shopLampMesh, shopsign: shopSignMesh,
   oak: oakMesh, bush: bushMesh, fountain: fountainMesh, gazebo: gazeboMesh, foodstand: foodstandMesh,
   tree: treeMesh, light: lightMesh, bench: benchMesh, sign: signMesh,
-  trafficlight: trafficLightMesh, oneway: onewaySignMesh
+  trafficlight: trafficLightMesh, oneway: onewaySignMesh, hydrant: hydrantMesh, mailbox: mailboxMesh, cafeset: cafeSetMesh
 };
 
 // Neon signs: each word is drawn once into a glowing-tube texture; every sign is an instanced quad tinted with its own colour.

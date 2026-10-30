@@ -30,6 +30,13 @@ export const propPhysics = {
            fall: { len: 2.2, kind: 'drive', penalty: 0.05, lift: 0.05 } },
   signpost: { radius: 0.3, blocksCar: true, destructible: true, destroy: 'topple', debrisColor: 0xe05252, speedPenalty: 0.12, response: 'redirect', breakSpeed: 3, mass: 15,
            fall: { len: 2.6, kind: 'drive', penalty: 0.05, lift: 0.05 } },
+  // Street furniture: a hydrant pops off and sprays water, a mailbox goes flying, a café set (table and chairs) scatters.
+  hydrant: { radius: 0.35, blocksCar: true, destructible: true, destroy: 'topple', spray: true, debrisColor: 0xc0392b, speedPenalty: 0.1, response: 'redirect', breakSpeed: 4, mass: 60,
+           fall: { len: 0.9, kind: 'drive', penalty: 0.03, lift: 0.1 } },
+  mailbox: { radius: 0.35, blocksCar: true, destructible: true, destroy: 'topple', debrisColor: 0x2457a6, speedPenalty: 0.08, response: 'redirect', breakSpeed: 3, mass: 35,
+           fall: { len: 1.1, kind: 'drive', penalty: 0.03, lift: 0.1 } },
+  cafeset: { radius: 1.25, blocksCar: true, destructible: true, destroy: 'topple', debrisColor: 0xb98b5e, speedPenalty: 0.12, response: 'redirect', breakSpeed: 3, mass: 22,
+           fall: { len: 1.8, kind: 'push', mass: 0.5, radius: 1.2, lift: 0.1 } },
   oak:   { radius: 1.0, blocksCar: true, destructible: false, response: 'bounce' },
   bush:  { radius: 0.8, blocksCar: true, destructible: false, response: 'redirect' },
   fountain: { radius: 3.3, blocksCar: true, destructible: false, response: 'bounce' },

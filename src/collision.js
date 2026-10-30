@@ -46,7 +46,7 @@ export function buildCollisionWorld(propInstances, parcelInstances) {
     colliders.push({
       kind: 'prop', instance: inst, x: inst.x, z: inst.z, radius: cfg.radius,
       blocksCar: cfg.blocksCar, destructible: cfg.destructible,
-      destroy: cfg.destroy, debrisColor: cfg.debrisColor, speedPenalty: cfg.speedPenalty || 0, mass: cfg.mass, fall: cfg.fall, breakSpeed: cfg.breakSpeed,
+      destroy: cfg.destroy, spray: cfg.spray, debrisColor: cfg.debrisColor, speedPenalty: cfg.speedPenalty || 0, mass: cfg.mass, fall: cfg.fall, breakSpeed: cfg.breakSpeed,
       response: cfg.response || 'bounce',
       destroyed: false
     });

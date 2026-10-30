@@ -1,3 +1,4 @@
+import { createSprays } from './spray.js';
 import { KMH_PER_U } from './units.js';
 import * as THREE from 'three';
 import { tick, loadingDone } from './loading.js';
@@ -150,7 +151,7 @@ function onNight(k) {
 const reflectors = roadsGroup.userData.reflectors || [];
 // Far lamps and signal heads are hidden: each is a handful of draw calls and at 150+ units they are a speck.
 // Only what this function hid is shown again, so knocked-down props stay gone.
-const cullSet = propInstances.filter(p => p.mesh && ['light', 'trafficlight', 'shoplamp', 'shopsign', 'sign', 'oneway'].includes(p.type));
+const cullSet = propInstances.filter(p => p.mesh && ['light', 'trafficlight', 'shoplamp', 'shopsign', 'sign', 'oneway', 'hydrant', 'mailbox', 'cafeset'].includes(p.type));
 let cullT = 0;
 function cullProps(dt) {
   cullT -= dt; if (cullT > 0) return; cullT = 0.25;
@@ -379,6 +380,7 @@ function updateTrafficLights() {
   });
 }
 
+const sprays = createSprays(scene);
 const input = createInput();
 const camOffset = new THREE.Vector3(0, 5.2, 9.5);
 const camBase = camOffset.clone();
@@ -870,6 +872,7 @@ function animate() {
     car.group.position.set(car.x, car.y, car.z); // re-sync after any collision push-back
     destroyed.forEach(c => {
       const inst = c.instance, mesh = inst.mesh;
+      if (c.spray) sprays.add(mesh.position.x, mesh.position.y + 0.1, mesh.position.z);
       if (c.destroy === 'debris') {
         mesh.visible = false;
         spawnDebris(scene, mesh.position.x, mesh.position.y + 0.3, mesh.position.z, c.debrisColor, 6);
@@ -885,6 +888,7 @@ function animate() {
       else destruction.topple(mesh, dx, dz, c.fall, { speed: Math.max(Math.abs(car.speed), c.breakSpeed || 0) / Math.max(0.3, 1 - (c.speedPenalty || 0)), carMass: car.mass, mass: c.mass });
     });
     destruction.update(dt, car);
+    sprays.update(dt);
     updateEffects(dt);
     pedestrians.update(dt, hail.following() ? hail.proxy : car);
     updateWrongWay();
