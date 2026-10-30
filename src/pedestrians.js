@@ -338,7 +338,7 @@ export function createPedestrianSystem(cityData, scene, count = 14, maxCount = c
   const peds = [];
   // doors people can walk into and come out of again later: shop and store doors, flats, and every storefront awning (the door is the wall behind it)
   const entrances = [], stats = { entered: 0, exited: 0 };
-  [...(cityData.shops || []), ...(cityData.stores || []), ...(cityData.apartments || [])].forEach(b => { if (b.door) entrances.push({ x: b.door.x, z: b.door.z }); });
+  [...(cityData.shops || []), ...(cityData.stores || []), ...(cityData.stations || []).filter(q => q.market), ...(cityData.apartments || [])].forEach(b => { if (b.door) entrances.push({ x: b.door.x, z: b.door.z }); });
   (cityData.props || []).forEach(q => { if (q.type === 'awning') { const r = (q.rotation || 0) * Math.PI / 180; entrances.push({ x: q.x - Math.sin(r) * 0.8, z: q.z - Math.cos(r) * 0.8 }); } });
   function nearestEntrance(w, maxD) {
     let best = null, bd = maxD;

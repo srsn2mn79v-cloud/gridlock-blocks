@@ -30,6 +30,7 @@ import { createPedestrianSystem } from './pedestrians.js';
 import { createDriftTracks } from './driftTrack.js';
 import { buildSidewalks } from './sidewalks.js';
 import { createTrafficSystem } from './traffic.js';
+import { loadCustom } from './customData.js';
 import { buildTransit, clearTransitSpots } from './transit.js';
 import { createTransitScene } from './transitScene.js';
 import { createPuffs } from './puffs.js';
@@ -124,7 +125,7 @@ scene.add(parcelGroup);
 const waterParcels = parcelInstances.filter(p => p.type === 'water');
 
 await tick('Planting trees and lamps...', 0.7);
-const transit = buildTransit(city); clearTransitSpots(city, transit);     // (bus stops and cab stands keep their kerb free of parked cars)
+const transit = buildTransit(city, loadCustom().transit); clearTransitSpots(city, transit);     // (bus stops and cab stands keep their kerb free of parked cars)
 const { group: propGroup, instances: propInstances } = buildProps(city);
 scene.add(propGroup);
 
@@ -469,7 +470,7 @@ const weather = createWeather({ env, settings, save: () => saveSettings(settings
 const plowFx = createPlowFx(scene);
 const taxi = createTaxi({ city, scene, heightAt, snowing: () => !!settings.snow });
 let modalPause = false;
-const world = createWorld({ setGarageHoles, city, scene, camera, car, input, heightAt, collisionWorld, parcelInstances, taxi, env, setModalPause: v => { modalPause = v; },
+const world = createWorld({ transit, setGarageHoles, city, scene, camera, car, input, heightAt, collisionWorld, parcelInstances, taxi, env, setModalPause: v => { modalPause = v; },
   chooseCar: key => { settings.car = key; saveSettings(settings); applySetting('car', key); menu.refresh?.(); } });
 if (!world.ownedCars().includes(settings.car)) settings.car = 'hatch';
 const arena = createDriftTracks({ scene });
@@ -489,7 +490,7 @@ world.setBlocked(() => races.active() || races.offering() || hail.busy());
 world.setRaceInfo(() => races.plan);
 world.setSleepHook(h => weather.advance(h));
 // walls the chase camera must not sit inside: building footprints (bucketed) and, in a garage, its concrete
-const shopLots = createShopLots({ scene, cityData: city, collisionWorld, heightAt, pedestrians });
+const shopLots = createShopLots({ scene, cityData: city, collisionWorld, heightAt, pedestrians, adopt: (x, z, fx, fz, col) => traffic.adopt(x, z, fx, fz, col) });
 const parkedCars = createParkedCars({ scene, propInstances, handles: propGroup.userData.parkedHandles, collisionWorld, heightAt, events: traffic.events });
 const camGrid = new Map();
 collisionWorld.forEach(c => {
@@ -514,16 +515,23 @@ function spreadMarkers(list) {
   return out;
 }
 const transitScene = createTransitScene({ scene, transit, heightAt });
+// metro entrances are solid (a 6 x 5 m building each, front toward the road)
+((transit.metro && transit.metro.lines) || []).forEach(l => l.stations.forEach(st => {
+  const fx = Math.cos(st.h), fz = Math.sin(st.h), rx = -fz, rz = fx, hw = 3.1, hd = 2.6;
+  const corner = (a, b) => [st.x + rx * hw * a + fx * hd * b, st.z + rz * hw * a + fz * hd * b];
+  collisionWorld.push({ kind: 'parcel', instance: null, footprint: [corner(-1, -1), corner(1, -1), corner(1, 1), corner(-1, 1)], blocksCar: true, destructible: false, response: 'bounce', destroyed: false });
+}));
 // transport markers on the minimap: bus depot, and cab stands / bus stops only when you zoom out to the whole map
 const transitMarkers = all => {
   const out = [];
   if (world.mode !== 'city') return out;
   if (transit.depot) out.push({ x: transit.depot.x, z: transit.depot.z, color: '#2f6fb5', label: 'B' });
+  ((transit.metro && transit.metro.lines) || []).forEach(l => l.stations.forEach(s => out.push({ x: s.x, z: s.z, color: '#' + l.color.toString(16).padStart(6, '0'), label: 'M' })));
   transit.stands.forEach(s => { if (all || Math.hypot(s.x - car.x, s.z - car.z) < 500) out.push({ x: s.x, z: s.z, color: '#f2c200', label: 'T' }); });
   if (!all) transit.stops.forEach(s => { if (Math.hypot(s.x - car.x, s.z - car.z) < 260) out.push({ x: s.x, z: s.z, color: '#4aa3ff', label: 'b' }); });
   return out;
 };
-const stationMarkers = (all) => (world.mode !== 'city' ? [] : (city.stations || []).filter(st => all || Math.hypot(st.x - car.x, st.z - car.z) < 260).map(st => ({ x: st.door.x, z: st.door.z, color: st.kind === 'hospital' ? '#ff4d4d' : st.kind === 'police' ? '#4a86ff' : '#ff9a2e', label: st.kind === 'hospital' ? '✚' : st.kind === 'police' ? 'PD' : 'FD' })));
+const stationMarkers = (all) => (world.mode !== 'city' ? [] : (city.stations || []).filter(st => all || Math.hypot(st.x - car.x, st.z - car.z) < 260).map(st => ({ x: st.door.x, z: st.door.z, color: st.kind === 'hospital' ? '#ff4d4d' : st.kind === 'police' ? '#4a86ff' : st.kind === 'market' ? '#38d96a' : '#ff9a2e', label: st.kind === 'hospital' ? '✚' : st.kind === 'police' ? 'PD' : st.kind === 'market' ? '🛒' : 'FD' })));
 const mapExtras = (all) => { const tx = taxi.mapExtras(); return { route: races.route() || (tx && tx.route), markers: spreadMarkers((tx ? tx.markers : []).concat(world.mapMarkers(all), races.markers(), fuel.markers(), transitMarkers(all), stationMarkers(all))) }; };
 
 let autoLights = null;   // headlights follow night/day, but only when it actually crosses

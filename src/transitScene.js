@@ -102,5 +102,23 @@ export function createTransitScene({ scene, transit, heightAt }) {
     const pole = new THREE.Mesh(poleG, grey); pole.position.set(px, heightAt(px, pz) + 1.55, pz); g.add(pole);
     const sign = new THREE.Mesh(boxG, flagM); sign.scale.set(1.0, 0.9, 0.08); sign.position.set(px, heightAt(px, pz) + 3.0, pz); sign.rotation.y = -s.h + Math.PI / 2; g.add(sign);
   });
+  // --- metro entrances: a small station building with a lit sign in the line's colour, facing the road ---
+  const bodyM = new THREE.MeshStandardMaterial({ color: 0x3b4048, roughness: 0.7 });
+  const darkM = new THREE.MeshStandardMaterial({ color: 0x0c0e11, roughness: 0.9 });
+  const mTex = label('M', 128, 128, '#101820', '#ffffff', 'bold 84px sans-serif');
+  (transit.metro ? transit.metro.lines : []).forEach(line => {
+    const colM = new THREE.MeshStandardMaterial({ color: line.color, emissive: line.color, emissiveIntensity: 0.9, roughness: 0.5 });
+    const signMat = new THREE.MeshStandardMaterial({ map: mTex, emissive: 0xffffff, emissiveMap: mTex, emissiveIntensity: 0.8, roughness: 0.5 });
+    line.stations.forEach(st => {
+      const grp = new THREE.Group(); grp.position.set(st.x, heightAt(st.x, st.z), st.z); grp.rotation.y = Math.PI / 2 - st.h;
+      const b = new THREE.Mesh(boxG, bodyM); b.scale.set(6, 3.4, 5); b.position.set(0, 1.7, 0); grp.add(b);
+      const roof = new THREE.Mesh(boxG, colM); roof.scale.set(6.6, 0.35, 5.6); roof.position.set(0, 3.55, 0); grp.add(roof);
+      const door = new THREE.Mesh(boxG, darkM); door.scale.set(2.6, 2.4, 0.1); door.position.set(0, 1.2, 2.52); grp.add(door);
+      const sign = new THREE.Mesh(boxG, signMat); sign.scale.set(1.5, 1.5, 0.12); sign.position.set(0, 4.5, 2.4); grp.add(sign);
+      const post = new THREE.Mesh(boxG, grey); post.scale.set(0.15, 1.0, 0.15); post.position.set(0, 3.9, 2.4); grp.add(post);
+      const stripe = new THREE.Mesh(boxG, colM); stripe.scale.set(6.05, 0.3, 0.12); stripe.position.set(0, 2.9, 2.51); grp.add(stripe);
+      g.add(grp);
+    });
+  });
   return { group: g, depotMesh };
 }

@@ -8,6 +8,7 @@
 //   node tools/check.mjs solid      every object a car can see is solid (and a rammed collider really stops the car)
 //   node tools/check.mjs sidewalks every pavement leads somewhere (no stubs / islands, none beside slip roads)
 //   node tools/check.mjs water      no road surface lies under water without a bridge
+//   node tools/check.mjs transit    bus loops are legal, metro stations stand on free ground, custom lines build
 //   node tools/check.mjs drift      the three drift circuits: corner radius, walls, start
 //   node tools/check.mjs rivals     race rivals run their routes without errors
 //   node tools/check.mjs quick      every static check (seconds)       placement / roads: sub-groups of quick
@@ -552,7 +553,9 @@ async function checkLots() {
   const actors = [];
   const pedestrians = { createActor: () => { const a = { visible: false, set(x, y, z) { if (![x, y, z].every(Number.isFinite)) bad.push('person at a bad position'); a.visible = true; }, hide() { a.visible = false; }, dispose() {} }; actors.push(a); return a; } };
   let seed = 7; const rng = () => (seed = (seed * 16807) % 2147483647) / 2147483647;
-  const lots = createShopLots({ scene, cityData: city, collisionWorld: world, heightAt, pedestrians, rng });
+  const { createTrafficSystem } = await imp('src/traffic.js'); const { buildTransit } = await imp('src/transit.js');
+  const tr = createTrafficSystem(city, new THREE.Scene(), heightAt, 6, 6, buildTransit(city));
+  const lots = createShopLots({ scene, cityData: city, collisionWorld: world, heightAt, pedestrians, adopt: tr.adopt, rng });
   const sh = (city.shops || []).find(s => s.bays && s.mouth);
   const player = { x: sh ? sh.mouth.x + 90 : 0, z: sh ? sh.mouth.z : 0 };
   let nanFrames = 0, maxActive = 0;
@@ -565,9 +568,10 @@ async function checkLots() {
   if (!(st.arrived > 0)) bad.push('no visitor ever arrived');
   if (!(st.entered > 0)) bad.push('no visitor ever walked into a shop');
   if (!(st.left > 0)) bad.push('no visitor ever left again');
+  if (!(st.joined > 0)) bad.push('no leaving visitor ever joined the street traffic');
   // overlapping bays: two visiting cars must never share a bay
   const used = new Set(); for (const l of lots.lots) if (l.v) { const k = l.v.b.x + ',' + l.v.b.z; if (used.has(k)) bad.push('two cars in one bay'); used.add(k); }
-  return { name: 'lots', count: lots.lots.length + ' car parks, ' + st.arrived + ' arrivals, ' + st.entered + ' went in, ' + st.left + ' left (up to ' + maxActive + ' at once)', bad };
+  return { name: 'lots', count: lots.lots.length + ' car parks, ' + st.arrived + ' arrivals, ' + st.entered + ' went in, ' + st.left + ' left, ' + (st.joined || 0) + ' joined the traffic (up to ' + maxActive + ' at once)', bad };
 }
 
 // ---- people walk into shop doors and storefronts and come out again ------------------------------------------------------------------------
@@ -601,12 +605,37 @@ async function checkRivals() {
   tr.clearRivals();
   return { name: 'rivals', count: plan.length + ' routes', bad };
 }
-const CHECKS = { rivals: checkRivals, sidewalks: checkSidewalks, gas: checkGas, races: checkRaces, drift: checkDrift, covered: checkCovered,  signs: checkSigns, lamps: checkLamps, buildings: checkBuildings, traffic: () => checkTraffic(+process.argv[3] || 40, +process.argv[4] || 5), markings: checkMarkings, bridges: checkBridges, solid: checkSolid, water: checkWater, rules: checkRules, driveways: checkDriveways, smooth: checkSmooth, mesh: checkMesh, pavement: checkPavement, connected: checkConnected, lots: checkLots, doors: checkDoors };
+// ---- public transport: bus loops are legal, stops/stations stand on free ground, a custom line builds -------------------------------------
+async function checkTransit() {
+  const { buildTransit } = await imp('src/transit.js');
+  const bad = [], t = buildTransit(city);
+  if (t.lines.length < 3) bad.push('only ' + t.lines.length + ' bus lines');
+  if (!t.metro.lines.length) bad.push('no metro line');
+  t.metro.lines.forEach(l => {
+    if (l.stations.length < 3) bad.push(l.name + ' has only ' + l.stations.length + ' stations');
+    l.stations.forEach(st => {
+      const fx = Math.cos(st.h), fz = Math.sin(st.h), rx = -fz, rz = fx;
+      for (const [a, b] of [[-1, -1], [1, -1], [1, 1], [-1, 1], [0, 0]]) {
+        const x = st.x + rx * 3.1 * a + fx * 2.6 * b, z = st.z + rz * 3.1 * a + fz * 2.6 * b;
+        if (city.parcels.some(p => (p.type === 'building') && p.footprint && pointInPolygon(x, z, p.footprint))) { bad.push(st.name + ' station overlaps a building'); break; }
+        const near = city.roadEdges.some(e => { const A = city.roadNodes[e.from], B = city.roadNodes[e.to]; if (!A || !B) return false; const dx = B.x - A.x, dz = B.z - A.z, l2 = dx * dx + dz * dz || 1, u = Math.max(0, Math.min(1, ((x - A.x) * dx + (z - A.z) * dz) / l2)); return Math.hypot(x - A.x - dx * u, z - A.z - dz * u) < (e.width || 10) / 2 + 1; });
+        if (near) { bad.push(st.name + ' station stands on a road'); break; }
+      }
+    });
+  });
+  // a custom bus line + metro line (built from the first generated line's stops) must build
+  const L = t.lines[0].stops, pick = [0, 1, 2].map(i => L[i % L.length]);
+  const t2 = buildTransit(city, { bus: [{ name: 'T', stops: pick.map(s => [s.x, s.z]) }], metro: [{ name: 'M', stations: [0, 3].map(i => ({ at: [L[i % L.length].x, L[i % L.length].z] })) }] });
+  if (!t2.lines.length || !t2.lines[0].custom) bad.push('a custom bus line did not build');
+  if (!t2.metro.lines.length) bad.push('a custom metro line did not build');
+  return { name: 'transit', count: t.lines.length + ' bus lines, ' + t.stops.length + ' stops, ' + t.metro.lines.map(l => l.stations.length).join('+') + ' metro stations', bad };
+}
+const CHECKS = { transit: checkTransit, rivals: checkRivals, sidewalks: checkSidewalks, gas: checkGas, races: checkRaces, drift: checkDrift, covered: checkCovered,  signs: checkSigns, lamps: checkLamps, buildings: checkBuildings, traffic: () => checkTraffic(+process.argv[3] || 40, +process.argv[4] || 5), markings: checkMarkings, bridges: checkBridges, solid: checkSolid, water: checkWater, rules: checkRules, driveways: checkDriveways, smooth: checkSmooth, mesh: checkMesh, pavement: checkPavement, connected: checkConnected, lots: checkLots, doors: checkDoors };
 // groups: run several related checks at once
 const GROUPS = {
   placement: ['signs', 'lamps', 'driveways', 'buildings', 'pavement', 'sidewalks'],   // nothing stands where it shouldn't
   roads: ['markings', 'bridges', 'water', 'smooth', 'mesh', 'connected', 'rules'],    // road geometry and connections
-  quick: ['placement', 'roads', 'gas', 'drift', 'covered'],                           // all static checks, seconds
+  quick: ['placement', 'roads', 'gas', 'transit', 'drift', 'covered'],                           // all static checks, seconds
   sim: ['traffic', 'solid', 'rivals', 'races', 'lots', 'doors'],                                       // simulations, minutes
   all: ['quick', 'sim']
 };

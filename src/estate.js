@@ -253,6 +253,44 @@ export function buildStoreInterior(a) {
   return { group, W, D, H, solids: bx.solid, floorY: 0, bedAt: null, lamps, windows, wardrobeAt: null, fitAt: { x: 0, z: D - 1.6 }, exitAt: { x: 0, z: 1.0 }, liftAt: null, spawn: { x: 0, z: 1.9 }, store: true };
 }
 
+export function buildGymInterior(a) {
+  BASE_EMI = 0.1;
+  const W = a.w, D = a.d, H = 3.0, t = 0.16, bx = new Boxes(), glass = [], lamps = [], windows = [];
+  const WALL = 0x3a3f48, FLOOR = 0x23262c, WARM = 0xfff1c8;
+  const wall = (w, h, d, x, y, z, solid = true) => bx.add(w, h, d, x, y, z, WALL, {}, solid);
+  bx.add(W + 0.7, 0.3, D + 0.5, 0, -0.3, D / 2 - 0.05, FLOOR);
+  bx.add(W + 0.7, 0.2, D + 0.5, 0, H, D / 2 - 0.05, 0xf5f3ee);
+  wall(W + 0.4, H, t, 0, 0, D + t / 2); wall(t, H, D, -W / 2 - t / 2, 0, D / 2); wall(t, H, D, W / 2 + t / 2, 0, D / 2);
+  // shop front: two big windows with a door-sized gap at the left (the way out is the exit marker)
+  const wwid = Math.min(3.6, (W - 3) / 2), y0 = 0.5, y1 = 2.6;
+  [-1, 1].forEach((sd, i) => {
+    const cx = sd * (W / 2 - wwid / 2 - 0.9);
+    wall(wwid + 0.2, y0, t, cx, 0, t / 2, false); wall(wwid + 0.2, H - y1, t, cx, y1, t / 2, false);
+    glass.push({ x: cx, y: (y0 + y1) / 2, w: wwid, h: y1 - y0 }); windows.push({ x: cx, y0, y1, w: wwid });
+  });
+  wall(W + 0.4 - 2 * (wwid + 0.2) - 1.8, H, t, 0, 0, t / 2, false);
+  [-1, 1].forEach(sd => wall(0.9 + 0.1, H, t, sd * (W / 2 - 0.45), 0, t / 2, false));
+  // gym floor: a rubber mat, two rows of treadmills, a bench press and a dumbbell rack - the workout spot is the mat in the middle
+  bx.add(W - 1.2, 0.04, D - 4.2, 0, 0, D * 0.55, 0x14161a);
+  for (let i = 0; i < Math.max(2, Math.floor((W - 2) / 1.5)); i++) {
+    const x = -W / 2 + 1.2 + i * 1.5; if (x > W / 2 - 1.0) break;
+    bx.add(0.7, 0.18, 1.5, x, 0, D - 1.2, 0x2b2f36, {}, true); bx.add(0.65, 0.05, 1.3, x, 0.18, D - 1.2, 0x0d0e10); bx.add(0.08, 1.0, 0.08, x - 0.3, 0.18, D - 0.55, 0x9aa0a8, { metalness: 0.8 }); bx.add(0.08, 1.0, 0.08, x + 0.3, 0.18, D - 0.55, 0x9aa0a8, { metalness: 0.8 }); bx.add(0.7, 0.3, 0.1, x, 1.1, D - 0.55, 0x111, { emissive: 0x38ff6a, emissiveIntensity: 0.7 });
+  }
+  bx.add(0.5, 0.45, 1.5, -W / 2 + 1.6, 0, 3.4, 0x6a3d3d, {}, true); bx.add(0.1, 1.0, 0.1, -W / 2 + 1.2, 0, 3.4, 0x9aa0a8, { metalness: 0.8 }, true); bx.add(0.1, 1.0, 0.1, -W / 2 + 2.0, 0, 3.4, 0x9aa0a8, { metalness: 0.8 }, true); bx.add(1.5, 0.08, 0.08, -W / 2 + 1.6, 1.05, 3.4, 0x333, { metalness: 0.8 });
+  bx.add(0.6, 0.9, 2.4, W / 2 - 0.5, 0, 3.6, 0x30343b, {}, true);
+  for (let i = 0; i < 6; i++) bx.add(0.3, 0.2, 0.2, W / 2 - 0.5, 0.9 + (i % 2) * 0.2, 2.6 + i * 0.4, [0xd23b34, 0x2f6fe0, 0xf0c542][i % 3]);
+  bx.add(2.2, 1.0, 0.7, W / 2 - 2.4, 0, 1.4, 0x3d4049, {}, true);
+  bx.add(W - 0.4, 0.5, 0.1, 0, 1.9, D - 0.1, 0xff7a1a, { emissive: 0xff7a1a, emissiveIntensity: 1.2 });
+  const lampAt = (x, z, cast) => { bx.add(0.5, 0.07, 0.5, x, H - 0.07, z, WARM, { emissive: WARM, emissiveIntensity: 2.4 }); lamps.push({ x, y: H - 0.45, z, cast, k: 1.1 }); };
+  lampAt(0, D * 0.3, true); lampAt(-W * 0.25, D * 0.7, false); lampAt(W * 0.25, D * 0.7, false);
+  const group = bx.mesh();
+  group.children.forEach(m => { m.castShadow = true; m.receiveShadow = true; });
+  const gm = new THREE.MeshStandardMaterial({ color: 0x9fc4de, roughness: 0.05, metalness: 0.1, transparent: true, opacity: 0.16, depthWrite: false });
+  glass.forEach(g => { const m = new THREE.Mesh(new THREE.BoxGeometry(g.w, g.h, 0.02), gm); m.position.set(g.x, g.y, 0.08); group.add(m); });
+  BASE_EMI = 0.34;
+  return { group, W, D, H, solids: bx.solid, floorY: 0, bedAt: null, lamps, windows, wardrobeAt: null, fitAt: null, workoutAt: { x: 0, z: D * 0.55 }, exitAt: { x: 0, z: 1.0 }, liftAt: null, spawn: { x: 0, z: 1.9 }, store: true, gym: true };
+}
+
 // ---------------------------------------------------------------------------------------------------------------------------
 // The underground garage. Local frame: x along the ramp (0 = the mouth), z across, y 0 at street level.
 // ---------------------------------------------------------------------------------------------------------------------------

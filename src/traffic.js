@@ -493,7 +493,7 @@ export function createTrafficSystem(cityData, scene, heightAt, count = 6, maxCou
   });
   // vehicles parked on the aprons of the hospital / police / fire stations (solid, not part of the traffic simulation)
   const stationColliders = [];
-  (cityData.stations || []).forEach(st => (st.bays || []).forEach(b => {
+  (cityData.stations || []).filter(q => !q.market).forEach(st => (st.bays || []).forEach(b => {
     const mesh = trafficCarMesh(b.type, 0xffffff), u = mesh.userData, d = u.dims, h = (b.rotation || 0) * Math.PI / 180;
     const y = heightAt ? heightAt(b.x, b.z, 0) : 0;
     mesh.position.set(b.x, y, b.z); mesh.rotation.y = h; scene.add(mesh);
@@ -1222,5 +1222,29 @@ export function createTrafficSystem(cityData, scene, heightAt, count = 6, maxCou
     clearZone = z;
     if (z && lastPlayer) cars.forEach(c => { if (c.active && inClear(c.mesh.position.x, c.mesh.position.z)) respawnAway(c, lastPlayer); });
   }
-  return { update, walkerHit, events, setClearZone, addRival, clearRivals, rivalPool, colliders: colliderList, cars, svcCars, setPlows, setCount, activeCount, maxCount, setSink(arr) { sink = arr; } };
+  // A car leaving a shop car park joins the street: a new sedan in the visitor's colour is set on the nearest road, turning right out of the
+  // alley (lots.js hands it over at the alley mouth). Capped, so a long session doesn't pile up extra cars.
+  const adopted = [];
+  function adopt(x, z, fx, fz, color) {
+    if (adopted.length >= 10) return false;
+    let best = null, bd = 1e9;
+    for (const e of drivable) {
+      if (e.structure === 'bridge' || e.type === 'highway') continue;
+      const a = nodes[e.from], b = nodes[e.to]; if (!a || !b) continue;
+      const dx = b.x - a.x, dz = b.z - a.z, l2 = dx * dx + dz * dz || 1;
+      const t = Math.max(0, Math.min(1, ((x - a.x) * dx + (z - a.z) * dz) / l2));
+      const d = Math.hypot(a.x + dx * t - x, a.z + dz * t - z);
+      if (d < bd) { bd = d; best = { e, a, dx, dz, t, l: Math.sqrt(l2) }; }
+    }
+    if (!best || bd > 30) return false;
+    const rx = fz, rz = -fx;                                        // right of the heading (forward = (fx, fz))
+    const along = (best.dx * rx + best.dz * rz) > 0;               // edge direction a->b points to the right of the exit heading
+    const reversed = best.e.oneWay ? false : !along;
+    const car = spawnOn(best.e, reversed, { type: 'sedan', color });
+    const dist0 = reversed ? (1 - best.t) * best.l : best.t * best.l;
+    car.s = Math.min(Math.max(0, dist0), Math.max(0, car.path.length - 2));
+    adopted.push(car);
+    return true;
+  }
+  return { adopt, update, walkerHit, events, setClearZone, addRival, clearRivals, rivalPool, colliders: colliderList, cars, svcCars, setPlows, setCount, activeCount, maxCount, setSink(arr) { sink = arr; } };
 }

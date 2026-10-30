@@ -10,7 +10,7 @@ import { dressAvatar, createStage, SLOTS, CLOTHES, DEFAULT_OUTFIT, itemOf, start
 import { carClass, zeroTo100, classIndex, CLASS_ORDER } from './classes.js';
 import { SHOP_KINDS, APARTMENT_TIERS, AGENT_MARKUP, regionOf } from './chicago/chicago.js';
 import { createFlatLights } from './flatlight.js';
-import { buildInterior, buildStoreInterior, buildGarage, buildGateMesh, garageLayout, garageHeight, RAMP, bayAt, FINE_SECS } from './estate.js';
+import { buildInterior, buildStoreInterior, buildGymInterior, buildGarage, buildGateMesh, garageLayout, garageHeight, RAMP, bayAt, FINE_SECS } from './estate.js';
 import { createGroundGlow } from './glow.js';
 import { buildKit } from './bodykit.js';
 import { RIM_NAMES, RIM_COLORS, styleWheel } from './vehicleModels.js';
@@ -124,7 +124,7 @@ function arrowMarker(hex) {
   return g;
 }
 
-export function createWorld({ setGarageHoles, city, scene, camera, car, input, heightAt: cityHeight, collisionWorld, parcelInstances, taxi, env, chooseCar, setModalPause }) {
+export function createWorld({ transit = null, setGarageHoles, city, scene, camera, car, input, heightAt: cityHeight, collisionWorld, parcelInstances, taxi, env, chooseCar, setModalPause }) {
   const save = loadSave();
   const persist = () => { try { localStorage.setItem(SAVE_KEY, JSON.stringify(save)); } catch (e) { /* ignore */ } };
   if (!save.welcomed) { save.welcomed = true; if (taxi.getCash() < 300) taxi.addCash(300 - taxi.getCash()); persist(); }
@@ -417,7 +417,7 @@ export function createWorld({ setGarageHoles, city, scene, camera, car, input, h
     const mxs = input.moveX || 0, mys = input.moveY || 0, mag = Math.min(1, Math.hypot(mxs, mys));
     const fx = Math.sin(foot.camH), fz = Math.cos(foot.camH), rx = -Math.cos(foot.camH), rz = Math.sin(foot.camH);
     const wx = fx * mys + rx * mxs, wz = fz * mys + rz * mxs;
-    const run = input.run ? 5.2 : 2.4;
+    const fitK = 1 + 0.04 * (save.fit | 0), run = (input.run ? 5.2 : 2.4) * fitK;
     const want = mag > 0.05 ? (input.run ? run : Math.min(run, mag / 0.9 * run)) : 0;
     if (mag > 0.05) {
       const th = Math.atan2(wx, wz), dh = Math.atan2(Math.sin(th - foot.heading), Math.cos(th - foot.heading));
@@ -635,7 +635,7 @@ export function createWorld({ setGarageHoles, city, scene, camera, car, input, h
   const EX_GATE = (c, k) => k.kind === 'parcel' && !k.garage && inGateway(c.x, c.z);        // at the door the building's wall lets the car in
   function ensureFlat(a) {
     if (!flats[a.id]) {
-      const f = a.facade, I = a.store ? buildStoreInterior(a) : buildInterior(a), th = Math.atan2(-f.nx, -f.nz);
+      const f = a.facade, I = a.gym ? buildGymInterior(a) : a.store ? buildStoreInterior(a) : buildInterior(a), th = Math.atan2(-f.nx, -f.nz);
       I.group.position.set(f.x, I.floorY, f.z); I.group.rotation.y = th; I.group.visible = false; scene.add(I.group);
       flats[a.id] = { I, F: { x: f.x, z: f.z, ux: -f.nz, uz: f.nx, dx: -f.nx, dz: -f.nz }, th, L: createFlatLights(I) };
     }
@@ -655,6 +655,7 @@ export function createWorld({ setGarageHoles, city, scene, camera, car, input, h
     if (I.bedAt) list.push(mkT('bed', 'bed', I.bedAt, 0x7aa0ff));
     if (I.wardrobeAt) list.push(mkT('wardrobe', 'wardrobe', I.wardrobeAt, 0xff9f43));
     if (I.deskAt && !a.store) list.push(mkT('desk', 'desk', I.deskAt, 0x4aa3ff));
+    if (I.workoutAt) list.push(mkT('workout', 'workout - $' + GYM_FEE, I.workoutAt, 0xff7a1a));
     if (I.fitAt) list.push(mkT('fitting', a.name, I.fitAt, 0xff5fa8));
     if (!a.store) list.push(mkT('travel', 'the city map', { x: I.W / 2 - 0.9, z: 1.2 }, 0x4aa3ff));
     setLocal(list);
@@ -725,9 +726,14 @@ export function createWorld({ setGarageHoles, city, scene, camera, car, input, h
     targets.push({ kind: 'shop', id: s.id, name: k.name, x: s.door.x, z: s.door.z, data: s, mk });
   });
   (city.stores || []).forEach(st => {
-    const mk = arrowMarker(0xff5fa8); mk.position.set(st.door.x, 0.02, st.door.z); scene.add(mk);
+    const mk = arrowMarker(st.gym ? 0xff7a1a : 0xff5fa8); mk.position.set(st.door.x, 0.02, st.door.z); scene.add(mk);
     targets.push({ kind: 'store', id: st.id, name: st.name, x: st.door.x, z: st.door.z, data: st, mk });
   });
+  // metro: an entrance per station (on foot or in the car); the panel lists every other station on the line
+  ((transit && transit.metro && transit.metro.lines) || []).forEach(line => line.stations.forEach(st => {
+    const mk = arrowMarker(line.color); mk.position.set(st.x, 0.02, st.z); scene.add(mk);
+    targets.push({ kind: 'metro', id: st.id, name: st.name + ' station', x: st.x, z: st.z, data: { st, line }, mk, onFootOnly: true });
+  }));
   (city.agents || []).forEach(ag => {
     const mk = arrowMarker(0x19c6b7); mk.position.set(ag.door.x, 0.02, ag.door.z); scene.add(mk);
     targets.push({ kind: 'agent', id: ag.id, name: ag.name, x: ag.door.x, z: ag.door.z, data: ag, mk });
@@ -801,6 +807,14 @@ export function createWorld({ setGarageHoles, city, scene, camera, car, input, h
     save.apts[a.id] = true; ensureGate(a); showGarageRamps(); reconcileFleet(); persist(); refreshMarkers(); refreshPanel();
     toast('Welcome home! Your garage gate is marked on the map.');
   }
+  // gym: each session costs a little and adds one fitness level (up to 5): +4% on-foot speed per level
+  const GYM_FEE = 20;
+  function workout() {
+    const lv = save.fit | 0;
+    if (lv >= 5) { toast('You are in peak shape already (fitness 5/5)'); return; }
+    if (!spend(GYM_FEE)) return;
+    transition(() => { save.fit = lv + 1; persist(); toast('Good session! Fitness ' + save.fit + '/5 - you run ' + save.fit * 4 + '% faster on foot'); });
+  }
   function activate(t) {
     if (t.kind === 'apt') { if (save.apts[t.id]) { transition(() => toFlat(t.data, 'street')); return; } openModal(t); return; }
     if (t.kind === 'shop') { if (trans) return; trans = true; fadeEl.style.opacity = '1'; promptEl.style.display = 'none'; setTimeout(() => { try { openModal(t); } catch (e) { console.error(e); } fadeEl.style.opacity = '0'; trans = false; }, 300); return; }
@@ -809,8 +823,9 @@ export function createWorld({ setGarageHoles, city, scene, camera, car, input, h
     if (t.kind === 'wardrobe' || t.kind === 'fitting' || t.kind === 'bed' || t.kind === 'desk') { openModal(t); return; }
     if (t.kind === 'gate') { transition(() => toGarage(t.data, 'footAt')); return; }
     if (t.kind === 'lift') { if (mode === 'garage') garageToFlat(); else flatToGarage(); return; }
+    if (t.kind === 'workout') { workout(); return; }
     if (t.kind === 'door') { leaveFlat(); return; }
-    if (t.kind === 'travel') { openModal(t); return; }
+    if (t.kind === 'travel' || t.kind === 'metro') { openModal(t); return; }
   }
 
   // ---------- modal panels ------------------------------------------------------------------------------------
@@ -914,6 +929,7 @@ export function createWorld({ setGarageHoles, city, scene, camera, car, input, h
     if (modal.kind === 'apt') return aptSpec(modal.target.data);
     if (modal.kind === 'agent') return agentSpec(modal.target.data);
     if (modal.kind === 'travel') return travelSpec();
+    if (modal.kind === 'metro') return metroSpec(modal.target.data);
     if (modal.kind === 'desk') return deskSpec();
     if (modal.kind === 'wardrobe' || modal.kind === 'fitting') return clothesSpec();
     const shop = modal.target.data, kind = SHOP_KINDS[shop.kind], style = CAR_STYLES.find(s => s.key === car.styleKey);
@@ -1083,7 +1099,7 @@ export function createWorld({ setGarageHoles, city, scene, camera, car, input, h
     const out = [], reg = (x, z) => regionOf(x, z)[0].toUpperCase() + regionOf(x, z).slice(1);
     const at = (name, group, x, z, nx, nz, dist = 7) => out.push({ name, group, sub: reg(x, z), x: x + nx * dist, z: z + nz * dist, h: Math.atan2(nx, nz) });
     (city.shops || []).forEach(s => at(SHOP_KINDS[s.kind].name, 'Shops', s.door.x, s.door.z, -s.nx, -s.nz, 15));
-    (city.stores || []).forEach(g => at(g.name, 'Clothes shops', g.door.x, g.door.z, g.facade.nx, g.facade.nz));
+    (city.stores || []).forEach(g => at(g.name, g.gym ? 'Gyms' : 'Clothes shops', g.door.x, g.door.z, g.facade.nx, g.facade.nz));
     (city.agents || []).forEach(g => at(g.name, 'Real estate', g.door.x, g.door.z, g.facade.nx, g.facade.nz));
     (city.apartments || []).forEach(a => { if (save.apts[a.id]) at(a.name + ' (street)', 'Your apartments', a.door.x, a.door.z, a.facade.nx, a.facade.nz); });
     extraDest().forEach(d => out.push(d));
@@ -1137,6 +1153,28 @@ export function createWorld({ setGarageHoles, city, scene, camera, car, input, h
       races.forEach(r => { const st = rs[r.id] || {}; rows.push({ name: r.name, sub: `${r.kind} · class ${r.cls || '-'} · ${st.plays || 0} run · ${st.wins || 0} won` + (st.best ? ' · best ' + (r.kind === 'drift' ? Math.round(st.best).toLocaleString('en-US') + ' pts' : st.best.toFixed(1) + ' s') : '') }); });
     }
     return { title: 'Desk', sub: 'Your records', accent: '#4aa3ff', right: pct + '% complete', tabs: ['Stats', 'Cars', 'Races'], rows, exit: 'Close' };
+  }
+  const METRO_FARE = 3;
+  function metroSpec({ st, line }) {
+    const idx = line.stations.indexOf(st), rows = [{ hint: `${line.name} - ride to any station on the line for ${money(METRO_FARE)}. You step out on foot at the entrance.` }];
+    line.stations.forEach((q, i) => {
+      if (q === st) { rows.push({ name: q.name, sub: 'You are here', btn: '', disabled: true }); return; }
+      const km = (Math.hypot(q.x - st.x, q.z - st.z) * 1.25 / 1000).toFixed(1);
+      rows.push({ name: q.name, sub: `${Math.abs(i - idx)} stop${Math.abs(i - idx) > 1 ? 's' : ''} · ${km} km`, btn: 'Ride', disabled: cash() < METRO_FARE, act: () => metroRide(q) });
+    });
+    return { title: st.name, sub: line.name + ' · metro', accent: '#' + line.color.toString(16).padStart(6, '0'), right: '', rows, exit: 'Leave' };
+  }
+  function metroRide(q) {
+    if (cash() < METRO_FARE) { toast('Not enough money'); return; }
+    closeModal();
+    transition(() => {
+      taxi.addCash(-METRO_FARE);
+      leaveMode(); mode = 'city'; cur = null;
+      foot.x = q.x + Math.cos(q.h) * 5; foot.z = q.z + Math.sin(q.h) * 5; foot.y = hAt(foot.x, foot.z); foot.speed = 0;
+      foot.heading = foot.camH = Math.atan2(Math.cos(q.h), Math.sin(q.h));
+      onFoot = true; avatar.visible = true; stepFoot(0);
+      toast('Arrived at ' + q.name);
+    });
   }
   function travelSpec() {
     const rows = [{ hint: 'Pick a destination - your car is waiting there.' }];
@@ -1327,7 +1365,7 @@ export function createWorld({ setGarageHoles, city, scene, camera, car, input, h
       if (!all && t.kind !== 'shop' && Math.hypot(t.x - px, t.z - pz) > 170) return;   // shops are always pinned
       if (t.kind === 'gate') { out.push({ x: t.x, z: t.z, color: '#4aa3ff', label: 'P' }); return; }
       if (t.kind === 'agent') { out.push({ x: t.x, z: t.z, color: '#19c6b7', label: 'RE' }); return; }
-      if (t.kind === 'store') { out.push({ x: t.x, z: t.z, color: '#ff5fa8', label: 'C' }); return; }
+      if (t.kind === 'store') { out.push({ x: t.x, z: t.z, color: t.data.gym ? '#ff7a1a' : '#ff5fa8', label: t.data.gym ? 'G' : 'C' }); return; }
       out.push({ x: t.x, z: t.z, color: t.kind === 'apt' ? (save.apts[t.id] ? '#5cff8a' : '#ffd21f') : SHOP_KINDS[t.data.kind].color, label: t.kind === 'apt' ? '⌂' : ({ dealer: 'D', perf: 'P', paint: 'R', tuning: 'T', body: 'B' })[t.data.kind] });
     });
     if (onFoot) {

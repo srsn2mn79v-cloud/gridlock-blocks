@@ -6,10 +6,10 @@ import * as THREE from 'three';
 import { buildCarBody, parkedCarStyle } from './vehicleModels.js';
 
 const COLORS = [0xc0392b, 0x2e86c1, 0x27ae60, 0xf1c40f, 0xecf0f1, 0x2c3e50, 0x7f8c8d, 0xd35400, 0x8e44ad, 0x1abc9c, 0xbdc3c7, 0x34495e];
-const MAX_ACTIVE = 8, DRIVE = 4.2, REVERSE = 2.2, WALK = 1.1;
+const MAX_ACTIVE = 12, DRIVE = 4.2, REVERSE = 2.2, WALK = 1.1;
 
-export function createShopLots({ scene, cityData, collisionWorld, heightAt, pedestrians, rng = Math.random }) {
-  const lots = (cityData.shops || []).filter(sh => sh.bays && sh.mouth && sh.door).map(sh => ({
+export function createShopLots({ scene, cityData, collisionWorld, heightAt, pedestrians, adopt = null, rng = Math.random }) {
+  const lots = [...(cityData.shops || []), ...(cityData.stations || []).filter(q => q.market)].filter(sh => sh.bays && sh.mouth && sh.door).map(sh => ({
     sh, free: sh.bays.filter(b => !b.taken).map(b => ({ b, busy: false })), timer: 3 + rng() * 25, v: null
   })).filter(l => l.free.length);
   const stats = { arrived: 0, entered: 0, left: 0 };
@@ -24,7 +24,7 @@ export function createShopLots({ scene, cityData, collisionWorld, heightAt, pede
     const d = mesh.userData.dims || { len: 3.6, wid: 1.8 };
     const off = Math.max(0.6, d.len / 2 - 1.0);
     const colliders = [off, 0, -off].map(o => ({ kind: 'traffic', x: 0, z: 0, radius: 0.85, off: o, blocksCar: true, destructible: false, destroyed: false, ref: null }));
-    const o = { mesh, colliders, len: d.len, wid: d.wid, height: d.height || 1.5, mass: 1300, crashTimer: 0,
+    const o = { mesh, colliders, color, len: d.len, wid: d.wid, height: d.height || 1.5, mass: 1300, crashTimer: 0,
       getVelocity: () => ({ x: 0, z: 0 }), applyImpact: () => { o.crashTimer = Math.max(o.crashTimer, 6); } };
     colliders.forEach(c => { c.ref = o; });
     collisionWorld.push(...colliders);
@@ -106,7 +106,7 @@ export function createShopLots({ scene, cityData, collisionWorld, heightAt, pede
     } else if (v.phase === 'reverse') {
       if (driveTo(v, v.Pa.x, v.Pa.z, -REVERSE, dt, false)) v.phase = 'leave';
     } else if (v.phase === 'leave') {
-      if (driveTo(v, v.M.x, v.M.z, DRIVE, dt)) { removeCar(c); v.people.forEach(p => p.a.dispose()); v.slot.busy = false; lot.v = null; active--; stats.left++; lot.timer = 20 + rng() * 50; }
+      if (driveTo(v, v.M.x, v.M.z, DRIVE, dt)) { if (adopt && adopt(v.M.x, v.M.z, -lot.sh.nx, -lot.sh.nz, c.color)) stats.joined = (stats.joined || 0) + 1; removeCar(c); v.people.forEach(p => p.a.dispose()); v.slot.busy = false; lot.v = null; active--; stats.left++; lot.timer = 20 + rng() * 50; }
     }
   }
   function update(dt, player) {

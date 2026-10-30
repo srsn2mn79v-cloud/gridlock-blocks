@@ -855,3 +855,11 @@ Still to come in this phase: storefronts, parks with seating, food stands, gyms.
 - Headlight colours (tuning shop) tint the road reflector studs.
 - Rim styles and colours (paint shop).
 - HUD stages restyle the main dash (plain, cyan sport dash, gold dash + compass/clock).
+
+## Supermarkets, gyms, metro, transit editor
+- **Supermarkets** (7, map marker 🛒): set deeper down a side street with a car park of up to 12 bays; visitors use them like the shops' car parks.
+- **Shop visitors join the traffic**: a car leaving a car park turns right onto the street as a normal AI car (up to 10 at a time).
+- **Gyms** (3, map marker G): walk in, step on the mat and press E: $20 per session, up to fitness 5, +4% on-foot speed per level.
+- **Metro** (two default lines of six stations, marker M): walk up to a station entrance, press E, pick another station on the line ($3), step out on foot there.
+- **Studio > Transit**: draw your own bus loops (stops) and metro lines (stations). "Check" runs the game's line builder. Custom bus lines replace the four built-in ones; the metro falls back to the defaults if none are drawn.
+- `node tools/check.mjs transit` checks the bus loops, that stations stand on free ground and that custom lines build.
