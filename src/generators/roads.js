@@ -2,7 +2,7 @@ import * as THREE from 'three';
 import { mergeGeometries } from 'three/examples/jsm/utils/BufferGeometryUtils.js';
 import {
   buildHorizontalCurve, buildEdgesByNode, buildVerticalCurves,
-  elevationAlongEdge, curveElevationAt, dist, intersectionClearance
+  elevationAlongEdge, curveElevationAt, dist, intersectionClearance, buildBanks, edgeBank, cornerBanks
 } from '../roadMath.js';
 import { hasSidewalks } from '../sidewalks.js';
 import { findSignalForApproach } from '../signals.js';
@@ -31,6 +31,13 @@ const LANE_LIFT = 0.07; // lane paint sits a hair above the road surface itself
 // which left a visible step — a gap or an overlapping sliver — right where the corner
 // ribbon met the narrower or wider straight ribbon on either side.
 const ribbonMats = new Map();
+function convexHull(pts) {            // Andrew's monotone chain, points as [x, z]
+  const p = pts.slice().sort((a, b) => a[0] - b[0] || a[1] - b[1]), cr = (o, a, b) => (a[0] - o[0]) * (b[1] - o[1]) - (a[1] - o[1]) * (b[0] - o[0]);
+  const lo = [], up = [];
+  p.forEach(q => { while (lo.length >= 2 && cr(lo[lo.length - 2], lo[lo.length - 1], q) <= 0) lo.pop(); lo.push(q); });
+  for (let i = p.length - 1; i >= 0; i--) { const q = p[i]; while (up.length >= 2 && cr(up[up.length - 2], up[up.length - 1], q) <= 0) up.pop(); up.push(q); }
+  lo.pop(); up.pop(); return lo.concat(up);
+}
 function buildRibbon(points, widthOrArray, colorHex, bankSamples, lift = ROAD_LIFT) {
   const widthAt = Array.isArray(widthOrArray) ? (i => widthOrArray[i]) : (() => widthOrArray);
   const positions = [];
@@ -385,6 +392,7 @@ export function buildRoads(cityData) {
     if (c) curveInfo[id] = c;
   }
   const vcByNode = buildVerticalCurves(nodes, edgesByNode);
+  const bankFor = buildBanks(nodes, edgesByNode);
 
   // Straight edges, trimmed back from any smoothed corner at either end. Sampled as a
   // short polyline (not just the two trimmed endpoints) so a vertical curve — a crest or
@@ -408,15 +416,17 @@ export function buildRoads(cityData) {
     for (let i = 0; i <= sampleCount; i++) {
       const s = sStart + (runLen * i) / sampleCount;
       const t = s / fullLen;
+      const bk = edgeBank(e, s, fullLen, bankFor);
       pts.push({
         x: a.x + (b.x - a.x) * t,
         z: a.z + (b.z - a.z) * t,
-        y: elevationAlongEdge(e, s, nodes, vcByNode)
+        y: elevationAlongEdge(e, s, nodes, vcByNode) + (e.width / 2) * Math.abs(Math.sin(bk)),    // banked: lift the centre so the low edge stays on the ground
+        bank: bk
       });
     }
     const startPt = pts[0], endPt = pts[pts.length - 1];
 
-    group.add(buildRibbon(pts, e.width, color, pts.map(() => 0), LIFT_BY_TYPE[e.type] ?? ROAD_LIFT));
+    group.add(buildRibbon(pts, e.width, color, pts.map(p => p.bank), LIFT_BY_TYPE[e.type] ?? ROAD_LIFT));
     (group.userData.mapPaths ||= []).push({ type: e.type, width: e.width, structure: e.structure, minY: Math.min(...pts.map(p => p.y)), pts: pts.map(p => [p.x, p.z]) });
 
     // Lane markings get extra clearance at a true intersection (3+ edges meeting at a
@@ -446,10 +456,12 @@ export function buildRoads(cityData) {
       for (let i = 0; i <= markSampleCount; i++) {
         const s = clearStart + (markRunLen * i) / markSampleCount;
         const t = s / fullLen;
+        const bk = edgeBank(e, s, fullLen, bankFor);
         markPts.push({
           x: a.x + (b.x - a.x) * t,
           z: a.z + (b.z - a.z) * t,
-          y: elevationAlongEdge(e, s, nodes, vcByNode)
+          y: elevationAlongEdge(e, s, nodes, vcByNode) + (e.width / 2) * Math.abs(Math.sin(bk)),
+          bank: bk
         });
       }
       addLaneMarkings(group, markPts, e.width, e.type, e.lanes, e.oneWay);
@@ -566,6 +578,26 @@ export function buildRoads(cityData) {
     }
   });
 
+  // Junction fill: every street ends square at its node, so where 3+ streets meet at an angle there are wedge-shaped holes between the arms.
+  // One flat polygon per junction (the convex hull of every arm's pavement corners where its crossing street ends, plus the centre) closes them.
+  for (const id in nodes) {
+    const arms = (edgesByNode[id] || []);
+    if (arms.length < 3 || arms.some(e => e.type === 'highway' || e.ramp)) continue;
+    const n = nodes[id], P = [[n.x, n.z]];
+    arms.forEach(e => {
+      const o = nodes[e.from === id ? e.to : e.from], d = dist(n.x, n.z, o.x, o.z) || 1, ux = (o.x - n.x) / d, uz = (o.z - n.z) / d;
+      const clr = Math.min(intersectionClearance(id, e, edgesByNode), d * 0.45), hw = e.width / 2;
+      P.push([n.x + ux * clr - uz * hw, n.z + uz * clr + ux * hw], [n.x + ux * clr + uz * hw, n.z + uz * clr - ux * hw]);
+    });
+    const hull = convexHull(P); if (hull.length < 3) continue;
+    const top = arms.reduce((a, e) => (a.width >= e.width ? a : e)), y = (n.elevation || 0) + (LIFT_BY_TYPE[top.type] ?? ROAD_LIFT) + 0.004;
+    const pos = [], idx = [];
+    hull.forEach(p => pos.push(p[0], y, p[1])); for (let i = 1; i + 1 < hull.length; i++) idx.push(0, i + 1, i);
+    const geo = new THREE.BufferGeometry(); geo.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3)); geo.setIndex(idx); geo.computeVertexNormals();
+    const mat = ribbonMats.get(roadColor[top.type] || 0x3c3f44) || new THREE.MeshStandardMaterial({ color: roadColor[top.type] || 0x3c3f44, roughness: 0.96, envMapIntensity: 0.12, side: THREE.DoubleSide });
+    const mesh = new THREE.Mesh(geo, mat); mesh.receiveShadow = true; mesh.userData.isRoadSurface = true; group.add(mesh);
+  }
+
   // Spiral-arc-spiral corners: a real highway-style transition replacing the sharp
   // joint — entrance spiral, constant-radius arc, exit spiral, with superelevation
   // ramping in and out alongside the curvature instead of a generic symmetric hump.
@@ -577,12 +609,13 @@ export function buildRoads(cityData) {
     const edge2 = edgeBetween(nodeId, c.otherIds[1]) || {};
     const w1 = edge1.width || 9, w2 = edge2.width || 9;
     const pts = [], banks = [], widths = [];
-    c.samples.forEach(s => {
+    const cbank = cornerBanks(nodeId, c, edgesByNode, nodes, bankFor);
+    c.samples.forEach((s, si) => {
       const t = c.length > 0 ? s.l / c.length : 0;
       const wAt = w1 + (w2 - w1) * t;
       // a banked ribbon tilts about its centre line: lift the centre so the low edge stays on the ground
-      pts.push({ x: s.x, z: s.z, y: curveElevationAt(nodeId, s.l, c.trim, nodes, vcByNode) + (wAt / 2) * Math.abs(Math.sin(s.bankRad)), bank: s.bankRad });
-      banks.push(s.bankRad);
+      pts.push({ x: s.x, z: s.z, y: curveElevationAt(nodeId, s.l, c.trim, nodes, vcByNode) + (wAt / 2) * Math.abs(Math.sin(cbank[si])), bank: cbank[si] });
+      banks.push(cbank[si]);
       widths.push(wAt);
     });
     group.add(buildRibbon(pts, widths, roadColor[c.type] || 0x3c3f44, banks, LIFT_BY_TYPE[c.type] ?? ROAD_LIFT));

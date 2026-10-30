@@ -27,7 +27,7 @@ export function hasSidewalks(e) {
 // street.) Other ends — plain bends, dead ends — keep the old small fixed trim.
 // Each segment remembers the road nodes at its two ends (fromNode/toNode) so a crossing
 // built from it can look up the right traffic signal later (pedestrians.js / signals.js).
-export function buildSidewalkSegments(cityData) {
+export function buildSidewalkSegments(cityData, { cut = true } = {}) {
   const nodes = cityData.roadNodes || {};
   const edgesByNode = buildEdgesByNode(cityData.roadEdges || []);
   const segments = [];
@@ -67,7 +67,28 @@ export function buildSidewalkSegments(cityData) {
       });
     });
   });
-  return pruneLonelySidewalks(segments);
+  const kept = pruneLonelySidewalks(segments);
+  return cut ? cutDriveways(kept, cityData.driveways || []) : kept;       // pedestrians and the pavement check use the uncut strips (they walk across a driveway)
+}
+
+// A driveway (gas station forecourt, car park, shop entrance) interrupts the pavement: the kerb dips away so a car drives straight
+// from the road onto the forecourt. Each pavement strip passing a driveway is cut to leave a gap of the driveway's width.
+export function cutDriveways(segments, driveways) {
+  if (!driveways.length) return segments;
+  const out = [];
+  segments.forEach(sg => {
+    let pieces = [[0, 1]];
+    const dx = sg.x2 - sg.x1, dz = sg.z2 - sg.z1, L = Math.hypot(dx, dz) || 1;
+    driveways.forEach(d => {
+      const t = ((d.x - sg.x1) * dx + (d.z - sg.z1) * dz) / (L * L), cx = sg.x1 + dx * t, cz = sg.z1 + dz * t;
+      if (Math.hypot(d.x - cx, d.z - cz) > 6 || t < -d.hw / L || t > 1 + d.hw / L) return;      // this strip does not run past the driveway
+      const lo = t - d.hw / L, hi = t + d.hw / L, next = [];
+      pieces.forEach(([a, b]) => { if (hi <= a || lo >= b) { next.push([a, b]); return; } if (lo > a) next.push([a, lo]); if (hi < b) next.push([hi, b]); });
+      pieces = next;
+    });
+    pieces.forEach(([a, b]) => { if ((b - a) * L < 2.5) return; out.push({ ...sg, x1: sg.x1 + dx * a, z1: sg.z1 + dz * a, x2: sg.x1 + dx * b, z2: sg.z1 + dz * b, cut: pieces.length > 1 || a > 0 || b < 1 }); });
+  });
+  return out;
 }
 
 // Sidewalks that go nowhere (a short pavement stub ending in nothing, or a little island of pavement joined to no other

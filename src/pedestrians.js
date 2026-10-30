@@ -223,7 +223,7 @@ function personMesh() {
 // each end — i.e. a jaywalk-this-specific-street-here connection, tagged with the two
 // road nodes so it can be checked against that approach's signal.
 function buildGraph(cityData) {
-  const segments = buildSidewalkSegments(cityData);
+  const segments = buildSidewalkSegments(cityData, { cut: false });
   const waypoints = [];
   const byKey = new Map();
   function waypointAt(x, z, elevation) {

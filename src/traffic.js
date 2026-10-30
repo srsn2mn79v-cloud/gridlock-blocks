@@ -800,7 +800,7 @@ export function createTrafficSystem(cityData, scene, heightAt, count = 6, maxCou
       const off0 = offsetVec(heading, conn ? 0 : car.lat);
       const curX = here.x + off0.x, curZ = here.z + off0.z;
 
-      let desiredSpeed = car.targetSpeed;
+      let desiredSpeed = car.targetSpeed, cause = '';      // `cause` = which rule is holding the car below its target (read by tools/brake_audit.mjs and the traffic check)
       car.why = '';
       const distToNode = conn ? 0 : len - car.s;
       const isJunction = (edgesByNode[car.to] || []).length >= 3;
@@ -808,7 +808,7 @@ export function createTrafficSystem(cityData, scene, heightAt, count = 6, maxCou
       const lineDist = clr + 3.7;
       const hold = (toStop, why) => {
         const v = toStop < 1.0 ? 0 : Math.max(0, (toStop - 0.8) * 1.5);
-        if (v < desiredSpeed) { desiredSpeed = v; if (v < 1) car.why = why; }
+        if (v < desiredSpeed) { desiredSpeed = v; cause = why; if (v < 1) car.why = why; }
       };
 
       // bus stops: pull up at the kerb in the middle of a stop edge, wait a few seconds, move on
@@ -828,10 +828,12 @@ export function createTrafficSystem(cityData, scene, heightAt, count = 6, maxCou
       }
 
       // curvature: slow for bends
-      desiredSpeed = Math.min(desiredSpeed, conn ? conn.cap : curveCap(car.path, here.idx, car.s, car.speed));
-      if (!conn && car.nextEdge && (edgesByNode[car.to] || []).length >= 3 && turnAngleOf(car) > 0.12) {
+      { const cc = conn ? conn.cap : curveCap(car.path, here.idx, car.s, car.speed); if (cc < desiredSpeed) { desiredSpeed = cc; cause = conn ? 'junction-curve' : 'curve'; } }
+      // A slip road merging into / leaving the interstate is a merge, not a turn: nobody slows to walking pace for it
+      const hwMerge = car.nextEdge && (edgesByNode[car.to] || []).every(o => o.type === 'highway' || o.ramp) && (car.edge.type === 'highway' || car.edge.ramp) && (car.nextEdge.type === 'highway' || car.nextEdge.ramp) && turnAngleOf(car) < 0.7;
+      if (!conn && car.nextEdge && !hwMerge && (edgesByNode[car.to] || []).length >= 3 && turnAngleOf(car) > 0.12) {
         const cap = Math.max(3.5, Math.sqrt(LAT_ACC * (3 + clrOf(car) * 0.8)));
-        desiredSpeed = Math.min(desiredSpeed, cap + Math.max(0, distToNode - clrOf(car)) * 1.5);
+        { const tc = cap + Math.max(0, distToNode - clrOf(car)) * 1.5; if (tc < desiredSpeed) { desiredSpeed = tc; cause = 'turn'; } }
       }
 
       // Traffic signal / stop sign at the node this car is heading into.
@@ -957,9 +959,10 @@ export function createTrafficSystem(cityData, scene, heightAt, count = 6, maxCou
       }
       if (obs) {
         const cap = Math.sqrt(car.veh.brake * 1.1 * Math.max(0, nearest - 5.0));
-        if (cap < desiredSpeed) { desiredSpeed = cap; if (cap < 0.6 && !car.why) car.why = 'ahead'; }
+        if (cap < desiredSpeed) { desiredSpeed = cap; cause = 'car'; if (cap < 0.6 && !car.why) car.why = 'ahead'; }
       }
 
+      car.cause = cause;
       // Going round something that is parked in the way (the player, or a crashed car).
       if (car.avoidObs) {
         const o = car.avoidObs;

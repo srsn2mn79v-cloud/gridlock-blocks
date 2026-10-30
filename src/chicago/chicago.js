@@ -50,7 +50,7 @@ export function buildChicago() {
     o.speedLimit = c.speedLimit;
     if (e.line.cls === 'hw' || e.line.cls === 'ramp') o.sidewalks = false;
     if (e.line.cls === 'ramp') { o.oneWay = true; o.ramp = true; o.lanes = 1; }
-    if (e.line.cls === 'hw') o.oneWay = true;
+    if (e.line.cls === 'hw' || e.line.cls === 'hwEnd') o.oneWay = true;
     o.cls = e.line.cls;
     return o;
   });
@@ -166,6 +166,7 @@ export function buildChicago() {
 
   // ---------------------------------------------------------------- shop sites (reserved before buildings fill in)
   const blockedRects = [];        // [x0,z0,x1,z1] kept free of buildings (alleys)
+  const driveways = [];           // {x,z,hw}: where a forecourt / car park meets the street - no kerb, no parked cars, no props across it
   const shops = [];
   const SHOP_SPECS = SPOTS.shops;
   // emergency services: a hospital, police stations and fire stations, each at the end of its own short side street like the shops
@@ -250,6 +251,7 @@ export function buildChicago() {
     const P = (d, a) => [r2(k.mx + k.nx * d + k.ux * a), r2(k.mz + k.nz * d + k.uz * a)];
     gasStations.push({ id: 'gas' + i, name: 'Gas Station', x: P(14, 0)[0], z: P(14, 0)[1], nx: k.nx, nz: k.nz, ux: k.ux, uz: k.uz, mx: r2(k.mx), mz: r2(k.mz),
       fill: [P(14, -3.4), P(14, 3.4)].map(q => ({ x: q[0], z: q[1] })), priceMul: r2(0.88 + rand() * 0.27), rot: Math.atan2(k.nx, k.nz) });
+    driveways.push({ x: r2(k.mx), z: r2(k.mz), hw: 14, kind: 'gas' });
     parcels.push({ type: 'plaza', color: 0x30333a, footprint: [P(-1, -12.5), P(-1, 12.5), P(36, 12.5), P(36, -12.5)] });
     blockedRects.push(Math.abs(k.nx) > Math.abs(k.nz)
       ? [Math.min(k.mx, k.mx + k.nx * 38), k.mz - 14, Math.max(k.mx, k.mx + k.nx * 38), k.mz + 14]
@@ -445,10 +447,11 @@ export function buildChicago() {
     const a = nodes[e.from], b = nodes[e.to], len = Math.hypot(b.x - a.x, b.z - a.z), ux = (b.x - a.x) / len, uz = (b.z - a.z) / len;
     return { x: a.x + ux * t - uz * off * side, z: a.z + uz * t + ux * off * side, ux, uz, len, y: nodes[e.from].elevation };
   }
+  const inDrive = (x, z, pad = 0) => driveways.some(d => Math.hypot(d.x - x, d.z - z) < d.hw + pad);
   const propOK = (x, z, minGap, list) => !list.some(p => Math.abs(p.x - x) < minGap && Math.abs(p.z - z) < minGap && dist([p.x, p.z], [x, z]) < minGap);
   const lampList = [];
   edges.forEach(e => {
-    if (e.cls === 'hw' || e.cls === 'ramp' || e.structure === 'bridge') return;
+    if (e.cls === 'hw' || e.cls === 'hwEnd' || e.cls === 'ramp' || e.structure === 'bridge') return;
     const spacing = e.cls === 'six' ? 26 : e.cls === 'four' ? 28 : e.cls === 'two' ? 30 : 0;   // a regular pattern: a lamp every ~32-38 m, alternating sides, so the whole street is lit
     if (!spacing) return;
     const a = nodes[e.from], b = nodes[e.to], len = Math.hypot(b.x - a.x, b.z - a.z);
@@ -461,7 +464,7 @@ export function buildChicago() {
       const t = c1 + k * step; let placed = false;
       for (const sd of [side, -side]) { for (const off of [2.2, 2.9, 3.6]) {
         const p = sidePoint(e, t, sd, e.width / 2 + off);
-        if (roadClear(p.x, p.z) < 3.0 || inWater(p.x, p.z, 1) || parcelsHit(p.x, p.z, 1.0) || outsideHW(p.x, p.z, 0)) continue;
+        if (roadClear(p.x, p.z) < 3.0 || inWater(p.x, p.z, 1) || parcelsHit(p.x, p.z, 1.0) || outsideHW(p.x, p.z, 0) || inDrive(p.x, p.z, 1)) continue;
         if (!propOK(p.x, p.z, 9, lampList)) continue;
         if (Object.keys(nodes).some(ni => { const nd = nodes[ni]; return (byNode[ni] || []).length >= 3 && Math.abs(nd.x - p.x) < 17 && Math.abs(nd.z - p.z) < 17 && Math.hypot(nd.x - p.x, nd.z - p.z) < 17; })) continue;      // the corner fillets of a junction reach further than its edges
         lampList.push({ type: 'light', x: r2(p.x), z: r2(p.z), rotation: Math.round(Math.atan2((a.x + (b.x - a.x) * (t / len)) - p.x, (a.z + (b.z - a.z) * (t / len)) - p.z) * 180 / Math.PI) });
@@ -516,7 +519,7 @@ export function buildChicago() {
     const c1 = intersectionClearance(e.from, e, byNode) + 6, c2 = intersectionClearance(e.to, e, byNode) + 6;
     for (let t = c1; t < len - c2; t += 20) {
       const side = rand() < 0.5 ? 1 : -1, p = sidePoint(e, t, side, e.width / 2 + 3.6);
-      if (roadClear(p.x, p.z) < 1.2 || inWater(p.x, p.z, 2) || parcelsHit(p.x, p.z, 1) || outsideHW(p.x, p.z, 0)) continue;
+      if (roadClear(p.x, p.z) < 1.2 || inWater(p.x, p.z, 2) || parcelsHit(p.x, p.z, 1) || outsideHW(p.x, p.z, 0) || inDrive(p.x, p.z, 1)) continue;
       if (!propOK(p.x, p.z, 6, treeList) || !propOK(p.x, p.z, 4, lampList)) continue;
       treeList.push({ type: 'tree', x: r2(p.x), z: r2(p.z), rotation: 0 });
     }
@@ -559,6 +562,7 @@ export function buildChicago() {
         if (rand() > dens) continue;
         const off = e.width / 2 + 1.3;      // roads have no spare lane any more: cars park up on the kerbside pavement
         const p = sidePoint(e, t, side, off);
+        if (driveways.some(d => Math.hypot(d.x - p.x, d.z - p.z) < d.hw + 6)) continue;
         if (roadClear(p.x, p.z) < -2.5 || inWater(p.x, p.z, 2) || parcelsHit(p.x, p.z, 0.3) || outsideHW(p.x, p.z, 0)) continue;
         if (!propOK(p.x, p.z, 3.6, parked) || !propOK(p.x, p.z, 2.6, lampList) || !propOK(p.x, p.z, 2.4, treeList) || !propOK(p.x, p.z, 3, props.filter(q => q.type === 'trafficlight'))) continue;
         const h = Math.atan2(p.ux, p.uz) + (rand() < 0.5 ? 0 : Math.PI) + (rand() - 0.5) * 0.06;
@@ -649,7 +653,7 @@ export function buildChicago() {
     else if (['oak', 'bush', 'birch', 'pine', 'tree', 'shopsign'].includes(q.type) && (parcelsHit(q.x, q.z, 0.3) || inWater(q.x, q.z, 0.5))) props.splice(i, 1);
   }
   const districts = DISTRICTS.map(d => { const poly = d.poly.map(([X, Y]) => T(X, Y).map(r2)); return { name: d.name, color: d.color || '#9aa7b8', blurb: d.blurb || '', poly, cx: r2(poly.reduce((a, p) => a + p[0], 0) / poly.length), cz: r2(poly.reduce((a, p) => a + p[1], 0) / poly.length) }; }).filter(d => d.color !== '#9aa7b8' || true);
-  const city = { districts, roadNodes: nodes, roadEdges: edges, parcels, props, signals, gameplay, shops, stations, gasStations, harbour, apartments, agents, stores, warnings, hwSigns, hwLine: R.H.map(p => [r2(p[0]), r2(p[1])]),
+  const city = { districts, roadNodes: nodes, roadEdges: edges, parcels, props, signals, gameplay, shops, stations, gasStations, driveways, harbour, apartments, agents, stores, warnings, hwSigns, hwLine: R.H.map(p => [r2(p[0]), r2(p[1])]),
     bounds: (() => { let x0 = 1e9, x1 = -1e9, z0 = 1e9, z1 = -1e9; Object.values(nodes).forEach(n => { x0 = Math.min(x0, n.x); x1 = Math.max(x1, n.x); z0 = Math.min(z0, n.z); z1 = Math.max(z1, n.z); }); return [x0 - 90, z0 - 90, x1 + 90, z1 + 90]; })() };
   return city;
 }

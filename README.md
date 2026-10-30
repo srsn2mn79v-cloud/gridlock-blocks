@@ -808,3 +808,7 @@ function per new type) whenever you want it — say the word and I'll add them.
 - Loading bar with stage names (`src/loading.js`; main.js awaits `tick()` between build stages).
 - Six new original cars: Family wagon, Trail SUV, Rally hatch, Roadster, Supercar, Hypercar (`carModels.js`, `vehicleModels.js`; fictional, no real badges).
 - Ghost laps + local top-10 leaderboard per race (`src/ghostLaps.js`, stored in localStorage `gridlock-ghosts-v1`).
+
+## Checks (node tools/check.mjs all)
+rivals, sidewalks, gas, races, drift, covered, signs, lamps, buildings, traffic, markings, bridges, solid, water, rules (road-class/meeting-point/grade rules), driveways (gas-station entrances free + kerb dipped), smooth (road elevation continuity), mesh (drawn road surface matches driving surface).
+`node tools/brake_audit.mjs [cars] [minutes]` lists where AI cars brake hard and why (car.cause). AI rule: no stop/turn-slowdown at highway/ramp merges; stop/yield only where junctionRules says.

@@ -239,6 +239,84 @@ async function checkRules() {
   for (let i = 0; i < J.length; i++) for (let j = i + 1; j < J.length; j++) { const d = Math.hypot(N[J[i]].x - N[J[j]].x, N[J[i]].z - N[J[j]].z); if (d < 80) bad.push('meeting points ' + J[i] + ' / ' + J[j] + ' only ' + r1(d * 1.25) + ' m apart at map ' + r1(494.5 - N[J[i]].x / 2.5) + ',' + r1(701.5 - N[J[i]].z / 2.5) + ' elev ' + r1(N[J[i]].elevation)); }
   return { name: 'rules', count: E.length + ' edges, ' + J.length + ' meeting points', bad };
 }
+async function checkDriveways() {
+  const { buildSidewalkSegments } = await imp('src/sidewalks.js');
+  const segs = buildSidewalkSegments(city), bad = [];
+  (city.driveways || []).forEach((d, i) => {
+    segs.forEach(sg => {
+      const dx = sg.x2 - sg.x1, dz = sg.z2 - sg.z1, L = Math.hypot(dx, dz) || 1, t = Math.max(0, Math.min(1, ((d.x - sg.x1) * dx + (d.z - sg.z1) * dz) / (L * L)));
+      const q = Math.hypot(d.x - (sg.x1 + dx * t), d.z - (sg.z1 + dz * t));
+      if (q < 3) bad.push('driveway ' + i + ' (' + d.kind + ') has kerb across it at ' + r1(d.x) + ',' + r1(d.z));
+    });
+    (city.props || []).forEach(p => { if (Math.hypot(p.x - d.x, p.z - d.z) < d.hw * 0.75 && ['parkedcar', 'light', 'tree', 'sign', 'trafficlight', 'bench', 'hydrant', 'mailbox'].includes(p.type)) bad.push('driveway ' + i + ': ' + p.type + ' blocks the entrance at ' + r1(p.x) + ',' + r1(p.z)); });
+  });
+  return { name: 'driveways', count: (city.driveways || []).length + ' driveways', bad };
+}
+// ---- the road surface is smooth: gentle grades, no spikes, no steps ---------------------------------------------------------------------------
+async function checkSmooth() {
+  const { CLASSES } = await imp('src/chicago/network.js');
+  const { buildHorizontalCurve, buildEdgesByNode, buildVerticalCurves, elevationAlongEdge } = await imp('src/roadMath.js');
+  const bad = [], STEP = 2, N = city.roadNodes, ebn = buildEdgesByNode(city.roadEdges);
+  const clsOf = e => e.cls || (e.ramp ? 'ramp' : e.type === 'highway' ? 'hw' : e.type === 'avenue' ? 'four' : 'two');
+  let samples = 0;
+  // a run of surface heights sampled every `step` u: grade limit, no spikes (2nd difference), no steps
+  const judge = (label, ys, step, lim, at) => {
+    samples += ys.length;
+    for (let i = 1; i < ys.length - 1; i++) {
+      const g = Math.abs(ys[i + 1] - ys[i]) / step, curv = Math.abs(ys[i - 1] - 2 * ys[i] + ys[i + 1]);
+      if (g > lim * 1.5 + 0.03) { bad.push(label + ': surface grade ' + r1(g * 100) + ' % (limit ' + r1(lim * 150 + 3) + ' %) near ' + at(i)); return; }
+      if (curv > 0.2) { bad.push(label + ': bump of ' + r1(curv) + ' u over ' + step + ' u near ' + at(i)); return; }
+    }
+  };
+  const corner = {};
+  for (const id in N) { const c = buildHorizontalCurve(id, N, ebn); if (c) corner[id] = c; }
+  const vc = buildVerticalCurves(N, ebn);
+  let refY; const yAt = (x, z) => heightAt(x, z, refY);      // refY: which of several stacked surfaces (a bridge over a road) to read
+  city.roadEdges.forEach(e => {
+    const A = N[e.from], B = N[e.to], L = Math.hypot(B.x - A.x, B.z - A.z), t0 = corner[e.from] ? corner[e.from].trim : 0, t1 = corner[e.to] ? corner[e.to].trim : 0;
+    const lim = (CLASSES[clsOf(e)] || CLASSES.two).maxGrade, run = L - t0 - t1; if (run < 3 * STEP) return;
+    const n = Math.floor(run / STEP), ys = [], P = i => { const s = t0 + run * i / n, t = s / L; return [A.x + (B.x - A.x) * t, A.z + (B.z - A.z) * t]; };
+    for (let i = 0; i <= n; i++) { const p = P(i); refY = elevationAlongEdge(e, t0 + run * i / n, N, vc) + 0.45; ys.push(yAt(p[0], p[1])); }
+    judge('edge ' + e.id + ' (' + clsOf(e) + ', ' + e.structure + ')', ys, run / n, lim, i => r1(P(i)[0]) + ',' + r1(P(i)[1]));
+  });
+  for (const id in corner) {
+    const c = corner[id], es = ebn[id], lim = Math.min(...es.map(e => (CLASSES[clsOf(e)] || CLASSES.two).maxGrade));
+    const ys = [], P = [], step = Math.max(0.6, c.length / 24);
+    const endY = oid => { const e = es.find(q => (q.from === id ? q.to : q.from) === oid), Ln = Math.hypot(N[e.to].x - N[e.from].x, N[e.to].z - N[e.from].z); return elevationAlongEdge(e, e.from === id ? c.trim : Ln - c.trim, N, vc); };
+    const y0 = endY(c.otherIds[0]), y1 = endY(c.otherIds[1]);
+    for (let l = 0; l <= c.length; l += step) { const sm = c.samples.reduce((b, q) => (Math.abs(q.l - l) < Math.abs(b.l - l) ? q : b)); P.push([sm.x, sm.z]); refY = y0 + (y1 - y0) * l / c.length + 0.9; ys.push(yAt(sm.x, sm.z)); }
+    judge('corner ' + id + ' (' + clsOf(es[0]) + ')', ys, step, lim, i => r1(P[i][0]) + ',' + r1(P[i][1]));
+    // the seams: where the straight edge hands over to the corner there is no step
+    c.otherIds.forEach((oid, k) => {
+      const e = es.find(q => (q.from === id ? q.to : q.from) === oid), o = N[oid], n0 = N[id], d = Math.hypot(o.x - n0.x, o.z - n0.z) || 1;
+      const sx = n0.x + (o.x - n0.x) / d * c.trim, sz = n0.z + (o.z - n0.z) / d * c.trim, cs = k === 0 ? c.samples[0] : c.samples[c.samples.length - 1];
+      refY = (k === 0 ? y0 : y1) + 0.9; const jump = Math.abs(yAt(sx, sz) - yAt(cs.x, cs.z));
+      if (jump > 0.06) bad.push('corner ' + id + ': step of ' + r1(jump) + ' u where edge ' + e.id + ' meets the corner (' + r1(sx) + ',' + r1(sz) + ')');
+    });
+  }
+  return { name: 'smooth', count: samples + ' samples', bad };
+}
+// ---- the drawn road surface and the surface cars drive on agree (nothing sticks out, nothing sinks) -----------------------------------------
+async function checkMesh() {
+  await world();
+  const bad = [], seen = new Set(); let n = 0;
+  roads.updateMatrixWorld(true);
+  roads.traverse(o => {
+    if (!o.isMesh || !o.userData.isRoadSurface) return;
+    const pos = o.geometry.attributes.position;
+    for (let i = 0; i < pos.count; i++) {
+      const x = pos.getX(i), y = pos.getY(i), z = pos.getZ(i); n++;
+      let g = heightAt(x, z, y);                                  // vertices on the very edge of the ribbon can fall just outside the sampler's width, so also try 0.6 u around
+      for (const [ox, oz] of [[0.6,0],[-0.6,0],[0,0.6],[0,-0.6]]) { const h = heightAt(x + ox, z + oz, y); if (Math.abs(h - y) < Math.abs(g - y)) g = h; }
+      const d = y - g;
+      if (Math.abs(d) > 0.2 && !(g === 0 && y < 0.2)) {         // 0.2 u = 25 cm: the paint / lift offsets are 0.03-0.05
+        const k = Math.round(x / 8) + ',' + Math.round(z / 8) + ',' + (d > 0 ? 'up' : 'down'); if (seen.has(k)) continue; seen.add(k);
+        bad.push('road mesh ' + (d > 0 ? 'sticks out ' : 'sinks ') + r1(Math.abs(d)) + ' u above/below the driving surface at ' + r1(x) + ',' + r1(z) + ' (mesh y ' + r1(y) + ', surface ' + r1(g) + ')');
+      }
+    }
+  });
+  return { name: 'mesh', count: n + ' vertices', bad: bad.slice(0, 40).concat(bad.length > 40 ? ['... and ' + (bad.length - 40) + ' more'] : []) };
+}
 async function checkWater() {
   const { RIVERS, LAKES, DECKS } = await imp('src/chicago/map.js');
   const { nearestOnPoly, pointInPoly } = await imp('src/chicago/geom.js');
@@ -380,7 +458,7 @@ async function checkGas() {
 // ---- sidewalks lead somewhere ----------------------------------------------------------------------------------------------
 async function checkSidewalks() {
   const { buildSidewalkSegments, STUB_LEN, ISLAND_LEN } = await imp('src/sidewalks.js');
-  const segs = buildSidewalkSegments(city), bad = [];
+  const segs = buildSidewalkSegments(city, { cut: false }), bad = [];
   const byEdge = new Map(); segs.forEach(sg => { const e = byEdge.get(sg.edgeId) || { id: sg.edgeId, from: sg.fromNode, to: sg.toNode, len: 0 }; e.len = Math.max(e.len, Math.hypot(sg.x2 - sg.x1, sg.z2 - sg.z1)); byEdge.set(sg.edgeId, e); });
   const at = new Map(); byEdge.forEach(e => { [e.from, e.to].forEach(n => at.set(n, (at.get(n) || 0) + 1)); });
   byEdge.forEach(e => { if ((at.get(e.from) <= 1 || at.get(e.to) <= 1) && e.len < STUB_LEN) { const n = city.roadNodes[at.get(e.from) <= 1 ? e.from : e.to]; bad.push('pavement stub of ' + r1(e.len) + ' u goes nowhere @' + r1(n.x) + ',' + r1(n.z)); } });
@@ -407,7 +485,7 @@ async function checkRivals() {
   tr.clearRivals();
   return { name: 'rivals', count: plan.length + ' routes', bad };
 }
-const CHECKS = { rivals: checkRivals, sidewalks: checkSidewalks, gas: checkGas, races: checkRaces, drift: checkDrift, covered: checkCovered,  signs: checkSigns, lamps: checkLamps, buildings: checkBuildings, traffic: () => checkTraffic(+process.argv[3] || 40, +process.argv[4] || 5), markings: checkMarkings, bridges: checkBridges, solid: checkSolid, water: checkWater, rules: checkRules };
+const CHECKS = { rivals: checkRivals, sidewalks: checkSidewalks, gas: checkGas, races: checkRaces, drift: checkDrift, covered: checkCovered,  signs: checkSigns, lamps: checkLamps, buildings: checkBuildings, traffic: () => checkTraffic(+process.argv[3] || 40, +process.argv[4] || 5), markings: checkMarkings, bridges: checkBridges, solid: checkSolid, water: checkWater, rules: checkRules, driveways: checkDriveways, smooth: checkSmooth, mesh: checkMesh };
 const which = process.argv[2] || 'all';
 const list = which === 'all' ? Object.keys(CHECKS) : [which];
 let failed = 0;

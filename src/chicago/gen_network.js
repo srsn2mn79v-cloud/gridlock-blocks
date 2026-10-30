@@ -100,13 +100,25 @@ export function generateRoads() {
   {
     const total = polyLen(H), sv = new Set([0, total]);
     let acc = 0; for (let i = 1; i < H.length; i++) { acc += dist(H[i - 1], H[i]); sv.add(acc); }
-    [30, 60, 90, 120].forEach(d => { sv.add(d); sv.add(total - d); });
+    [12, 36, 60, 90, 120].forEach(d => { sv.add(d); sv.add(total - d); });
     const sl = [...sv].filter(v => v >= 0 && v <= total).sort((a, b) => a - b).filter((v, i, a) => i === 0 || v - a[i - 1] > 1.5);
-    const taper = s => { const e = Math.min(s, total - s) / 120; return e >= 1 ? 1 : e * e * (3 - 2 * e); };
-    const make = f => sl.map(s => { const h = hwPoint(s), l = CAR_OFF * taper(s) * f; return [h.x + h.rx * l, h.z + h.rz * l]; });
+    // The two carriageways never overlap: they come together as the two halves of the arterial they end in (3 lanes each, 8.4 u wide,
+    // centred 4.2 u from the middle) and only widen to full interstate width (centred CAR_OFF) once they are clear of each other.
+    // offset from the median line: 0 -> 4.2 over the last 12 u, 4.2 -> 8.4 up to 60 u (the narrow 'hwEnd' road, half an arterial), 8.4 -> CAR_OFF by 120 u.
+    const sm = k => k * k * (3 - 2 * k);
+    const offAt = s => { const e = Math.min(s, total - s); return e <= 12 ? 4.2 * sm(e / 12) : e <= 60 ? 4.2 + 4.2 * sm((e - 12) / 48) : e < 120 ? 8.4 + (CAR_OFF - 8.4) * sm((e - 60) / 60) : CAR_OFF; };
+    const make = f => sl.map(s => { const h = hwPoint(s), l = offAt(s) * f; return [h.x + h.rx * l, h.z + h.rz * l]; });
     const fw = make(1), bw = make(-1).reverse();
-    lines.push({ id: 'HWF', cls: 'hw', pts: fw, keepEnds: true, oneWay: true, name: 'Interstate' });
-    lines.push({ id: 'HWB', cls: 'hw', pts: bw, keepEnds: true, oneWay: true, name: 'Interstate' });
+    // cut each carriageway into end pieces (narrow arterial class) and the interstate proper
+    const cutLine = (id, pts, flip) => {
+      const n = pts.length, idx = i => flip ? n - 1 - i : i;        // vertex i of the list in path order
+      const sAt = i => sl[idx(i)];
+      const first = pts.findIndex((p, i) => (flip ? total - sAt(i) : sAt(i)) >= 60), lastIdx = (() => { let k = n - 1; while (k > 0 && (flip ? total - sAt(k) : sAt(k)) > total - 60) k--; return k; })();
+      lines.push({ id: id + 'a', cls: 'hwEnd', pts: pts.slice(0, first + 1), keepEnds: true, oneWay: true, name: 'Interstate' });
+      lines.push({ id, cls: 'hw', pts: pts.slice(first, lastIdx + 1), keepEnds: true, oneWay: true, name: 'Interstate' });
+      lines.push({ id: id + 'b', cls: 'hwEnd', pts: pts.slice(lastIdx), keepEnds: true, oneWay: true, name: 'Interstate' });
+    };
+    cutLine('HWF', fw, false); cutLine('HWB', bw, true);
   }
   IX.forEach(ix => {
     if (!ix.P) return;

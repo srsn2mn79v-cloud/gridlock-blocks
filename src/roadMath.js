@@ -202,7 +202,7 @@ export function buildHorizontalCurve(nodeId, nodes, edgesByNode) {
   // (and the car stays level through them — terrain.js reads the same bank value).
   // Highways bank by tan(theta) = v^2 / (r g) (v design speed, r radius in metres, g = 9.81), capped at 10 degrees; the
   // ribbon is lifted by half its width x sin(bank) (roads.js / terrain.js) so the low edge never dips under the ground.
-  const bankMax = type === 'highway' ? Math.min(0.175, Math.atan((((designSpeedKmh.highway) / 3.6) ** 2) / (Math.max(R, 5) * 1.25 * 9.81))) : 0;
+  const bankMax = 0;      // per-corner banking made a bump at every vertex: banking is continuous now, see buildBanks / cornerBanks
 
   // Re-integrate at the final (possibly scaled) R/Ls/Lc for the actual drawable samples.
   const Ltotal0 = 2 * Ls + Lc;
@@ -321,4 +321,60 @@ export function curveElevationAt(nodeId, l, trim, nodes, vcByNode) {
   const vc = vcByNode[nodeId];
   if (!vc) return n.elevation || 0;
   return vcElevationAt(vc, n.elevation || 0, l - trim);
+}
+
+// ---- continuous superelevation for the interstate -------------------------------------------------------------------------------
+// The bank angle is a property of the road, not of each vertex: it is worked out per node from the radius of the interstate over a
+// +-BANK_BASE stretch (tan(theta) = v^2 / (r g), v = design speed, r in metres, g = 9.81, capped), then blended linearly along every
+// edge and corner, so the surface tilts smoothly into a bend and back out. It is stored per (node, edge) because the sign is
+// relative to the edge's own from->to heading ("left" side rises when positive).
+export const BANK_CAP = 0.08, BANK_BASE = 180;         // 4.6 degrees max (8 % cross-fall), 180 u (225 m) baseline
+export function buildBanks(nodes, edgesByNode) {
+  const V2 = (designSpeedKmh.highway / 3.6) ** 2, bankFor = {};
+  const hw = id => (edgesByNode[id] || []).filter(e => e.type === 'highway' && !e.ramp);
+  const other = (e, id) => (e.from === id ? e.to : e.from);
+  const walk = (id, e) => {                                  // point BANK_BASE along the interstate away from `id` via `e` (null if it ends sooner)
+    let prev = id, via = e, cur = other(e, id), acc = dist(nodes[id].x, nodes[id].z, nodes[cur].x, nodes[cur].z);
+    while (acc < BANK_BASE) {
+      const nx = hw(cur).filter(q => q !== via);
+      if (nx.length !== 1) return null;
+      const nn = other(nx[0], cur); acc += dist(nodes[cur].x, nodes[cur].z, nodes[nn].x, nodes[nn].z); prev = cur; via = nx[0]; cur = nn;
+    }
+    const a = nodes[prev], b = nodes[cur], d = dist(a.x, a.z, b.x, b.z) || 1, over = acc - BANK_BASE, t = 1 - over / d;
+    return { x: a.x + (b.x - a.x) * t, z: a.z + (b.z - a.z) * t };
+  };
+  // a banked carriageway is lifted (see roads.js), so the bank fades out towards every slip road junction, where the carriageway has to meet a
+  // flat ramp: no step, no kerb between the two
+  const rampNodes = Object.keys(nodes).filter(id => (edgesByNode[id] || []).some(e => e.ramp) && (edgesByNode[id] || []).some(e => e.type === 'highway'));
+  const fade = id => { let d = 1e9; for (const r of rampNodes) d = Math.min(d, dist(nodes[id].x, nodes[id].z, nodes[r].x, nodes[r].z)); const k = Math.max(0, Math.min(1, (d - 40) / 110)); return k * k * (3 - 2 * k); };
+  for (const id in nodes) {
+    const es = hw(id); if (es.length !== 2) continue;
+    const n = nodes[id], p = walk(id, es[0]), q = walk(id, es[1]); if (!p || !q) continue;
+    const ab = dist(p.x, p.z, n.x, n.z), bc = dist(n.x, n.z, q.x, q.z), ca = dist(q.x, q.z, p.x, p.z);
+    const cr = (n.x - p.x) * (q.z - p.z) - (n.z - p.z) * (q.x - p.x);
+    if (Math.abs(cr) < 1e-6) continue;
+    const r = (ab * bc * ca) / (2 * Math.abs(cr));
+    const bn = Math.sign(cr) * Math.min(BANK_CAP, Math.atan(V2 / (r * 1.25 * 9.81))) * fade(id);
+    // traversal p -> n -> q: es[0] is the p side, es[1] the q side
+    bankFor[id + '|' + es[0].id] = es[0].to === id ? bn : -bn;
+    bankFor[id + '|' + es[1].id] = es[1].from === id ? bn : -bn;
+  }
+  return bankFor;
+}
+// bank at distance s from the edge's `from` node (0 where the edge has no banked ends)
+export function edgeBank(edge, s, len, bankFor) {
+  const a = bankFor[edge.from + '|' + edge.id] || 0, b = bankFor[edge.to + '|' + edge.id] || 0;
+  return a + (b - a) * Math.max(0, Math.min(1, s / (len || 1)));
+}
+// bank of each sample of a corner (traversal other0 -> node -> other1), blended between the two edges' banks at the trim points
+export function cornerBanks(nodeId, c, edgesByNode, nodes, bankFor) {
+  const es = edgesByNode[nodeId] || [], e1 = es.find(e => (e.from === nodeId ? e.to : e.from) === c.otherIds[0]), e2 = es.find(e => (e.from === nodeId ? e.to : e.from) === c.otherIds[1]);
+  const out = new Array(c.samples.length).fill(0);
+  if (!e1 || !e2) return out;
+  const len = e => dist(nodes[e.from].x, nodes[e.from].z, nodes[e.to].x, nodes[e.to].z);
+  const L1 = len(e1), L2 = len(e2);
+  const b1 = edgeBank(e1, e1.to === nodeId ? L1 - c.trim : c.trim, L1, bankFor) * (e1.to === nodeId ? 1 : -1);
+  const b2 = edgeBank(e2, e2.from === nodeId ? c.trim : L2 - c.trim, L2, bankFor) * (e2.from === nodeId ? 1 : -1);
+  if (!b1 && !b2) return out;
+  return c.samples.map(s => b1 + (b2 - b1) * (c.length > 0 ? s.l / c.length : 0));
 }

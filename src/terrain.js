@@ -10,7 +10,7 @@
 // instead of a single formula guessing at it.
 import {
   buildHorizontalCurve, buildEdgesByNode, buildVerticalCurves,
-  elevationAlongEdge, curveElevationAt, dist
+  elevationAlongEdge, curveElevationAt, dist, buildBanks, edgeBank, cornerBanks
 } from './roadMath.js';
 import { buildSidewalkSegments, SIDEWALK_WIDTH } from './sidewalks.js';
 
@@ -24,6 +24,7 @@ export function createGroundSampler(cityData) {
     if (c) curveInfo[id] = c;
   }
   const vcByNode = buildVerticalCurves(nodes, edgesByNode);
+  const bankFor = buildBanks(nodes, edgesByNode);
 
   // Straight runs: height now follows the same vertical-curve-aware elevation lookup
   // roads.js draws its ribbon with, instead of a plain linear blend — otherwise the car
@@ -58,10 +59,11 @@ export function createGroundSampler(cityData) {
     const w1 = (edgeBetween(nodeId, c.otherIds[0]) || {}).width || 9;
     const w2 = (edgeBetween(nodeId, c.otherIds[1]) || {}).width || 9;
     const width = Math.max(w1, w2);
-    const pts = c.samples.map(s => ({
+    const cb = cornerBanks(nodeId, c, edgesByNode, nodes, bankFor);
+    const pts = c.samples.map((s, si) => ({
       x: s.x, z: s.z,
       y: curveElevationAt(nodeId, s.l, c.trim, nodes, vcByNode),
-      bank: s.bankRad
+      bank: cb[si]
     }));
     for (let i = 0; i < pts.length; i++) {
       const prev = pts[Math.max(0, i - 1)], next = pts[Math.min(pts.length - 1, i + 1)];
@@ -117,7 +119,12 @@ export function createGroundSampler(cityData) {
       const tt = Math.max(0, Math.min(1, rawT));
       const cx = s.a.x + tt * dx, cz = s.a.z + tt * dz;
       const d = dist(x, z, cx, cz);
-      if (d <= s.halfWidth + 0.15) consider(d, elevationAlongEdge(s.edge, tt * s.len, nodes, vcByNode), 'road');
+      if (d <= s.halfWidth + 0.15) {
+        let y = elevationAlongEdge(s.edge, tt * s.len, nodes, vcByNode);
+        const bk = edgeBank(s.edge, tt * s.len, s.len, bankFor);
+        if (bk) y += (((x - cx) * dz - (z - cz) * dx) / (s.len || 1)) * Math.sin(bk) + s.halfWidth * Math.abs(Math.sin(bk));    // same cross-section as roads.js buildRibbon
+        consider(d, y, 'road');
+      }
     }
 
     for (const corner of cornerAt(x, z)) {
