@@ -23,7 +23,7 @@ import { updateFollowCamera, createCameraRig, CAM_MODES } from './camera.js';
 import { createInterior } from './interior.js';
 import { createGroundSampler } from './terrain.js';
 import { buildCollisionWorld, resolveCarCollisions, pointInPolygon } from './collision.js';
-import { spawnDebris, updateEffects } from './effects.js';
+import { spawnDebris, spawnLeaves, updateEffects } from './effects.js';
 import { createDestruction } from './destruction.js';
 import { createGraphics } from './graphics.js';
 import { createPedestrianSystem } from './pedestrians.js';
@@ -151,7 +151,7 @@ function onNight(k) {
 const reflectors = roadsGroup.userData.reflectors || [];
 // Far lamps and signal heads are hidden: each is a handful of draw calls and at 150+ units they are a speck.
 // Only what this function hid is shown again, so knocked-down props stay gone.
-const cullSet = propInstances.filter(p => p.mesh && ['light', 'trafficlight', 'shoplamp', 'shopsign', 'sign', 'oneway', 'hydrant', 'mailbox', 'cafeset'].includes(p.type));
+const cullSet = propInstances.filter(p => p.mesh && ['light', 'trafficlight', 'shoplamp', 'shopsign', 'sign', 'oneway', 'hydrant', 'mailbox', 'cafeset', 'bush', 'picnic'].includes(p.type));
 let cullT = 0;
 function cullProps(dt) {
   cullT -= dt; if (cullT > 0) return; cullT = 0.25;
@@ -873,6 +873,11 @@ function animate() {
     destroyed.forEach(c => {
       const inst = c.instance, mesh = inst.mesh;
       if (c.spray) sprays.add(mesh.position.x, mesh.position.y + 0.1, mesh.position.z);
+      if (c.destroy === 'burst') {
+        mesh.visible = false;
+        spawnLeaves(scene, mesh.position.x, mesh.position.y, mesh.position.z, Math.sin(car.heading) * (Math.sign(car.speed) || 1), Math.cos(car.heading) * (Math.sign(car.speed) || 1), Math.abs(car.speed));
+        return;
+      }
       if (c.destroy === 'debris') {
         mesh.visible = false;
         spawnDebris(scene, mesh.position.x, mesh.position.y + 0.3, mesh.position.z, c.debrisColor, 6);

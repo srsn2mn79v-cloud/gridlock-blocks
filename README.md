@@ -837,3 +837,10 @@ dead-end side street, so they are off. Try one with `RB=0,2,5,1 node tools/check
 Fire hydrants, mailboxes and café sets (table + chairs, busy districts only) line the streets (`chicago.js`, "street furniture").
 A hit hydrant pops off and sprays water for ~12 s (`src/spray.js`); mailboxes and café sets are light and get launched.
 Still to come in this phase: storefronts, parks with seating, food stands, gyms.
+
+## Town life, slice 2 + crash feel
+- **Bushes** burst into leaves and twigs when hit at 3+ u/s (`spawnLeaves` in `effects.js`); they slow the car a little.
+- **Low-speed crashes** no longer spin or shake the car: crash rotation fades to zero below ~2.5 u/s (`swingK` in `collision.js`).
+- **Parks** now have benches, picnic tables and a food stand in the bigger ones; busy districts get street food stands.
+- **Storefront awnings** (striped canopies over the pavement) on about a third of the lower buildings, and `GYM` / `FIT` neon signs.
+- Not done yet: gym interiors/interaction, shop doors that open (Phase 3).

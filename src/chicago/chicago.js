@@ -577,6 +577,12 @@ export function buildChicago() {
       if (!okAt(p, 1.5, 2.6)) continue;
       treeList.push({ type: 'cafeset', x: r2(p.x), z: r2(p.z), rotation: Math.floor(rand() * 360) });
     }
+    if (dis && CAFE_DISTRICTS.includes(dis.name)) for (let t = c1 + 20 + rand() * 40; t < len - c2; t += 150 + rand() * 90) {
+      if (rand() < 0.5) continue;
+      const side = rand() < 0.5 ? 1 : -1, p = sidePoint(e, t, side, e.width / 2 + 5.4);
+      if (!okAt(p, 2.2, 3.4)) continue;
+      treeList.push({ type: 'foodstand', variant: Math.floor(rand() * 4), x: r2(p.x), z: r2(p.z), rotation: Math.round(Math.atan2(-p.ux, -p.uz) * 180 / Math.PI) + (side > 0 ? 90 : -90) });
+    }
   });
   props.push(...treeList);
   // pedestrian path lights: low posts on a loose grid through the parks (they glow at night, see props.js / main.js)
@@ -587,6 +593,23 @@ export function buildChicago() {
       const px = x + (rand() - 0.5) * 3, pz = z + (rand() - 0.5) * 3;
       if (!pointInPoly(px, pz, pk.pts) || roadClear(px, pz) < 5 || inWater(px, pz, 2) || parcelsHit(px, pz, 2) || !propOK(px, pz, 4, treeList)) continue;
       props.push({ type: 'pathlight', x: r2(px), z: r2(pz), rotation: 0 });
+    }
+  });
+
+  // park seating: benches facing the paths, picnic tables, and a food stand in the bigger parks
+  PARKS.forEach(pk => {
+    const xs = pk.pts.map(p => p[0]), zs = pk.pts.map(p => p[1]);
+    const x0 = Math.min(...xs), x1 = Math.max(...xs), z0 = Math.min(...zs), z1 = Math.max(...zs), step = 26;
+    const ok = (px, pz, rad) => pointInPoly(px, pz, pk.pts) && roadClear(px, pz) >= 5 && !inWater(px, pz, 2) && !parcelsHit(px, pz, rad) && propOK(px, pz, 4.2, treeList) && propOK(px, pz, 3.2, props.filter(q => q.type === 'pathlight' || q.type === 'bench' || q.type === 'picnic' || q.type === 'foodstand'));
+    for (let x = x0 + 8; x < x1; x += step) for (let z = z0 + 8; z < z1; z += step) {
+      const px = x + 3 + (rand() - 0.5) * 3, pz = z + 3 + (rand() - 0.5) * 3, r = rand();
+      if (r < 0.5 && ok(px, pz, 1.2)) props.push({ type: 'bench', x: r2(px), z: r2(pz), rotation: Math.floor(rand() * 4) * 90 });
+      else if (r < 0.7 && ok(px, pz, 2)) props.push({ type: 'picnic', x: r2(px), z: r2(pz), rotation: Math.floor(rand() * 4) * 90 });
+    }
+    if (x1 - x0 > 70 && z1 - z0 > 70) for (let tries = 0; tries < 40; tries++) {
+      const px = x0 + rand() * (x1 - x0), pz = z0 + rand() * (z1 - z0);
+      if (!ok(px, pz, 2.2) || roadClear(px, pz) > 18) continue;
+      props.push({ type: 'foodstand', variant: Math.floor(rand() * 4), x: r2(px), z: r2(pz), rotation: Math.floor(rand() * 4) * 90 }); break;
     }
   });
 
@@ -630,7 +653,7 @@ export function buildChicago() {
   props.push(...parked);
 
   // neon signs: glowing words and blade signs on the street-facing walls of the taller buildings (drawn as a few instanced quads, props.js)
-  const NEON_WORDS = ['BAR', 'CLUB', 'OPEN', 'RAMEN', 'PIZZA', 'ARCADE', 'HOTEL', 'TUNE', 'LIVE', '24H', 'DINER', 'SUSHI'];   // (stations add HOSPITAL / POLICE / FIRE)
+  const NEON_WORDS = ['BAR', 'CLUB', 'OPEN', 'RAMEN', 'PIZZA', 'ARCADE', 'HOTEL', 'TUNE', 'LIVE', '24H', 'DINER', 'SUSHI', 'GYM', 'FIT'];   // (stations add HOSPITAL / POLICE / FIRE)
   const NEON_COLS = [0xff2fa8, 0x20e8ff, 0xff7a1a, 0x38ff6a, 0xa14bff, 0xff3b3b, 0xffe14a];
   let nNeon = 0;
   parcels.forEach(q => {
@@ -653,6 +676,21 @@ export function buildChicago() {
       props.push({ type: 'neonsign', x: r2(px), z: r2(pz), y: r2(y), rotation: Math.round(Math.atan2(-nz, nx) * 180 / Math.PI), w: r2(w), h: r2(h), blade, word: pick(NEON_WORDS), color: pick(NEON_COLS), bracket: 1 }); nNeon++;
     }
   });
+  // storefront awnings: a striped canopy over the pavement on the street side of the lower buildings (decoration high above the traffic, drawn merged in props.js)
+  { let nAw = 0; const AW_COLS = [0xc0392b, 0x2e6fa6, 0x2f8f5b, 0xd98b1e, 0x7a3b86, 0x222a35];
+    parcels.forEach(q => {
+      if (q.type !== 'building' || q.landmark || q.district === 'Industrial' || q.height < 6 || rand() > 0.4 || nAw > 1500) return;
+      const f = q.footprint, x0 = Math.min(f[0][0], f[2][0]), x1 = Math.max(f[0][0], f[2][0]), z0 = Math.min(f[0][1], f[2][1]), z1 = Math.max(f[0][1], f[2][1]);
+      const sides = [[0, -1, z0, x0, x1, true], [0, 1, z1, x0, x1, true], [-1, 0, x0, z0, z1, false], [1, 0, x1, z0, z1, false]];
+      let best = null, bd = 1e9;
+      sides.forEach(sd => { const [nx, nz, c, a0, a1, alongX] = sd, m = (a0 + a1) / 2, px = alongX ? m : c, pz = alongX ? c : m; const d = roadClear(px + nx * 5, pz + nz * 5); if (d < bd) { bd = d; best = sd; } });
+      if (!best || bd > 9) return;
+      const [nx, nz, c, a0, a1, alongX] = best, span = a1 - a0; if (span < 9) return;
+      const w = Math.min(span - 3, 3.5 + rand() * 4.5), t = a0 + 1.5 + w / 2 + (span - 3 - w) * rand();
+      const px = alongX ? t : c + nx * 0.9, pz = alongX ? c + nz * 0.9 : t;
+      if (roadClear(px + nx * 1.2, pz + nz * 1.2) < 0.6 || driveways.some(d => Math.hypot(d.x - px, d.z - pz) < d.hw + 3)) return;
+      props.push({ type: 'awning', x: r2(px), z: r2(pz), y: 3, rotation: Math.round(Math.atan2(nx, nz) * 180 / Math.PI), w: r2(w), color: pick(AW_COLS) }); nAw++;
+    }); }
   // keep every garage entrance clear: nothing stands on the driveway
   apartments.forEach(a => { const g = a.gate; for (let i = props.length - 1; i >= 0; i--) { const q = props[i]; if (q.type === 'trafficlight') continue; const dx = q.x - g.x, dz = q.z - g.z, along = dx * g.nx + dz * g.nz, lat = dx * g.ux + dz * g.uz; if (along > -1.5 && along < 12 && Math.abs(lat) < 3.8) props.splice(i, 1); } });
 

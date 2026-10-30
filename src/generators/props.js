@@ -143,6 +143,28 @@ function cafeSetMesh() {
   return g;
 }
 
+function picnicMesh() {
+  const g = new THREE.Group(), wood = new THREE.MeshStandardMaterial({ color: 0x9c6e45, roughness: 0.8 });
+  const top = new THREE.Mesh(new THREE.BoxGeometry(1.7, 0.07, 0.8), wood); top.position.y = 0.78;
+  g.add(top);
+  [-0.8, 0.8].forEach(z => { const b = new THREE.Mesh(new THREE.BoxGeometry(1.7, 0.06, 0.3), wood); b.position.set(0, 0.45, z * 0.9 + (z > 0 ? 0.1 : -0.1)); g.add(b); });
+  [-0.65, 0.65].forEach(x => { const l = new THREE.Mesh(new THREE.BoxGeometry(0.08, 0.78, 1.5), wood); l.position.set(x, 0.39, 0); g.add(l); });
+  g.children.forEach(c => { c.castShadow = true; });
+  return g;
+}
+// a striped canopy sloping down away from the wall (local +z points away from the building)
+function awningMesh(prop) {
+  const g = new THREE.Group(), w = prop.w || 4, n = Math.max(3, Math.round(w / 0.55));
+  const a = new THREE.MeshStandardMaterial({ color: prop.color || 0xc0392b, roughness: 0.8, side: THREE.DoubleSide }), b = new THREE.MeshStandardMaterial({ color: 0xf1ece0, roughness: 0.8, side: THREE.DoubleSide });
+  for (let i = 0; i < n; i++) {
+    const s = new THREE.Mesh(new THREE.BoxGeometry(w / n, 0.05, 1.7), i % 2 ? b : a);
+    s.position.set(-w / 2 + (i + 0.5) * w / n, 0, 0); s.rotation.x = 0.28; g.add(s);
+  }
+  const edge = new THREE.Mesh(new THREE.BoxGeometry(w, 0.28, 0.04), a); edge.position.set(0, -0.37, 0.84); g.add(edge);
+  g.children.forEach(c => { c.castShadow = true; });
+  return g;
+}
+
 function plasterMat(c) { const m = new THREE.MeshStandardMaterial({ color: c }); m.userData.snow = { plaster: true }; return m; }
 function signMesh() {
   const g = new THREE.Group();
@@ -396,8 +418,8 @@ function shopSignMesh(p) {
   return g;
 }
 
-const COLLAPSE_TYPES = new Set(['hydrant', 'mailbox', 'cafeset', 'light', 'trafficlight', 'bench', 'shoplamp', 'shopsign', 'fountain', 'gazebo', 'foodstand', 'sign', 'oneway']);
-const MERGE_TYPES = new Set(['oak', 'bush', 'tree']);
+const COLLAPSE_TYPES = new Set(['picnic', 'hydrant', 'mailbox', 'cafeset', 'light', 'trafficlight', 'bench', 'shoplamp', 'shopsign', 'fountain', 'gazebo', 'foodstand', 'sign', 'oneway']);
+const MERGE_TYPES = new Set(['oak', 'tree']);   // bushes stay separate: you can drive through them and they burst
 function mergeStaticProps(meshes) {
   const out = new THREE.Group(), mats = new Map(), buckets = new Map();
   meshes.forEach(root => {
@@ -427,7 +449,7 @@ const builders = {
   shoplamp: shopLampMesh, shopsign: shopSignMesh,
   oak: oakMesh, bush: bushMesh, fountain: fountainMesh, gazebo: gazeboMesh, foodstand: foodstandMesh,
   tree: treeMesh, light: lightMesh, bench: benchMesh, sign: signMesh,
-  trafficlight: trafficLightMesh, oneway: onewaySignMesh, hydrant: hydrantMesh, mailbox: mailboxMesh, cafeset: cafeSetMesh
+  trafficlight: trafficLightMesh, oneway: onewaySignMesh, picnic: picnicMesh, hydrant: hydrantMesh, mailbox: mailboxMesh, cafeset: cafeSetMesh
 };
 
 // Neon signs: each word is drawn once into a glowing-tube texture; every sign is an instanced quad tinted with its own colour.
@@ -498,7 +520,7 @@ export function buildProps(cityData) {
   const instances = [];
   const parked = [];
   const statics = [];
-  const pathLights = [];
+  const pathLights = [], awnings = [];
   const neonSigns = [];
   (cityData.props || []).forEach((p, i) => {
     if (p.type === 'parkedcar') {
@@ -510,6 +532,7 @@ export function buildProps(cityData) {
     }
     if (p.type === 'pathlight') { pathLights.push(p); return; }
     if (p.type === 'neonsign') { neonSigns.push(p); return; }
+    if (p.type === 'awning') { const am = awningMesh(p); am.position.set(p.x, p.y || 3, p.z); am.rotation.y = (p.rotation || 0) * Math.PI / 180; awnings.push(am); return; }
     const build = builders[p.type] || treeMesh;
     const mesh = build(p);
     if (COLLAPSE_TYPES.has(p.type)) collapse(mesh);
@@ -532,6 +555,7 @@ export function buildProps(cityData) {
   });
   if (parked.length) { const pg = buildParkedCars(parked); group.add(pg); group.userData.parkedHandles = pg.userData.handles; }
   if (statics.length) group.add(mergeStaticProps(statics));
+  if (awnings.length) group.add(mergeStaticProps(awnings));
   if (neonSigns.length) { const ns = buildNeonSigns(neonSigns); group.add(ns); group.userData.neon = ns.userData; }
   if (pathLights.length) { const pl = buildPathLights(pathLights); group.add(pl); group.userData.pathLights = pl.userData; }
   return { group, instances };

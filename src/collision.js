@@ -100,11 +100,13 @@ function applyBounce(car, nx, nz, dt) {
 // you'd realistically deflect off rather than crunch into: lamp posts, sign posts,
 // traffic-light poles, a bus-stop bench. Also used as the "it broke, but you clipped
 // it on the way through" response when a destructible actually breaks.
+// a slow car doesn't swing: crash rotation fades to nothing below ~2.5 u/s (about 11 km/h) and is full at ~8 u/s
+const swingK = car => Math.max(0, Math.min(1, (Math.abs(car.speed) - 2.5) / 5.5));
 function applyRedirect(car, nx, nz, dt) {
   const { impactFraction, turnSign } = impact(car, nx, nz);
   const DEFLECT_RATE = 3.2; // rad/sec at a fully head-on hit
   car.wallHit = Math.max(car.wallHit || 0, Math.abs(car.speed) * impactFraction);
-  car.heading += turnSign * impactFraction * DEFLECT_RATE * dt;
+  car.heading += turnSign * impactFraction * DEFLECT_RATE * dt * swingK(car);
   car.speed *= Math.max(0, 1 - impactFraction * 1.5 * (car.massFactor || 1) * dt);
 }
 
@@ -143,7 +145,7 @@ function hitVehicle(car, c, nx, nz, overlap) {
   const newSide = npx * fz - npz * fx;                     // component along (cos h, -sin h)
   car.speed = newFwd;
   car.vx = npx; car.vz = npz;
-  car.heading += Math.max(-0.5, Math.min(0.5, Math.atan2(newSide, Math.max(Math.abs(newFwd), 2)) * 0.35));
+  car.heading += Math.max(-0.5, Math.min(0.5, Math.atan2(newSide, Math.max(Math.abs(newFwd), 2)) * 0.35)) * swingK({ speed: Math.hypot(pv.x, pv.z) });
   car.impactSpeed = Math.abs(vn);
   // other vehicle
   const dv = j / mo;
