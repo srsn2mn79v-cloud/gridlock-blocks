@@ -10,7 +10,9 @@
 //   node tools/check.mjs water      no road surface lies under water without a bridge
 //   node tools/check.mjs drift      the three drift circuits: corner radius, walls, start
 //   node tools/check.mjs rivals     race rivals run their routes without errors
-//   node tools/check.mjs all
+//   node tools/check.mjs quick      every static check (seconds)       placement / roads: sub-groups of quick
+//   node tools/check.mjs sim        the simulations (traffic, solid, rivals, races)
+//   node tools/check.mjs all        quick + sim
 // Exit code 1 if anything fails. Add new checks to CHECKS below.
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import path from 'node:path';
@@ -559,8 +561,17 @@ async function checkRivals() {
   return { name: 'rivals', count: plan.length + ' routes', bad };
 }
 const CHECKS = { rivals: checkRivals, sidewalks: checkSidewalks, gas: checkGas, races: checkRaces, drift: checkDrift, covered: checkCovered,  signs: checkSigns, lamps: checkLamps, buildings: checkBuildings, traffic: () => checkTraffic(+process.argv[3] || 40, +process.argv[4] || 5), markings: checkMarkings, bridges: checkBridges, solid: checkSolid, water: checkWater, rules: checkRules, driveways: checkDriveways, smooth: checkSmooth, mesh: checkMesh, pavement: checkPavement, connected: checkConnected };
+// groups: run several related checks at once
+const GROUPS = {
+  placement: ['signs', 'lamps', 'driveways', 'buildings', 'pavement', 'sidewalks'],   // nothing stands where it shouldn't
+  roads: ['markings', 'bridges', 'water', 'smooth', 'mesh', 'connected', 'rules'],    // road geometry and connections
+  quick: ['placement', 'roads', 'gas', 'drift', 'covered'],                           // all static checks, seconds
+  sim: ['traffic', 'solid', 'rivals', 'races'],                                       // simulations, minutes
+  all: ['quick', 'sim']
+};
+const expand = n => GROUPS[n] ? GROUPS[n].flatMap(expand) : [n];
 const which = process.argv[2] || 'all';
-const list = which === 'all' ? Object.keys(CHECKS) : [which];
+const list = [...new Set(expand(which))];
 let failed = 0;
 for (const k of list) {
   if (!CHECKS[k]) { console.log('unknown check', k, '- try', Object.keys(CHECKS).join(', ')); process.exit(2); }

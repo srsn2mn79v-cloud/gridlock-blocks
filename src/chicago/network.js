@@ -121,7 +121,7 @@ export function buildNetwork(lines, barriers, opts = {}) {
       if (best) {
         const a = best.M.v[best.j - 1], b = best.M.v[best.j];
         if (best.d > 0.05) { E.x = a.x + (b.x - a.x) * best.t; E.z = a.z + (b.z - a.z) * best.t; }
-        if (isRamp) { E.elev = a.elev + (b.elev - a.elev) * best.t; E.tj = { M: best.M, j: best.j - 1, t: best.t }; }
+        if (isRamp) { E.elev = a.elev + (b.elev - a.elev) * best.t; }
       } else if (isRamp) L.noJoin = L.noJoin;                           // nothing to join (reported by the connected check)
     });
   });
@@ -149,7 +149,6 @@ export function buildNetwork(lines, barriers, opts = {}) {
   const bb = L => { let x0 = 1e9, x1 = -1e9, z0 = 1e9, z1 = -1e9; L.v.forEach(p => { x0 = Math.min(x0, p.x); x1 = Math.max(x1, p.x); z0 = Math.min(z0, p.z); z1 = Math.max(z1, p.z); }); return [x0 - 1, x1 + 1, z0 - 1, z1 + 1]; };
   lines.forEach(L => { L.bb = bb(L); });
   // a slip road's end that was snapped onto a carriageway becomes a real junction on it
-  lines.forEach(L => [0, L.v.length - 1].forEach(ei => { const E = L.v[ei]; if (E && E.tj) E.tj.M.cuts[E.tj.j].push({ t: E.tj.t, x: E.x, z: E.z, elev: E.elev }); }));
   for (let a = 0; a < lines.length; a++) {
     const A = lines[a]; if (A.noJoin || A.v.length < 2) continue;
     for (let b = a + 1; b < lines.length; b++) {
