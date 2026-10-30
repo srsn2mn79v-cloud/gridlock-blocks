@@ -35,14 +35,14 @@ export function buildNetwork(lines, barriers, opts = {}) {
     const s = [0]; for (let i = 1; i < L.v.length; i++) s.push(s[i - 1] + dist([L.v[i - 1].x, L.v[i - 1].z], [L.v[i].x, L.v[i].z]));
     const total = s[s.length - 1];
     const events = [];
-    if (L.drawbridge) {
+    if (L.drawbridge || L.lowBridge) {
       // a low movable bridge: the deck covers the water (plus 3 u of bank each side) at a height the approaches can reach within the line's length
       const at0 = sv => { for (let i = 1; i < L.v.length; i++) if (sv <= s[i] || i === L.v.length - 1) { const t = (sv - s[i - 1]) / ((s[i] - s[i - 1]) || 1); return { x: L.v[i - 1].x + (L.v[i].x - L.v[i - 1].x) * t, z: L.v[i - 1].z + (L.v[i].z - L.v[i - 1].z) * t }; } };
       let w0 = null, w1 = null;
       for (let sv = 0; sv <= total; sv += 1) { const p = at0(sv); if (barriers.some(B => B.kind === 'river' && nearestOnPoly(p.x, p.z, B.pts).d < B.half)) { if (w0 === null) w0 = sv; w1 = sv; } }
       if (w0 !== null) {
         const sc = (w0 + w1) / 2, d1 = (w1 - w0) / 2 + 3, g = 0.95 * CLASSES[L.cls].maxGrade, room = Math.min(sc, total - sc) - 4 - d1;
-        if (room > 6) { const h = Math.min(1.6, room * g); events.push({ sc, B: { kind: 'river' }, prof: { d1, d2: d1 + h / g, h } }); }
+        if (room > 6) { const h = Math.min(L.lowBridge ? 2.4 : 1.6, room * g); events.push({ sc, B: { kind: 'river' }, prof: { d1, d2: d1 + h / g, h } }); }
         else warn('drawbridge has no room for its approaches: ' + L.id);
       }
     } else
@@ -121,7 +121,7 @@ export function buildNetwork(lines, barriers, opts = {}) {
       if (best) {
         const a = best.M.v[best.j - 1], b = best.M.v[best.j];
         if (best.d > 0.05) { E.x = a.x + (b.x - a.x) * best.t; E.z = a.z + (b.z - a.z) * best.t; }
-        if (isRamp) { E.elev = a.elev + (b.elev - a.elev) * best.t; }
+        if (isRamp || best.M.lowBridge) { E.elev = a.elev + (b.elev - a.elev) * best.t; }   // a street meeting a low river bridge on its approach climbs to it
       } else if (isRamp) L.noJoin = L.noJoin;                           // nothing to join (reported by the connected check)
     });
   });

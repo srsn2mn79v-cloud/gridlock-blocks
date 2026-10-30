@@ -83,7 +83,13 @@ function groundRoadClearance(cityData) {
   const curves = {};
   for (const id in nodes) { const c = buildHorizontalCurve(id, nodes, by); if (c) curves[id] = c; }
   (cityData.roadEdges || []).forEach(e => {
-    const a = nodes[e.from], b = nodes[e.to]; if (!low(a) || !low(b) || e.structure === 'tunnel') return;
+    let a = nodes[e.from], b = nodes[e.to]; if (!a || !b || e.structure === 'tunnel') return;
+    if (low(a) !== low(b)) {   // a ramp up to a bridge: its low part (under 1.2 u) still lies on the ground
+      const lo = low(a) ? a : b, hi = low(a) ? b : a, t = (1.2 - (lo.elevation || 0)) / ((hi.elevation || 0) - (lo.elevation || 0) || 1);
+      const cut = { x: lo.x + (hi.x - lo.x) * t, z: lo.z + (hi.z - lo.z) * t, elevation: 1.2 };
+      if (low(a)) b = { ...cut, elevation: 0 }; else a = { ...cut, elevation: 0 };
+    }
+    if (!low(a) || !low(b)) return;
     const L = dist(a.x, a.z, b.x, b.z) || 1, ux = (b.x - a.x) / L, uz = (b.z - a.z) / L;
     const ta = curves[e.from] ? curves[e.from].trim : 0, tb = curves[e.to] ? curves[e.to].trim : 0;
     if (ta + tb < L) add(a.x + ux * ta, a.z + uz * ta, b.x - ux * tb, b.z - uz * tb, e.width / 2);

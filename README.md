@@ -826,3 +826,9 @@ rivals, sidewalks, gas, races, drift, covered, signs, lamps, buildings, traffic,
   from 10 s before it moves until it is moving, barrier gates, and AI traffic stops for it. Debug: `window.__game.drawbridge.skipTo(t)`.
 - **Overhead traffic lights**: wide approaches get a mast arm with one head over every lane; in the inner city some
   junctions use a suspended cable between two poles instead. More big junctions are signalised (153 poles now).
+
+## River bridges
+Three arterial crossings of the river are now bridged (`gen_network.js`, "river bridges" block): arterials that already
+spanned the river but were too short for ramps borrow road from both banks, and pairs of arterials that stopped opposite
+each other are joined. `RB_ALLOW` lists the crossings that pass every check; the other four candidates each left a
+dead-end side street, so they are off. Try one with `RB=0,2,5,1 node tools/check.mjs rules`.

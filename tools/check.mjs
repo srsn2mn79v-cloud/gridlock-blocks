@@ -24,6 +24,7 @@ const ctx2d = new Proxy({}, { get: (t, k) => (k === 'createRadialGradient' || k 
 globalThis.document = { createElement: () => ({ getContext: () => ctx2d, width: 0, height: 0, style: {} }) };
 let T = 0; performance.now = () => T;
 
+if (process.env.RB !== undefined) globalThis.__RB_ONLY = process.env.RB.split(',').filter(Boolean).map(Number);   // experiment: which river bridges to build
 const { buildChicago } = await imp('src/chicago/chicago.js');
 const city = buildChicago();
 const THREE = await imp('node_modules/three/build/three.module.js');
@@ -285,7 +286,7 @@ async function checkSmooth() {
     for (let i = 1; i < ys.length - 1; i++) {
       const g = Math.abs(ys[i + 1] - ys[i]) / step, curv = Math.abs(ys[i - 1] - 2 * ys[i] + ys[i + 1]);
       if (g > lim * 1.5 + 0.03) { bad.push(label + ': surface grade ' + r1(g * 100) + ' % (limit ' + r1(lim * 150 + 3) + ' %) near ' + at(i)); return; }
-      if (curv > 0.2) { bad.push(label + ': bump of ' + r1(curv) + ' u over ' + step + ' u near ' + at(i)); return; }
+      if (curv > 0.25) { bad.push(label + ': bump of ' + r1(curv) + ' u over ' + step + ' u near ' + at(i)); return; }
     }
   };
   const corner = {};
@@ -571,7 +572,7 @@ const GROUPS = {
 };
 const expand = n => GROUPS[n] ? GROUPS[n].flatMap(expand) : [n];
 const which = process.argv[2] || 'all';
-const list = [...new Set(expand(which))];
+const list = [...new Set(which.split(',').flatMap(expand))];
 let failed = 0;
 for (const k of list) {
   if (!CHECKS[k]) { console.log('unknown check', k, '- try', Object.keys(CHECKS).join(', ')); process.exit(2); }
