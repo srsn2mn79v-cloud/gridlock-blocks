@@ -4,5 +4,5 @@ import { defineConfig } from 'vite';
 export default defineConfig({
   base: './',
   server: { open: true },
-  build: { rollupOptions: { input: { main: 'index.html', studio: 'studio.html' } } }
+  build: { target: 'esnext', rollupOptions: { input: { main: 'index.html', studio: 'studio.html' } } }
 });

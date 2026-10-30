@@ -1,5 +1,6 @@
 import { KMH_PER_U } from './units.js';
 import * as THREE from 'three';
+import { tick, loadingDone } from './loading.js';
 import { buildChicago } from './chicago/chicago.js';
 import { buildRoads } from './generators/roads.js';
 import { buildStructures } from './structures.js';
@@ -103,19 +104,23 @@ scene.add(sun.target);
 
 // Swap this for your own exported city — paste the Gridlock City Editor's
 // Export JSON in place of the object in src/cityData.js.
+await tick('Building the city streets...', 0.05);
 const city = buildChicago();
 
+await tick('Laying roads...', 0.45);
 const roadsGroup = buildRoads(city);
 const structures = buildStructures(city);
 roadsGroup.add(structures.group);
 scene.add(roadsGroup);
 scene.add(buildSidewalks(city));
 
+await tick('Raising buildings...', 0.58);
 const { group: parcelGroup, instances: parcelInstances } = buildParcels(city);
 scene.add(buildDoors(city));
 scene.add(parcelGroup);
 const waterParcels = parcelInstances.filter(p => p.type === 'water');
 
+await tick('Planting trees and lamps...', 0.7);
 const { group: propGroup, instances: propInstances } = buildProps(city);
 scene.add(propGroup);
 
@@ -290,6 +295,7 @@ function updateLampLights(car) {
 
 
 const spawn = getSpawn(city);
+await tick('Fuelling up...', 0.78);
 const car = new Car(spawn);
 scene.add(car.group);
 
@@ -319,6 +325,7 @@ scene.add(ground);
 // small circular collider that's kept in sync with its position every frame, so the
 // player's car can bump against them the same way it bumps against a building or a
 // prop — see traffic.js.
+await tick('Starting traffic...', 0.84);
 const transit = buildTransit(city);
 const traffic = createTrafficSystem(city, scene, heightAt, 40, 800, transit);
 
@@ -329,6 +336,7 @@ traffic.setSink(collisionWorld);   // cars created later (when the Traffic slide
 
 // Pedestrians walk a sidewalk/crossing graph built from the same data — see
 // pedestrians.js for the two independent reasons hitting one isn't possible.
+await tick('Adding pedestrians...', 0.9);
 const pedestrians = createPedestrianSystem(city, scene, 100, 2000);
 
 // Traffic-light props don't know their own phase — each frame we look up the real
@@ -446,6 +454,7 @@ const settings = loadSettings();
 sun.shadow.mapSize.set(Number(settings.shadow) || 2048, Number(settings.shadow) || 2048);
 gfx = createGraphics({ renderer, scene, camera, parcelInstances, ground, initial: { ao: settings.ao, bloom: settings.bloom, tone: settings.tone, tex: settings.tex, fx: settings.fx !== false, quality: settings.quality } });
 if (settings.rain && settings.snow) settings.snow = false;
+await tick('Setting up the world...', 0.94);
 const env = createEnvironment({ scene, camera, hemi, sun, ground, roadsGroup, parcelGroup, propGroup, onNight, bounds: city.bounds });
 const minimap = createMinimap(city, roadsGroup);
 const weather = createWeather({ env, settings, save: () => saveSettings(settings) });
@@ -638,6 +647,7 @@ dayBtn.textContent = env.nightK > 0.5 ? '🌙' : '☀️';
 syncLights();
 
 // --- dashboard: speed, gear, rev bar (green low, orange mid, red over-revving) ---------------------
+await tick('Tuning the engine...', 0.97);
 const drive = createDrivetrain();
 const dashStyle = document.createElement('style');
 dashStyle.textContent = `#dash { position: fixed; right: 16px; bottom: 16px; z-index: 6; width: 210px; padding: 10px 14px 12px; border-radius: 16px; background: rgba(10,14,22,.66); color: #fff; font-family: ui-monospace, monospace; pointer-events: none; backdrop-filter: blur(3px); }
@@ -894,4 +904,5 @@ function animate() {
   requestAnimationFrame(animate);
 }
 window.__game = { hail, camRig, interior, fuel, radio, weather, plowFx, puffs, gfx, transit, parkedCars, skids, audio, races, structures, world, renderer, taxi, input, destruction, collisionWorld, lampDefs, signs, propInstances, env, settings, menu, minimap, scene, camera, car, city, traffic, pedestrians, lampPool, reflectors, heightAt, offences: { get wrongWay() { return wrongWayOffences; } } };
+loadingDone();
 animate();

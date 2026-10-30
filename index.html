@@ -23,6 +23,18 @@
       box-shadow: 0 2px 14px rgba(0,0,0,0.55);
     }
     html.touch #minimap { bottom: 140px; width: 160px !important; height: 110px !important; }
+    #loading {
+      position: fixed; inset: 0; z-index: 50; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 14px;
+      background: radial-gradient(ellipse at center, #14304a, #060b12); color: #cfe8ff; font-family: ui-monospace, monospace;
+      transition: opacity .5s; touch-action: none;
+    }
+    #loading.done { opacity: 0; pointer-events: none; }
+    #loading h1 { margin: 0; font-size: 34px; letter-spacing: 2px; text-shadow: 0 0 18px rgba(80,160,255,.85); }
+    #loadingTrack { position: relative; width: min(70vw, 420px); height: 14px; border-radius: 8px; background: rgba(255,255,255,.12); overflow: hidden; }
+    #loadingBar { height: 100%; width: 0; background: linear-gradient(90deg, #2f9bff, #7ed8ff); border-radius: 8px; transition: width .35s ease-out; }
+    #loadingShine { position: absolute; top: 0; left: 0; width: 40%; height: 100%; background: linear-gradient(90deg, transparent, rgba(255,255,255,.45), transparent); animation: lshine 1.2s linear infinite; }
+    @keyframes lshine { from { transform: translateX(-100%); } to { transform: translateX(260%); } }
+    #loadingInfo { display: flex; justify-content: space-between; width: min(70vw, 420px); font-size: 13px; opacity: .85; }
     #splash {
       display: none;
       position: fixed; inset: 0;
@@ -56,6 +68,7 @@
   </div>
   <div id="fps" style="position:fixed;top:8px;left:50%;transform:translateX(-50%);font:12px monospace;color:#fff;background:rgba(0,0,0,.45);padding:2px 8px;border-radius:6px;z-index:5;pointer-events:none"></div>
   <button id="daynight" tabindex="-1" aria-label="Toggle day and night">🌙</button>
+  <div id="loading"><h1>GRIDLOCK BLOCKS</h1><div id="loadingTrack"><div id="loadingBar"></div><div id="loadingShine"></div></div><div id="loadingInfo"><span id="loadingLabel">Starting...</span><span id="loadingPct">0%</span></div></div>
   <div id="splash"></div>
   <div id="wrongway">WRONG WAY</div>
   <script type="module" src="/src/main.js"></script>

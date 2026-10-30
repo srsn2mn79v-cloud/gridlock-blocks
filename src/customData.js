@@ -35,7 +35,7 @@ export const UPGRADE_DEFAULTS = {
     fenders: { names: ['Stock', 'Bolt-on flares', 'Wide body'], prices: [0, 500, 900] },
     hood:    { names: ['Stock', 'Louvred vents', 'Power scoop', 'Carbon vented bonnet'], prices: [0, 300, 550, 950] }
   },
-  carPrice: { van: 5000, bus: 9000, pickup: 12000, muscle: 24000, sport: 28000 }
+  carPrice: { van: 5000, wagon: 8000, bus: 9000, pickup: 12000, suv: 18000, muscle: 24000, sport: 28000, rally: 32000, roadster: 40000, supercar: 95000, hyper: 180000 }
 };
 const merge = (base, over) => {
   if (Array.isArray(base)) return Array.isArray(over) && over.length === base.length ? over.map(Number) : base;

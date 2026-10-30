@@ -17,6 +17,12 @@ export const CAR_STYLES = [
   { key: 'bus',    name: 'City bus',    job: true, cls: 'F', color: 0xd9a21b, maxSpeed: 24.4, accel: 3.55, mass: 7200, brake: 0.55, handling: 0.55, len: 7.2, wid: 2.0, height: 3.2 },  // 110 km/h, 0-100 in 12.4 s
   { key: 'pickup', name: 'Pickup',      cls: 'E', color: 0x3f8f52, maxSpeed: 33.3, accel: 4.09, mass: 2300, brake: 0.85, handling: 0.85 }, // 150 km/h, 0-100 in 6.6 s
   { key: 'muscle', name: 'Muscle',      cls: 'E', color: 0x1c1d22, maxSpeed: 41.1, accel: 4.95, mass: 1800, brake: 0.9, handling: 0.8 },  // 185 km/h, 0-100 in 5.1 s
+  { key: 'wagon',  name: 'Family wagon', cls: 'F', color: 0x8aa7c4, maxSpeed: 28.9, accel: 4.1, mass: 1500, brake: 0.75, handling: 0.8 },   // 130 km/h, 0-100 in 7.2 s
+  { key: 'suv',    name: 'Trail SUV',   cls: 'E', color: 0x4a5a3a, maxSpeed: 36.7, accel: 4.3, mass: 2100, brake: 0.85, handling: 0.82 },  // 165 km/h, 0-100 in 6.1 s
+  { key: 'rally',  name: 'Rally hatch', cls: 'D', color: 0x1f5fe0, maxSpeed: 46.7, accel: 5.8, mass: 1250, brake: 1.0, handling: 1.1 },    // 210 km/h, 0-100 in 4.2 s
+  { key: 'roadster', name: 'Roadster',  cls: 'D', color: 0xd23a3a, maxSpeed: 49.0, accel: 5.9, mass: 1200, brake: 1.0, handling: 1.05 },   // 220 km/h, 0-100 in 4.1 s
+  { key: 'supercar', name: 'Supercar',  cls: 'B', color: 0xffd400, maxSpeed: 62.2, accel: 7.4, mass: 1400, brake: 1.1, handling: 1.1 },    // 280 km/h, 0-100 in 3.2 s
+  { key: 'hyper',  name: 'Hypercar',    cls: 'A', color: 0xe8e8ee, maxSpeed: 71.1, accel: 8.6, mass: 1500, brake: 1.15, handling: 1.1 },   // 320 km/h, 0-100 in 2.7 s
   { key: 'sport',  name: 'Sport coupe', cls: 'E', color: 0x2f6fe0, maxSpeed: 44.5, accel: 5.25, mass: 1350, brake: 1.0, handling: 1.0 }   // 200 km/h, 0-100 in 4.7 s
 ];
 

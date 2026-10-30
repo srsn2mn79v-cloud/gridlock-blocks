@@ -5,7 +5,7 @@ import * as THREE from 'three';
 import { buildCarBody } from './vehicleModels.js';
 import { bodyLift } from './bodyLift.js';
 
-const MASS = { hatch: 1050, sport: 1250, muscle: 1700, pickup: 2100, van: 2300, taxi: 1400 };
+const MASS = { wagon: 1400, suv: 2000, rally: 1200, roadster: 1150, supercar: 1350, hyper: 1450, hatch: 1050, sport: 1250, muscle: 1700, pickup: 2100, van: 2300, taxi: 1400 };
 const ZERO = new THREE.Matrix4().makeScale(0, 0, 0);
 
 export function createParkedCars({ scene, propInstances, handles, collisionWorld, heightAt, events }) {

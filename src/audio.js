@@ -12,7 +12,7 @@ const ENGINES = {
   diesel: { cyl: 4, idle: 650,  red: 3300, am: 0.55, drive: 2.4, saw: 0.5, sub: 0.7,  cut: 0.55, vol: 0.6, name: 'diesel', clatter: 0.5 },
   heavy:  { cyl: 6, idle: 600,  red: 2700, am: 0.62, drive: 2.8, saw: 0.4, sub: 1.0,  cut: 0.45, vol: 0.75, name: 'heavy diesel', clatter: 0.8, turbo: 1 }
 };
-export const ENGINE_FOR = { hatch: 'hatch', taxi: 'i4', sport: 'sport', muscle: 'v8', pickup: 'diesel', van: 'diesel', bus: 'heavy', truck: 'heavy', sedan: 'i4', police: 'sport', ambulance: 'diesel', fire: 'heavy', plow: 'heavy' };
+export const ENGINE_FOR = { hatch: 'hatch', taxi: 'i4', sport: 'sport', muscle: 'v8', wagon: 'i4', suv: 'diesel', rally: 'i4', roadster: 'sport', supercar: 'sport', hyper: 'v8', pickup: 'diesel', van: 'diesel', bus: 'heavy', truck: 'heavy', sedan: 'i4', police: 'sport', ambulance: 'diesel', fire: 'heavy', plow: 'heavy' };
 const HEAVY = { bus: 1, truck: 1, van: 0.5, pickup: 0.35, fire: 1, plow: 1, ambulance: 0.5 };
 
 export function createAudio({ camera }) {

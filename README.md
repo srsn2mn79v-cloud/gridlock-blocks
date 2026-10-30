@@ -803,3 +803,8 @@ function per new type) whenever you want it — say the word and I'll add them.
 - Only the interstate curves; every other road is a straight point-to-point line. No dead ends, meeting points >= 100 m apart (`tools/regraph.py`, checked by `node tools/check.mjs rules`).
 - Bridge approaches are sized from each class's max grade (6 % / 15 %). Interstate bend radius >= ~690 m, banked by tan(theta) = v^2/(r g).
 - District edges are snapped to gaps between roads (`tools/snap_districts.py`).
+
+### Phase 1 additions
+- Loading bar with stage names (`src/loading.js`; main.js awaits `tick()` between build stages).
+- Six new original cars: Family wagon, Trail SUV, Rally hatch, Roadster, Supercar, Hypercar (`carModels.js`, `vehicleModels.js`; fictional, no real badges).
+- Ghost laps + local top-10 leaderboard per race (`src/ghostLaps.js`, stored in localStorage `gridlock-ghosts-v1`).

@@ -4,6 +4,8 @@
 // The route generator is plain data + the road graph, so tools/check.mjs can run it in node (see `planRaces`).
 import * as THREE from 'three';
 
+import { createGhostLaps, fmtTime } from './ghostLaps.js';
+import { CAR_STYLES } from './carModels.js';
 import { CLASS_REF_SPEED, CLASS_PRIZE_MUL, CLASS_ORDER, CLASS_COLOR, classIndex } from './classes.js';
 const PRIZES = [5000, 3000, 1500];
 export const RACE_KINDS = {
@@ -219,6 +221,8 @@ export function createRaces({ city, scene, heightAt, car, world, districtName, t
     r.solids = [];
   });
 
+  const gl = createGhostLaps({ scene, heightAt, styleName: k => (CAR_STYLES.find(c => c.key === k) || {}).name || k });
+  let resExtra = '';
   // ---- checkpoint rings / ghost cars ---------------------------------------------------------------------------------------------
   const cpMat = (hex, op) => new THREE.MeshBasicMaterial({ color: hex, transparent: true, opacity: op, depthWrite: false });
   const rings = [0, 1].map(i => { const m = new THREE.Mesh(new THREE.TorusGeometry(4.6, 0.38, 10, 32), cpMat(i ? 0xffffff : 0xffd21f, i ? 0.35 : 0.9)); m.visible = false; scene.add(m); return m; });
@@ -274,6 +278,8 @@ export function createRaces({ city, scene, heightAt, car, world, districtName, t
     #racemenu .box { width: min(440px, 94vw); max-height: 94vh; overflow: auto; padding: 14px 16px; border-radius: 16px; background: rgba(12,16,26,.97); color: #fff; border-top: 5px solid var(--race, #ffd21f); box-shadow: 0 10px 40px rgba(0,0,0,.6); }
     #racemenu h2 { margin: 0; font-size: 21px; } #racemenu .sub { color: #aab7c8; font-size: 12px; margin: 2px 0 8px; }
     #racemenu canvas { width: 100%; height: min(78vw, 46vh); max-height: 380px; object-fit: contain; border-radius: 10px; background: #0b1119; display: block; }
+    #racemenu .board { margin: 8px 0; font-size: 12.5px; max-height: 150px; overflow: auto; } #racemenu .board b { display: block; margin-bottom: 3px; color: var(--race, #ffd21f); }
+    #racemenu .brow { display: flex; justify-content: space-between; padding: 2px 0; border-bottom: 1px solid rgba(255,255,255,.08); color: #cfd8e6; }
     #racemenu .stats { display: grid; grid-template-columns: 1fr 1fr; gap: 6px; margin: 10px 0; }
     #racemenu .stat { background: rgba(255,255,255,.07); border-radius: 8px; padding: 6px 9px; font-size: 12px; color: #aab7c8; } #racemenu .stat b { display: block; font-size: 17px; color: #fff; }
     #racemenu .btns { display: flex; gap: 8px; margin-top: 8px; } #racemenu button { flex: 1; border: 0; border-radius: 10px; padding: 11px 6px; font: 800 14px system-ui; cursor: pointer; background: rgba(255,255,255,.12); color: #fff; }
@@ -404,7 +410,7 @@ export function createRaces({ city, scene, heightAt, car, world, districtName, t
     const r = menuR, K = RACE_KINDS[r.kind], st = tune ? tune.settings : {};
     menuEl.style.setProperty('--race', K.color);
     if (!tuning) {
-      menuEl.innerHTML = `<div class="box"><h2>${K.name} - ${r.name}</h2><div class="sub">${K.desc}</div><canvas></canvas><div class="stats">${menuStats(r)}</div>
+      menuEl.innerHTML = `<div class="box"><h2>${K.name} - ${r.name}</h2><div class="sub">${K.desc}</div><canvas></canvas><div class="stats">${menuStats(r)}</div>${gl.boardHtml(r.id, r.kind === 'drift')}
         ${r.kind === 'circuit' ? `<div class="row"><label>Laps</label><div class="seg">${[1, 2, 3, 4, 5].map(n => `<button data-laps="${n}" class="${(r.laps || 1) === n ? 'on' : ''}">${n}</button>`).join('')}</div></div>` : ''}
         <div class="btns">${tune ? '<button data-a="tune">Tune conditions</button>' : ''}<button data-a="cancel">Cancel</button><button class="go" data-a="go">Enter race</button></div></div>`;
       drawRoute(menuEl.querySelector('canvas'), r);
@@ -466,6 +472,7 @@ export function createRaces({ city, scene, heightAt, car, world, districtName, t
     const K = RACE_KINDS[r.kind];
     run = { r, K, laps: r.kind === 'circuit' ? (r.laps || 1) : 1, lapIdx: 0, lapT0: 0, bestLap: 0, t: -3.2, phase: 'count', cp: 0, ghosts: r.kind === 'drift' ? [] : ghostSetup(r), progress: 0, score: 0, chain: 0, chainT: 0, mult: 1, bank: 0, calm: 0, lost: '', best: 0 };
     document.documentElement.style.setProperty('--race', K.color);
+    gl.start(r.id, car.styleKey);
     if (r.kind !== 'drift' && tune && tune.rivals) spawnRivals(r, run);
     let x = r.start.x, z = r.start.z, h = r.start.heading;
     if (r.kind === 'drag' || r.kind === 'circuit' || r.kind === 'sprint') { const p = ptAt(r.pts, 0), px = -p.dz; x += px * Math.min(1.6, r.width / 5); z += p.dx * Math.min(1.6, r.width / 5); }
@@ -487,6 +494,7 @@ export function createRaces({ city, scene, heightAt, car, world, districtName, t
       const g = run.r.start; car.teleport(g.x + g.dx * 12, g.z + g.dz * 12, heightAt(g.x, g.z), g.heading); car.speed = 0; car.vx = 0; car.vz = 0;
     }
     if (gearbox) { gearbox.setManual(false); } dialEl.style.display = 'none'; shiftEl.style.display = 'none';
+    gl.stop();
     if (tune && tune.rivals) tune.rivals.clear();
     if (tune) { if (tune.clearZone) tune.clearZone(null); if (restore) { tune.set('traffic', restore.traffic); tune.set('peds', restore.peds); restore = null; } }
     run = null; hud.style.display = 'none'; countEl.style.display = 'none'; quitBtn.style.display = 'none';
@@ -495,7 +503,7 @@ export function createRaces({ city, scene, heightAt, car, world, districtName, t
   }
   function results(rows, mine, title, time, prize, r) {
     resEl.innerHTML = `<h2>${title}</h2>` + rows.map((x, i) => `<div class="row${x.me ? ' me' : ''}"><span>${i + 1}. ${x.name}</span><span>${x.val}</span></div>`).join('') +
-      `<div class="row"><span>Prize</span><b>${prize ? '$' + prize.toLocaleString('en-US') : '-'}</b></div><button>Continue</button>`;
+      resExtra + `<div class="row"><span>Prize</span><b>${prize ? '$' + prize.toLocaleString('en-US') : '-'}</b></div><button>Continue</button>`;
     resEl.style.display = 'block';
     resEl.querySelector('button').onclick = () => { resEl.style.display = 'none'; };
   }
@@ -515,6 +523,12 @@ export function createRaces({ city, scene, heightAt, car, world, districtName, t
       place = rows.findIndex(x => x.me); rows.forEach(x => { x.val = fmt(x.tt); });
       const prev = save[r.id] || {}; if (!prev.best || t < prev.best) save[r.id] = { ...prev, best: t };
       if (run.bestLap && (!(save[r.id].bestLap) || run.bestLap < save[r.id].bestLap)) save[r.id].bestLap = run.bestLap;
+    }
+    {
+      const drift = r.kind === 'drift', val = drift ? Math.round(run.bank) : timeOrScore, G = gl.finish(r.id, val, { higher: drift, styleKey: car.styleKey });
+      const fmtV = v => drift ? Math.round(v).toLocaleString('en-US') + ' pts' : fmtTime(v);
+      const dTxt = G.delta == null ? 'First run - ghost saved' : (drift ? (G.delta >= 0 ? '+' : '-') + Math.abs(Math.round(G.delta)).toLocaleString('en-US') + ' pts' : (G.delta <= 0 ? '-' : '+') + Math.abs(G.delta).toFixed(2) + ' s') + ' vs your best';
+      resExtra = `<div class="row"><span>${G.isBest ? 'NEW PERSONAL BEST' : 'Personal best ' + fmtV(G.prev)}</span><span>${dTxt}</span></div><div class="row"><span>Leaderboard</span><b>#${G.rank || '-'}</b></div>`;
     }
     const prize = place < 3 ? Math.round(PRIZES[place] * CLASS_PRIZE_MUL[r.cls || 'F']) : 0;
     if (prize) world.reward(prize);
@@ -568,6 +582,7 @@ export function createRaces({ city, scene, heightAt, car, world, districtName, t
     if (r.kind === 'drag' && gearbox) { const v = gearbox.state(); if (v) drawDial(v); }
     run.t += dt;
     const t = run.t;
+    gl.tick(t, car);
     plan.forEach(p => { if (p !== r) p.gate.visible = false; });
     if (run.phase === 'count') {
       car.speed = 0;
