@@ -544,6 +544,46 @@ async function checkConnected() {
   return { name: 'connected', count: ids.length + ' nodes (' + strong + ' in the main network), ' + n3 + ' junction samples', bad };
 }
 
+
+// ---- shop car parks: visitors arrive, park, walk in and out of the shop, and leave (and nothing goes wrong on the way) ----------------------
+async function checkLots() {
+  const { createShopLots } = await imp('src/lots.js');
+  const bad = [], scene = new THREE.Scene(), world = [];
+  const actors = [];
+  const pedestrians = { createActor: () => { const a = { visible: false, set(x, y, z) { if (![x, y, z].every(Number.isFinite)) bad.push('person at a bad position'); a.visible = true; }, hide() { a.visible = false; }, dispose() {} }; actors.push(a); return a; } };
+  let seed = 7; const rng = () => (seed = (seed * 16807) % 2147483647) / 2147483647;
+  const lots = createShopLots({ scene, cityData: city, collisionWorld: world, heightAt, pedestrians, rng });
+  const sh = (city.shops || []).find(s => s.bays && s.mouth);
+  const player = { x: sh ? sh.mouth.x + 90 : 0, z: sh ? sh.mouth.z : 0 };
+  let nanFrames = 0, maxActive = 0;
+  for (let i = 0; i < 15 * 60 * 8; i++) {       // 8 minutes at 15 fps
+    lots.update(1 / 15, player); maxActive = Math.max(maxActive, lots.active);
+    for (const l of lots.lots) if (l.v && !(Number.isFinite(l.v.car.x) && Number.isFinite(l.v.car.z))) nanFrames++;
+  }
+  if (nanFrames) bad.push(nanFrames + ' frames with a car at a bad position');
+  const st = lots.stats;
+  if (!(st.arrived > 0)) bad.push('no visitor ever arrived');
+  if (!(st.entered > 0)) bad.push('no visitor ever walked into a shop');
+  if (!(st.left > 0)) bad.push('no visitor ever left again');
+  // overlapping bays: two visiting cars must never share a bay
+  const used = new Set(); for (const l of lots.lots) if (l.v) { const k = l.v.b.x + ',' + l.v.b.z; if (used.has(k)) bad.push('two cars in one bay'); used.add(k); }
+  return { name: 'lots', count: lots.lots.length + ' car parks, ' + st.arrived + ' arrivals, ' + st.entered + ' went in, ' + st.left + ' left (up to ' + maxActive + ' at once)', bad };
+}
+
+// ---- people walk into shop doors and storefronts and come out again ------------------------------------------------------------------------
+async function checkDoors() {
+  const { createPedestrianSystem } = await imp('src/pedestrians.js');
+  const bad = [], ps = createPedestrianSystem(city, new THREE.Scene(), 150, 150);
+  const sp = (city.gameplay || []).find(g => g.type === 'spawn') || { x: 0, z: 0 };
+  const car = { x: sp.x, z: sp.z, y: 0, vx: 0, vz: 0, speed: 0 };
+  for (let i = 0; i < 15 * 60 * 6; i++) { T += 66; ps.update(1 / 15, car); }
+  let stuck = 0; ps.peds.forEach(p => { if (p.state === 'enter' && p.enter && p.enter.phase !== 1 && !Number.isFinite(p.renderX)) stuck++; if (!Number.isFinite(p.mesh.position.x)) stuck++; });
+  if (stuck) bad.push(stuck + ' people at a bad position');
+  if (!(ps.stats.entered > 0)) bad.push('nobody ever walked into a door');
+  if (!(ps.stats.exited > 0)) bad.push('nobody ever came out of a door');
+  return { name: 'doors', count: ps.entrances.length + ' doors, ' + ps.stats.entered + ' went in, ' + ps.stats.exited + ' came out', bad };
+}
+
 // race rivals: the cars that run a race route next to the traffic (this once threw every frame and froze the game at the start of a sprint)
 async function checkRivals() {
   const { createTrafficSystem } = await imp('src/traffic.js'); const { buildTransit } = await imp('src/transit.js'); const { planRaces } = await imp('src/races.js');
@@ -561,13 +601,13 @@ async function checkRivals() {
   tr.clearRivals();
   return { name: 'rivals', count: plan.length + ' routes', bad };
 }
-const CHECKS = { rivals: checkRivals, sidewalks: checkSidewalks, gas: checkGas, races: checkRaces, drift: checkDrift, covered: checkCovered,  signs: checkSigns, lamps: checkLamps, buildings: checkBuildings, traffic: () => checkTraffic(+process.argv[3] || 40, +process.argv[4] || 5), markings: checkMarkings, bridges: checkBridges, solid: checkSolid, water: checkWater, rules: checkRules, driveways: checkDriveways, smooth: checkSmooth, mesh: checkMesh, pavement: checkPavement, connected: checkConnected };
+const CHECKS = { rivals: checkRivals, sidewalks: checkSidewalks, gas: checkGas, races: checkRaces, drift: checkDrift, covered: checkCovered,  signs: checkSigns, lamps: checkLamps, buildings: checkBuildings, traffic: () => checkTraffic(+process.argv[3] || 40, +process.argv[4] || 5), markings: checkMarkings, bridges: checkBridges, solid: checkSolid, water: checkWater, rules: checkRules, driveways: checkDriveways, smooth: checkSmooth, mesh: checkMesh, pavement: checkPavement, connected: checkConnected, lots: checkLots, doors: checkDoors };
 // groups: run several related checks at once
 const GROUPS = {
   placement: ['signs', 'lamps', 'driveways', 'buildings', 'pavement', 'sidewalks'],   // nothing stands where it shouldn't
   roads: ['markings', 'bridges', 'water', 'smooth', 'mesh', 'connected', 'rules'],    // road geometry and connections
   quick: ['placement', 'roads', 'gas', 'drift', 'covered'],                           // all static checks, seconds
-  sim: ['traffic', 'solid', 'rivals', 'races'],                                       // simulations, minutes
+  sim: ['traffic', 'solid', 'rivals', 'races', 'lots', 'doors'],                                       // simulations, minutes
   all: ['quick', 'sim']
 };
 const expand = n => GROUPS[n] ? GROUPS[n].flatMap(expand) : [n];

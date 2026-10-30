@@ -844,3 +844,8 @@ Still to come in this phase: storefronts, parks with seating, food stands, gyms.
 - **Parks** now have benches, picnic tables and a food stand in the bigger ones; busy districts get street food stands.
 - **Storefront awnings** (striped canopies over the pavement) on about a third of the lower buildings, and `GYM` / `FIT` neon signs.
 - Not done yet: gym interiors/interaction, shop doors that open (Phase 3).
+
+## Phase 3: shop car parks and doors
+- **Car parks alive** (`src/lots.js`): within ~240 u of the player, cars turn into a shop's alley, nose into a free bay, the driver(s) walk to the shop door and go in, come out 10-50 s later, and the car reverses out and drives off. They are solid like AI cars (a hit car stops for a few seconds). Check: `node tools/check.mjs lots`.
+- **Doors** (`pedestrians.js`): pedestrians near a shop, flat or storefront awning (338 doors) may walk straight into it, vanish for 8-43 s and come out again. Check: `doors`.
+- Not done yet: bigger stores / supermarkets with larger lots, visitors entering the street traffic, gym interiors.

@@ -336,6 +336,39 @@ export function createPedestrianSystem(cityData, scene, count = 14, maxCount = c
   const waypoints = buildGraph(cityData);
   const busStops = (cityData.props || []).filter(p => p.type === 'busstop');
   const peds = [];
+  // doors people can walk into and come out of again later: shop and store doors, flats, and every storefront awning (the door is the wall behind it)
+  const entrances = [], stats = { entered: 0, exited: 0 };
+  [...(cityData.shops || []), ...(cityData.stores || []), ...(cityData.apartments || [])].forEach(b => { if (b.door) entrances.push({ x: b.door.x, z: b.door.z }); });
+  (cityData.props || []).forEach(q => { if (q.type === 'awning') { const r = (q.rotation || 0) * Math.PI / 180; entrances.push({ x: q.x - Math.sin(r) * 0.8, z: q.z - Math.cos(r) * 0.8 }); } });
+  function nearestEntrance(w, maxD) {
+    let best = null, bd = maxD;
+    for (const e of entrances) { const d = Math.hypot(e.x - w.x, e.z - w.z); if (d < bd) { bd = d; best = e; } }
+    return best;
+  }
+  // walking into a door: straight to it, vanish for a while, come back out and rejoin the pavement
+  function stepEnter(p, dt, car) {
+    const en = p.enter, w = waypoints[en.wp];
+    if (en.phase === 1) {
+      en.timer -= dt;
+      if (en.timer <= 0) { en.phase = 2; p.renderX = en.e.x; p.renderZ = en.e.z; p.mesh.visible = p.active && p.lod < 2; }
+      return;
+    }
+    const tx = en.phase === 0 ? en.e.x : w.x, tz = en.phase === 0 ? en.e.z : w.z;
+    const dx = tx - p.renderX, dz = tz - p.renderZ, d = Math.hypot(dx, dz), spd = p.speed * 0.9, step = spd * dt;
+    if (d <= Math.max(step, 0.3)) {
+      if (en.phase === 0) { en.phase = 1; en.timer = 8 + Math.random() * 35; p.mesh.visible = false; stats.entered++; return; }
+      const next = pickNextLink(waypoints, en.wp, -1);
+      p.state = 'walk'; p.enter = null; p.react = 'none'; stats.exited++;
+      if (next) { p.from = en.wp; p.to = next.to; p.link = next; p.t = 0; } else { p.from = en.wp; p.t = 1; }
+      return;
+    }
+    p.renderX += dx / d * step; p.renderZ += dz / d * step;
+    if (p.lod < 2) animate(p, dt, true, spd);
+    p.mesh.position.set(p.renderX, w.elevation, p.renderZ);
+    if (car) setLod(p, Math.hypot(p.renderX - car.x, p.renderZ - car.z));
+    const want = Math.atan2(dx, dz); let dy = want - p.yaw; dy = Math.atan2(Math.sin(dy), Math.cos(dy));
+    p.yaw += dy * Math.min(1, dt * 8); p.mesh.rotation.y = p.yaw;
+  }
 
   // pedestrians are created on demand (the pool grows when the density slider goes up), up to maxCount
   function spawnOne(active) {
@@ -393,6 +426,7 @@ export function createPedestrianSystem(cityData, scene, count = 14, maxCount = c
 
     peds.forEach(p => {
       if (!p.active) return;
+      if (p.state === 'enter') { stepEnter(p, dt, car); return; }
       if (p.state === 'waitStop') {
         p.busStopTimer -= dt;
         if (p.busStopTimer <= 0) p.state = 'walk';
@@ -440,6 +474,10 @@ export function createPedestrianSystem(cityData, scene, count = 14, maxCount = c
             }
           }
 
+          if (entrances.length && Math.random() < 0.3) {
+            const e = nearestEntrance(waypoints[arrivedAt], 35);
+            if (e) { p.state = 'enter'; p.enter = { e, wp: arrivedAt, phase: 0, timer: 0 }; p.renderX = waypoints[arrivedAt].x; p.renderZ = waypoints[arrivedAt].z; return; }
+          }
           if (Math.random() < 0.07) p.pause = 1 + Math.random() * 3.5;   // window-shopping / checking a phone
           const next = pickNextLink(waypoints, arrivedAt, p.from);
           if (!next) { p.t = 1; } else {
@@ -536,5 +574,17 @@ export function createPedestrianSystem(cityData, scene, count = 14, maxCount = c
     n = Math.min(n, peds.length);
     peds.forEach((p, i) => { p.active = i < n; p.mesh.visible = p.active && p.lod < 2; });
   }
-  return { update, peds, setCount, maxCount: waypoints.length ? CAP : 0 };
+  // a person moved by someone else's script (shop car park visitors): the caller sets position, heading and whether they walk
+  function createActor() {
+    const mesh = personMesh(); mesh.visible = false; scene.add(mesh);
+    const a = { rig: mesh.userData.rig, phase: Math.random() * 6.28, amp: 0, gait: 0, brace: 0, jumpPose: 0 };
+    a.rig.body.visible = true; a.rig.lite.visible = false;
+    return {
+      set(x, y, z, yaw, moving, dt) { mesh.visible = true; mesh.position.set(x, y, z); mesh.rotation.y = yaw; animate(a, dt, moving, 0.9); },
+      hide() { mesh.visible = false; },
+      get visible() { return mesh.visible; },
+      dispose() { scene.remove(mesh); }
+    };
+  }
+  return { update, peds, setCount, createActor, entrances, stats, maxCount: waypoints.length ? CAP : 0 };
 }

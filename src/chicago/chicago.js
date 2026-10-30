@@ -647,7 +647,7 @@ export function buildChicago() {
       if (!propOK(cx, cz, 3.4, lampList) || !propOK(cx, cz, 3.0, treeList) || !propOK(cx, cz, 3.2, props.filter(q => q.type === 'shopsign' || q.type === 'trafficlight'))) return;
       const bay = { x: r2(cx), z: r2(cz), fx, fz, nx: sh.nx, nz: sh.nz, ux: sh.ux, uz: sh.uz, side };
       sh.bays.push(bay);
-      if (rand() < 0.55 && propOK(cx, cz, 3.6, parked)) parked.push({ type: 'parkedcar', x: bay.x, z: bay.z, rotation: Math.round(Math.atan2(fx, fz) * 180 / Math.PI), color: pick(PARK_COLORS) });
+      if (rand() < 0.55 && propOK(cx, cz, 3.6, parked)) { bay.taken = true; parked.push({ type: 'parkedcar', x: bay.x, z: bay.z, rotation: Math.round(Math.atan2(fx, fz) * 180 / Math.PI), color: pick(PARK_COLORS) }); }
     }));
   });
   props.push(...parked);

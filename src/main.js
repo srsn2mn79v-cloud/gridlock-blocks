@@ -49,6 +49,7 @@ import { createDrivetrain } from './drivetrain.js';
 import { isCovered } from './covered.js';
 import { createSkidMarks } from './skidmarks.js';
 import { createParkedCars } from './parked.js';
+import { createShopLots } from './lots.js';
 import { installSnowCap } from './surfaceShaders.js';
 import { findSignalForApproach, phaseAt, isApproachClear } from './signals.js';
 
@@ -484,6 +485,7 @@ world.setBlocked(() => races.active() || races.offering() || hail.busy());
 world.setRaceInfo(() => races.plan);
 world.setSleepHook(h => weather.advance(h));
 // walls the chase camera must not sit inside: building footprints (bucketed) and, in a garage, its concrete
+const shopLots = createShopLots({ scene, cityData: city, collisionWorld, heightAt, pedestrians });
 const parkedCars = createParkedCars({ scene, propInstances, handles: propGroup.userData.parkedHandles, collisionWorld, heightAt, events: traffic.events });
 const camGrid = new Map();
 collisionWorld.forEach(c => {
@@ -896,6 +898,7 @@ function animate() {
     sprays.update(dt);
     updateEffects(dt);
     pedestrians.update(dt, hail.following() ? hail.proxy : car);
+    shopLots.update(dt, car);
     updateWrongWay();
 
     if (isCarInWater()) {
@@ -915,6 +918,6 @@ function animate() {
   gfx.render();
   requestAnimationFrame(animate);
 }
-window.__game = { drawbridge, hail, camRig, interior, fuel, radio, weather, plowFx, puffs, gfx, transit, parkedCars, skids, audio, races, structures, world, renderer, taxi, input, destruction, collisionWorld, lampDefs, signs, propInstances, env, settings, menu, minimap, scene, camera, car, city, traffic, pedestrians, lampPool, reflectors, heightAt, offences: { get wrongWay() { return wrongWayOffences; } } };
+window.__game = { shopLots, drawbridge, hail, camRig, interior, fuel, radio, weather, plowFx, puffs, gfx, transit, parkedCars, skids, audio, races, structures, world, renderer, taxi, input, destruction, collisionWorld, lampDefs, signs, propInstances, env, settings, menu, minimap, scene, camera, car, city, traffic, pedestrians, lampPool, reflectors, heightAt, offences: { get wrongWay() { return wrongWayOffences; } } };
 loadingDone();
 animate();
