@@ -167,7 +167,9 @@ export function createWorld({ setGarageHoles, city, scene, camera, car, input, h
     #wprompt kbd { background: #111; color: #ffd21f; border-radius: 5px; padding: 1px 7px; margin-right: 6px; }
     #wpanel { position: fixed; top: 0; right: 0; bottom: 0; width: min(430px, 100vw); z-index: 15; display: none; flex-direction: column; background: rgba(12,16,22,.93);
       color: #eaf0f7; font: 14px system-ui, sans-serif; border-left: 4px solid var(--accent, #ffd21f); }
-    @media (max-width: 720px) { #wpanel { top: auto; left: 0; right: 0; bottom: 0; width: 100vw; height: 52vh; border-left: 0; border-top: 4px solid var(--accent, #ffd21f); } }
+    #wpanel.full { width: 100vw; border-left: 0; background: linear-gradient(90deg, rgba(12,16,22,0) 0, rgba(12,16,22,0) 50%, rgba(12,16,22,.55) 56%, rgba(12,16,22,.95) 64%); }
+    #wpanel.full > * { width: min(520px, 100vw); align-self: flex-end; box-sizing: border-box; }
+    @media (max-width: 720px) { #wpanel.full > * { width: 100vw; } #wpanel { top: auto; left: 0; right: 0; bottom: 0; width: 100vw; height: 52vh; border-left: 0; border-top: 4px solid var(--accent, #ffd21f); } }
     #wpanel header { padding: 14px 16px 8px; } #wpanel h2 { margin: 0; font-size: 20px; } #wpanel .sub { color: #9db0c6; font-size: 12px; margin-top: 3px; }
     #wpanel .cashline { display: flex; justify-content: space-between; padding: 6px 16px; background: rgba(255,255,255,.06); font-weight: 700; }
     #wpanel .cashline span:first-child { color: #7dffa9; }
@@ -745,10 +747,10 @@ export function createWorld({ setGarageHoles, city, scene, camera, car, input, h
   let target = null, tAnim = 0;
   function nearestTarget() {
     const px = onFoot ? foot.x : car.x, pz = onFoot ? foot.z : car.z;
-    const reach = onFoot ? 3.4 : (Math.abs(car.speed) < 6 && mode === 'city' ? 6.5 : 0);
+    const reach = onFoot ? 3.4 : (Math.abs(car.speed) < 6 && mode === 'city' ? 6.5 : 0);   // shops too: drive up to the icon and press E (no more opening just by driving through)
     let best = null, bd = reach;
     activeTargets().forEach(t => {
-      if (!onFoot && (t.kind === 'shop' || t.onFootOnly)) return;
+      if (!onFoot && t.onFootOnly) return;
       const d = Math.hypot(t.x - px, t.z - pz); if (d < bd) { bd = d; best = t; }
     });
     return best;
@@ -757,12 +759,12 @@ export function createWorld({ setGarageHoles, city, scene, camera, car, input, h
   let shopCool = null;
   let blockedFn = null;
   function driveInShops() {
-    if (modal || onFoot || trans || mode !== 'city' || (blockedFn && blockedFn())) return;
+    return;
     for (const t of targets) {
       if (t.kind !== 'shop') continue;
       const d = Math.hypot(t.x - car.x, t.z - car.z);
       if (shopCool === t) { if (d > 16) shopCool = null; continue; }
-      if (d < 4.8) { openModal(t); return; }
+      /* shops no longer open by driving into them: press E at the icon */
     }
   }
   function markerAnim(dt) {
@@ -783,7 +785,8 @@ export function createWorld({ setGarageHoles, city, scene, camera, car, input, h
   }
   function activate(t) {
     if (t.kind === 'apt') { if (save.apts[t.id]) { transition(() => toFlat(t.data, 'street')); return; } openModal(t); return; }
-    if (t.kind === 'shop' || t.kind === 'agent') { openModal(t); return; }
+    if (t.kind === 'shop') { if (trans) return; trans = true; fadeEl.style.opacity = '1'; promptEl.style.display = 'none'; setTimeout(() => { try { openModal(t); } catch (e) { console.error(e); } fadeEl.style.opacity = '0'; trans = false; }, 300); return; }
+    if (t.kind === 'agent') { openModal(t); return; }
     if (t.kind === 'store') { transition(() => toFlat(t.data, 'street')); return; }
     if (t.kind === 'wardrobe' || t.kind === 'fitting' || t.kind === 'bed' || t.kind === 'desk') { openModal(t); return; }
     if (t.kind === 'gate') { transition(() => toGarage(t.data, 'footAt')); return; }
@@ -1189,10 +1192,19 @@ export function createWorld({ setGarageHoles, city, scene, camera, car, input, h
     if (t.kind === 'bed') { const h = env && env.state ? env.state.hour : 22; modal.wake = ((Math.round((h + 8) * 4) / 4) % 24 + 24) % 24; if (modal.wake < 5 || modal.wake > 11) modal.wake = 7; modal.wake = Math.round(modal.wake * 4) / 4; }
     setModalPause(true);
     promptEl.style.display = 'none';
+    panel.classList.toggle('full', t.kind === 'shop');
     panel.style.display = 'flex';
     refreshPanel();
   }
+  // leaving a shop fades out and back in on the street, so the camera never flies from the showroom across the map
+  let closing = false;
   function closeModal() {
+    if (!modal || closing) return;
+    if (modal.kind !== 'shop') { closeModalNow(); return; }
+    closing = true; fadeEl.style.opacity = '1';
+    setTimeout(() => { try { closeModalNow(); snapCamera(); } catch (e) { console.error(e); } fadeEl.style.opacity = '0'; closing = false; }, 300);
+  }
+  function closeModalNow() {
     if (!modal) return;
     if (modal.kind === 'shop') {
       if (modal.cart && modal.cart.size) { modal.cart.clear(); applyMods(); }

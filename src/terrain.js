@@ -110,6 +110,7 @@ export function createGroundSampler(cityData) {
 
     for (const s of segAt(x, z)) {
       if (x < s.minx || x > s.maxx || z < s.minz || z > s.maxz) continue;
+      if (s.edge.drawbridge && cityData.drawbridgeOpen) continue;            // the leaves are up: there is no road over the water
       const dx = s.b.x - s.a.x, dz = s.b.z - s.a.z;
       const rawT = ((x - s.a.x) * dx + (z - s.a.z) * dz) / (s.len * s.len || 1);
       const along = rawT * s.len;

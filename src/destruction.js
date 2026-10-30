@@ -20,8 +20,23 @@ export function createDestruction(scene) {
   }
 
   // A whole prop (lamp, sign, bench) tips over about its base, away from where it was hit.
-  function topple(mesh, dx, dz, fall = {}) {
+  // hit = { speed, carMass, mass }: a fast hit on a light thing throws it along the way the car was heading (lighter = further and more tumbling);
+  // slow hits, or no hit data, just tip it over.
+  function topple(mesh, dx, dz, fall = {}, hit = null) {
     const d = unitDir(dx, dz);
+    if (hit && hit.speed > 4) {
+      const m = hit.mass || 50, cm = hit.carMass || 1300, ratio = cm / (cm + 3 * m);
+      const vh = Math.min(30, hit.speed * 0.8 * ratio);                    // sideways launch speed (u/s)
+      const vy = Math.max(1.5, Math.min(9, vh * 0.45));
+      const T = 2 * vy / 22;
+      mesh.updateMatrixWorld(true);
+      moving.push({
+        type: 'launch', obj: mesh, fall, d, baseQ: mesh.quaternion.clone(), axis: new THREE.Vector3(d.z, 0, -d.x),
+        y0: mesh.position.y, t: 0, T, vx: d.x * vh, vz: d.z * vh, vy, landed: false, slide: 0,
+        spins: m < 40 ? Math.round(vh / 7) : m < 120 ? Math.round(vh / 14) : 0       // whole tumbles in the air before it ends up lying
+      });
+      return;
+    }
     mesh.updateMatrixWorld(true);
     const wp = new THREE.Vector3(); mesh.getWorldPosition(wp);
     moving.push({
@@ -47,7 +62,7 @@ export function createDestruction(scene) {
       ped:   { rest: 0.15, push: 0.8,  up: 3.0, kind: 'push', radius: 0.4, mass: 0.1, axis: 'x' }
     };
     Object.entries(parts).forEach(([name, obj]) => {
-      const sp = specs[name]; if (!sp) return;
+      const sp = specs[name.replace(/\d+$/, '')]; if (!sp) return;
       scene.attach(obj);
       const spread = (Math.random() - 0.5) * 0.9;
       const dirx = d.x * Math.cos(spread) - d.z * Math.sin(spread), dirz = d.x * Math.sin(spread) + d.z * Math.cos(spread);
@@ -115,7 +130,18 @@ export function createDestruction(scene) {
       }
       m.t += dt;
       const o = m.obj;
-      if (m.type === 'topple') {
+      if (m.type === 'launch') {
+        if (!m.landed) {
+          m.vy -= 22 * dt; o.position.x += m.vx * dt; o.position.z += m.vz * dt; o.position.y += m.vy * dt;
+          const p = Math.min(1, m.t / m.T);
+          _q.setFromAxisAngle(m.axis, (Math.PI / 2 - 0.05 + m.spins * Math.PI * 2) * p);
+          o.quaternion.copy(_q).multiply(m.baseQ);
+          if (m.t >= m.T) { m.landed = true; o.position.y = m.y0 + (m.fall.lift ?? 0.1); m.vx *= 0.6; m.vz *= 0.6; }
+        } else {                                                           // slides to a stop where it lands
+          const f = Math.exp(-2.8 * dt); m.vx *= f; m.vz *= f; o.position.x += m.vx * dt; o.position.z += m.vz * dt; m.slide += dt;
+          if (Math.hypot(m.vx, m.vz) < 0.3 || m.slide > 2) { moving.splice(i, 1); settle({ ...m, type: 'topple' }); }
+        }
+      } else if (m.type === 'topple') {
         const p = Math.min(1, m.t / m.dur);
         const e = p * p;
         const ang = (Math.PI / 2 - 0.05) * e;

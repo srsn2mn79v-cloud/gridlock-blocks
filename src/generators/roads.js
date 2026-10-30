@@ -426,8 +426,9 @@ export function buildRoads(cityData) {
     }
     const startPt = pts[0], endPt = pts[pts.length - 1];
 
-    group.add(buildRibbon(pts, e.width, color, pts.map(p => p.bank), LIFT_BY_TYPE[e.type] ?? ROAD_LIFT));
+    if (!e.drawbridge) group.add(buildRibbon(pts, e.width, color, pts.map(p => p.bank), LIFT_BY_TYPE[e.type] ?? ROAD_LIFT));      // the drawbridge's two leaves (drawbridge.js) are its road surface
     (group.userData.mapPaths ||= []).push({ type: e.type, width: e.width, structure: e.structure, minY: Math.min(...pts.map(p => p.y)), pts: pts.map(p => [p.x, p.z]) });
+    if (e.drawbridge) return;
 
     // Lane markings get extra clearance at a true intersection (3+ edges meeting at a
     // node) so the paint stops short of the intersection box instead of running straight
@@ -583,6 +584,7 @@ export function buildRoads(cityData) {
   for (const id in nodes) {
     const arms = (edgesByNode[id] || []);
     if (arms.length < 3 || arms.some(e => e.type === 'highway' || e.ramp)) continue;
+    if (arms.some(e => Math.abs((nodes[e.from === id ? e.to : e.from].elevation || 0) - (nodes[id].elevation || 0)) > 0.05)) continue;    // an arm that climbs away (a bridge approach): a flat fill would sink under it
     const n = nodes[id], P = [[n.x, n.z]];
     arms.forEach(e => {
       const o = nodes[e.from === id ? e.to : e.from], d = dist(n.x, n.z, o.x, o.z) || 1, ux = (o.x - n.x) / d, uz = (o.z - n.z) / d;

@@ -67,7 +67,7 @@ export function buildStructures(city) {
         }
       }
     }
-    if (!raised) return;
+    if (!raised || e.drawbridge) return;                           // (the drawbridge brings its own deck, leaves and abutments: drawbridge.js)
     const step = 2, n = Math.max(1, Math.round(len / step));
     const bridge = e.structure === 'bridge';
     let prev = at(0);

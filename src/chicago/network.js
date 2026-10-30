@@ -1,7 +1,7 @@
 // Turns a set of centre-lines (streets, arterials, the interstate, ramps) into the road graph the
 // game uses: nodes at every junction, edges between them, bridges where a street has to cross a
 // river or the interstate, and a tidy-up pass (tiny edges merged, dead ends removed).
-import { dist, distToSeg, segInter } from './geom.js';
+import { dist, distToSeg, segInter, nearestOnPoly } from './geom.js';
 
 export const CLASSES = {
   // widths in world units (1 u = 1.25 m). Interstate: 3.6 m lanes + 3 m shoulders. City roads: 3.5 m lanes (a 3 m lane is legal but too tight for the game's
@@ -11,7 +11,7 @@ export const CLASSES = {
   hwEnd: { type: 'avenue', width: 8.4, lanes: 3, sidewalks: false, oneWay: true, speedLimit: 70, maxGrade: 0.06 },   // where the interstate ends: one half of the arterial it flows into
   six:  { type: 'avenue',  width: 18.4,   lanes: 3, speedLimit: 120, maxGrade: 0.06 },   // express road (orange)
   four: { type: 'avenue',  width: 16.8, lanes: 3, speedLimit: 70,  maxGrade: 0.06 },   // main arterial (yellow)
-  two:  { type: 'local',   width: 7.2,    lanes: 1, speedLimit: 50,  maxGrade: 0.15 },   // residential (black)
+  two:  { type: 'local',   width: 8.4,    lanes: 1, speedLimit: 50,  maxGrade: 0.15 },   // residential (black)
   ramp: { type: 'avenue',  width: 7.7,  lanes: 1, sidewalks: false, ramp: true, oneWay: true, speedLimit: 60, maxGrade: 0.06 }
 };
 
@@ -35,6 +35,17 @@ export function buildNetwork(lines, barriers, opts = {}) {
     const s = [0]; for (let i = 1; i < L.v.length; i++) s.push(s[i - 1] + dist([L.v[i - 1].x, L.v[i - 1].z], [L.v[i].x, L.v[i].z]));
     const total = s[s.length - 1];
     const events = [];
+    if (L.drawbridge) {
+      // a low movable bridge: the deck covers the water (plus 3 u of bank each side) at a height the approaches can reach within the line's length
+      const at0 = sv => { for (let i = 1; i < L.v.length; i++) if (sv <= s[i] || i === L.v.length - 1) { const t = (sv - s[i - 1]) / ((s[i] - s[i - 1]) || 1); return { x: L.v[i - 1].x + (L.v[i].x - L.v[i - 1].x) * t, z: L.v[i - 1].z + (L.v[i].z - L.v[i - 1].z) * t }; } };
+      let w0 = null, w1 = null;
+      for (let sv = 0; sv <= total; sv += 1) { const p = at0(sv); if (barriers.some(B => B.kind === 'river' && nearestOnPoly(p.x, p.z, B.pts).d < B.half)) { if (w0 === null) w0 = sv; w1 = sv; } }
+      if (w0 !== null) {
+        const sc = (w0 + w1) / 2, d1 = (w1 - w0) / 2 + 3, g = 0.95 * CLASSES[L.cls].maxGrade, room = Math.min(sc, total - sc) - 4 - d1;
+        if (room > 6) { const h = Math.min(1.6, room * g); events.push({ sc, B: { kind: 'river' }, prof: { d1, d2: d1 + h / g, h } }); }
+        else warn('drawbridge has no room for its approaches: ' + L.id);
+      }
+    } else
     barriers.forEach(B => {
       if (B.kind === 'highway' && (L.cls === 'hw' || L.cls === 'hwEnd')) return;
       if (B.line === L) return;
@@ -88,23 +99,30 @@ export function buildNetwork(lines, barriers, opts = {}) {
   // ---- 2. snap line ends that nearly touch another line (T junctions) ------------------------------
   const segsOf = L => { const r = []; for (let i = 1; i < L.v.length; i++) r.push([i - 1, i]); return r; };
   lines.forEach(L => {
-    if (L.v.length < 2 || L.noJoin) return;
+    const isRamp = L.cls === 'ramp';
+    if (L.v.length < 2 || (L.noJoin && !isRamp)) return;
     [0, L.v.length - 1].forEach(ei => {
       const E = L.v[ei];
+      // a slip road must end ON the carriageway it serves (when the highway vertex it was drawn to was swallowed by a bridge, it would dangle):
+      // it looks further for it, at the ground-level part of a highway only; a street looks 7 u
+      if (isRamp && lines.some(M => M !== L && (M.cls === 'hw' || M.cls === 'hwEnd') && M.v.some(q => Math.hypot(q.x - E.x, q.z - E.z) < 2.5 && q.elev < 0.6 && !q.deck))) return;   // already meets a highway vertex
       let best = null;
+      const reach = isRamp ? 45 : 7;
       lines.forEach(M => {
         if (M === L || M.noJoin || M.v.length < 2) return;
+        if (isRamp && M.cls !== 'hw' && M.cls !== 'hwEnd') return;
         for (let j = 1; j < M.v.length; j++) {
+          if (M.v[j - 1].deck && M.v[j].deck) continue;                 // never onto the level part of a bridge deck
           const r = distToSeg(E.x, E.z, M.v[j - 1].x, M.v[j - 1].z, M.v[j].x, M.v[j].z);
-          if (r.d < 7 && (!best || r.d < best.d)) best = { d: r.d, M, j, t: r.t };
+          if (isRamp && M.v[j - 1].elev + (M.v[j].elev - M.v[j - 1].elev) * r.t > 0.6) continue;     // and only where the highway is still at ground level
+          if (r.d < reach && (!best || r.d < best.d)) best = { d: r.d, M, j, t: r.t };
         }
       });
-      if (best && best.d > 0.05) {
+      if (best) {
         const a = best.M.v[best.j - 1], b = best.M.v[best.j];
-        // only snap when it would not move the end into the middle of a bridge deck
-        if (a.deck && b.deck) return;
-        E.x = a.x + (b.x - a.x) * best.t; E.z = a.z + (b.z - a.z) * best.t;
-      }
+        if (best.d > 0.05) { E.x = a.x + (b.x - a.x) * best.t; E.z = a.z + (b.z - a.z) * best.t; }
+        if (isRamp) { E.elev = a.elev + (b.elev - a.elev) * best.t; E.tj = { M: best.M, j: best.j - 1, t: best.t }; }
+      } else if (isRamp) L.noJoin = L.noJoin;                           // nothing to join (reported by the connected check)
     });
   });
 
@@ -130,6 +148,8 @@ export function buildNetwork(lines, barriers, opts = {}) {
   lines.forEach(L => { L.cuts = L.v.map(() => []); });
   const bb = L => { let x0 = 1e9, x1 = -1e9, z0 = 1e9, z1 = -1e9; L.v.forEach(p => { x0 = Math.min(x0, p.x); x1 = Math.max(x1, p.x); z0 = Math.min(z0, p.z); z1 = Math.max(z1, p.z); }); return [x0 - 1, x1 + 1, z0 - 1, z1 + 1]; };
   lines.forEach(L => { L.bb = bb(L); });
+  // a slip road's end that was snapped onto a carriageway becomes a real junction on it
+  lines.forEach(L => [0, L.v.length - 1].forEach(ei => { const E = L.v[ei]; if (E && E.tj) E.tj.M.cuts[E.tj.j].push({ t: E.tj.t, x: E.x, z: E.z, elev: E.elev }); }));
   for (let a = 0; a < lines.length; a++) {
     const A = lines[a]; if (A.noJoin || A.v.length < 2) continue;
     for (let b = a + 1; b < lines.length; b++) {

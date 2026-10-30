@@ -25,7 +25,7 @@ export function createParkedCars({ scene, propInstances, handles, collisionWorld
     mesh.position.set(rec.x, rec.y || 0.02, rec.z); mesh.rotation.y = rec.heading;
     scene.add(mesh);
     const off = Math.max(0.6, d.len / 2 - 1.0);
-    const colliders = [off, 0, -off].map(o => ({ kind: 'traffic', x: rec.x, z: rec.z, radius: 0.95, off: o, blocksCar: true, destructible: false, destroyed: false, ref: null }));
+    const colliders = [off, 0, -off].map(o => ({ kind: 'traffic', x: rec.x, z: rec.z, radius: 0.85, off: o, blocksCar: true, destructible: false, destroyed: false, ref: null }));
     const o = { mesh, colliders, len: d.len, wid: d.wid, height: d.height || 1.5, mass: MASS[rec.style] || 1300, crashTimer: 0, hdg: 0,
       knock: { x: rec.x, z: rec.z, y: rec.y || 0.02, yaw: rec.heading, vx: 0, vz: 0, vy: 0, wy: 0, wr: 0, wp: 0, roll: 0, pitch: 0, air: false, restRoll: 0, age: 0 } };
     o.getVelocity = () => ({ x: o.knock.vx, z: o.knock.vz });

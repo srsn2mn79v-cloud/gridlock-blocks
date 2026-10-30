@@ -49,13 +49,13 @@ import { buildTrafficBody, TRAFFIC_DIMS } from './vehicleModels.js';
 const VEH = {
   sedan: { mass: 1300, speedMul: 1.0,  accel: 4.7, brake: 17.9,  circles: [-0.75, 0.75], r: 1.0 },
   taxi:  { mass: 1500, speedMul: 1.1,  accel: 5.2, brake: 17.9,  circles: [-0.75, 0.75], r: 1.02 },
-  van:   { mass: 2400, speedMul: 0.92, accel: 3.6, brake: 15.2,  circles: [-1.3, 1.3], r: 1.1 },
-  truck: { mass: 7500, speedMul: 0.8,  accel: 2.1, brake: 11.7, circles: [-2.6, 0, 2.6], r: 1.3 },
-  bus:   { mass: 11000, speedMul: 0.74, accel: 2.3, brake: 12.4,  circles: [-3.8, -1.3, 1.3, 3.8], r: 1.4 },
+  van:   { mass: 2400, speedMul: 0.92, accel: 3.6, brake: 15.2,  circles: [-1.3, 1.3], r: 1.0 },
+  truck: { mass: 7500, speedMul: 0.8,  accel: 2.1, brake: 11.7, circles: [-2.6, 0, 2.6], r: 1.2 },
+  bus:   { mass: 11000, speedMul: 0.74, accel: 2.3, brake: 12.4,  circles: [-3.8, -1.3, 1.3, 3.8], r: 1.2 },
   police:    { mass: 1700, speedMul: 1.2,  accel: 6.3, brake: 19.3, circles: [-0.75, 0.75], r: 1.0 },
-  ambulance: { mass: 2900, speedMul: 1.12, accel: 4.7, brake: 16.5, circles: [-1.3, 1.3], r: 1.1 },
-  fire:      { mass: 9000, speedMul: 1.0,  accel: 3.0, brake: 12.4,  circles: [-2.6, 0, 2.6], r: 1.3 },
-  plow:      { mass: 8500, speedMul: 0.5,  accel: 2.2, brake: 12.4,  circles: [-2.6, 0, 2.6], r: 1.3 }
+  ambulance: { mass: 2900, speedMul: 1.12, accel: 4.7, brake: 16.5, circles: [-1.3, 1.3], r: 1.0 },
+  fire:      { mass: 9000, speedMul: 1.0,  accel: 3.0, brake: 12.4,  circles: [-2.6, 0, 2.6], r: 1.2 },
+  plow:      { mass: 8500, speedMul: 0.5,  accel: 2.2, brake: 12.4,  circles: [-2.6, 0, 2.6], r: 1.2 }
 };
 // mix that repeats down the pool so any density slider position gets a believable blend
 const TYPE_CYCLE = ['sedan', 'sedan', 'taxi', 'sedan', 'van', 'sedan', 'bus', 'sedan', 'truck', 'sedan', 'taxi', 'van', 'sedan', 'sedan', 'truck', 'bus'];
@@ -133,10 +133,13 @@ export function createTrafficSystem(cityData, scene, heightAt, count = 6, maxCou
   // Buses and trucks are too long to take a 9 m side street's corners, so they stay on avenues
   // and highways (spawn there, and prefer those roads at every junction).
   const isWide = e => e.type !== 'local';
-  const wideEdges = drivable.filter(isWide);
+  // streets that end in a dead end are not used for spawning: a car there could only turn round on the spot
+  const deadEnd = e => (edgesByNode[e.from] || []).length < 2 || (edgesByNode[e.to] || []).length < 2;
+  const throughEdges = drivable.filter(e => !deadEnd(e));
+  const wideEdges = throughEdges.filter(isWide);
   const edgeFor = type => {
     const heavy = type === 'bus' || type === 'truck' || type === 'fire' || type === 'plow';
-    const list = heavy && wideEdges.length ? wideEdges : drivable;
+    const list = heavy && wideEdges.length ? wideEdges : throughEdges.length ? throughEdges : drivable;
     return list[Math.floor(Math.random() * list.length)];
   };
 
@@ -538,6 +541,9 @@ export function createTrafficSystem(cityData, scene, heightAt, count = 6, maxCou
       });
       if (sane.length) options = sane;
     }
+    // dead-end streets are never chosen on purpose: a car that drove in would have to turn round on the spot
+    const through = options.filter(e => (edgesByNode[otherEnd(e, nodeId)] || []).length > 1);
+    if (through.length) options = through;
     let pool = options.length ? options : connected;
     if (car && car.edge && car.edge.type === 'highway' && pool.some(e => e.ramp) && pool.some(e => !e.ramp)) {
       const ex = wantsExit(car, nodeId); pool = pool.filter(e => ex ? e.ramp : !e.ramp);
@@ -546,6 +552,7 @@ export function createTrafficSystem(cityData, scene, heightAt, count = 6, maxCou
   }
 
   const stopSet = computeStopApproaches(cityData).stops;
+  const bridgeNodes = new Set(); drivable.forEach(e => { if (e.drawbridge) { bridgeNodes.add(e.from); bridgeNodes.add(e.to); } });
 
   // Is it safe to leave the stop line? Nobody in the junction box, and (for a minor road
   // meeting a bigger one) no car on the bigger road about to reach the junction.
@@ -834,6 +841,12 @@ export function createTrafficSystem(cityData, scene, heightAt, count = 6, maxCou
       if (!conn && car.nextEdge && !hwMerge && (edgesByNode[car.to] || []).length >= 3 && turnAngleOf(car) > 0.12) {
         const cap = Math.max(3.5, Math.sqrt(LAT_ACC * (3 + clrOf(car) * 0.8)));
         { const tc = cap + Math.max(0, distToNode - clrOf(car)) * 1.5; if (tc < desiredSpeed) { desiredSpeed = tc; cause = 'turn'; } }
+      }
+
+      // The drawbridge: while its gates are down or its leaves are up, cars wait at the gates (5 u before the leaf hinge)
+      if (!conn && car.edge && cityData.drawbridgeStop && bridgeNodes.has(car.to) && !car.edge.drawbridge) {
+        const toStop = distToNode - 5.5;
+        if (toStop > -1.5) hold(toStop, 'bridge');
       }
 
       // Traffic signal / stop sign at the node this car is heading into.

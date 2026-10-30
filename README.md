@@ -812,3 +812,17 @@ function per new type) whenever you want it — say the word and I'll add them.
 ## Checks (node tools/check.mjs all)
 rivals, sidewalks, gas, races, drift, covered, signs, lamps, buildings, traffic, markings, bridges, solid, water, rules (road-class/meeting-point/grade rules), driveways (gas-station entrances free + kerb dipped), smooth (road elevation continuity), mesh (drawn road surface matches driving surface).
 `node tools/brake_audit.mjs [cars] [minutes]` lists where AI cars brake hard and why (car.cause). AI rule: no stop/turn-slowdown at highway/ramp merges; stop/yield only where junctionRules says.
+
+## Latest round: checks, drawbridge, overhead signals
+
+- **New checks** (`node tools/check.mjs <name>`): `pavement` (no sidewalk over a road; roads win and pavement is cut),
+  `connected` (every road that should join does, including height, so ramps no longer dangle at the river bridge),
+  `mesh` (road surface continuity). `traffic` now also flags AI circling and parked-car overlaps.
+- **AI circling fixed**: neighbouring corner fillets used to overlap; `roadMath` now caps each corner's reach so they never do.
+- **Shops**: menus fill the screen, you must press E to enter, and closing fades instead of panning the camera.
+- **Launch physics**: hit objects fly away in the hit direction, lighter ones further (`mass` in `physicsConfig`).
+- **Parked cars** sit half on the road (local streets are 8.4 wide) and are included in the solid-collision checks.
+- **Drawbridge** (`src/drawbridge.js`) on the north river: opens every 5 minutes for 60 s, flashing lights, a bell that rings
+  from 10 s before it moves until it is moving, barrier gates, and AI traffic stops for it. Debug: `window.__game.drawbridge.skipTo(t)`.
+- **Overhead traffic lights**: wide approaches get a mast arm with one head over every lane; in the inner city some
+  junctions use a suspended cable between two poles instead. More big junctions are signalised (153 poles now).

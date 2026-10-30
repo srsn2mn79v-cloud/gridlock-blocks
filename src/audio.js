@@ -170,6 +170,18 @@ export function createAudio({ camera }) {
     const t = ctx.currentTime, o = ctx.createOscillator(), g = out(sp.pan, 0); o.type = 'sine'; o.frequency.setValueAtTime(110, t); o.frequency.exponentialRampToValueAtTime(40, t + 0.25); o.connect(g);
     g.gain.setValueAtTime(v, t); g.gain.exponentialRampToValueAtTime(0.001, t + 0.3); o.start(t); o.stop(t + 0.35);
   }
+  // a crossing bell: one strike (two inharmonic partials, a quick decay); the drawbridge calls it a few times a second while it warns
+  function bell(x, z, high = false) {
+    if (!ready || !enabled) return;
+    const sp = spatial(x, z, 28); if (sp.d > 260) return;
+    const t = ctx.currentTime, f0 = high ? 1240 : 1105, g = out(sp.pan, 0.5 * sp.vol);
+    [[1, 1], [2.76, 0.45], [5.4, 0.2]].forEach(([r, v]) => {
+      const o = ctx.createOscillator(), og = gain(0); o.type = 'sine'; o.frequency.value = f0 * r; o.connect(og); og.connect(g);
+      og.gain.setValueAtTime(0, t); og.gain.linearRampToValueAtTime(v, t + 0.003); og.gain.exponentialRampToValueAtTime(0.0008, t + 0.42 / Math.sqrt(r));
+      o.start(t); o.stop(t + 0.5);
+    });
+    setTimeout(() => { try { g.disconnect(); } catch (e) { /* gone */ } }, 700);
+  }
   function whoosh(x, z, rel) {          // a car goes by at speed: wind slap with a falling pitch
     if (!ready || !enabled) return;
     const sp = spatial(x, z, 14); burst(sp.pan, Math.min(0.55, rel / 70) * (0.4 + sp.vol), 1900, 420, 0.7, 0.9);
@@ -407,7 +419,7 @@ export function createAudio({ camera }) {
     unlock() { init(); if (ctx && ctx.state === 'suspended') ctx.resume(); },
     setEnabled(v) { enabled = !!v; if (master) master.gain.setTargetAtTime(enabled ? volume : 0, ctx.currentTime, 0.05); },
     setVolume(v) { volume = Math.max(0, Math.min(1, v)); if (master && enabled) master.gain.setTargetAtTime(volume, ctx.currentTime, 0.05); },
-    update, honk, crash, airBrake, tick, get ready() { return ready; },
+    update, honk, crash, airBrake, tick, bell, get ready() { return ready; },
     // for the radio: the shared audio context, a bus that plays through the master (with the garage / tunnel echo) and a ready hook
     get ctx() { return ctx; }, get radioBus() { return radioBus; }, get radioFilter() { return radioLP; }, whenReady(f) { if (ready) f(); else readyCbs.push(f); }
   };

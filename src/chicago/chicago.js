@@ -46,6 +46,7 @@ export function buildChicago() {
   const edges = R.net.edges.map((e, i) => {
     const c = CL[e.line.cls];
     const o = { id: 'e' + i, from: idOf[e.from], to: idOf[e.to], width: c.width, type: c.type, structure: e.deckEdge ? 'bridge' : 'surface' };
+    if (e.deckEdge && e.line.drawbridge) { o.drawbridge = true; o.sidewalks = false; }
     if (c.lanes) o.lanes = c.lanes;
     o.speedLimit = c.speedLimit;
     if (e.line.cls === 'hw' || e.line.cls === 'ramp') o.sidewalks = false;
@@ -132,8 +133,9 @@ export function buildChicago() {
     const es = byNode[id];
     if (es.length < 3 || nodes[id].elevation > 0.5) return;
     const art = es.filter(arterial);
-    if (art.length >= 3 && es.some(e => e.cls === 'six') && es.length <= 5 && !es.some(e => e.ramp || e.cls === 'hw') && es.every(e => e.structure !== 'bridge')) signalNodes.push(id);
+    if (art.length >= 2 && es.length <= 5 && !es.some(e => e.ramp || e.cls === 'hw') && es.every(e => e.structure !== 'bridge')) signalNodes.push(id);
   });
+  const spawnC = T(X0, Y0);
   function signalPole(nodeId, approachId) {
     const N = nodes[nodeId], A = nodes[approachId];
     const dx = N.x - A.x, dz = N.z - A.z, len = Math.hypot(dx, dz) || 1;
@@ -148,9 +150,23 @@ export function buildChicago() {
     const farEdge = far && best > 0.7 ? far : approachEdge;
     const along = intersectionClearance(nodeId, farEdge, byNode) + 1.9;
     const lateral = (farEdge.width || 9) / 2 + 1.4;
-    const arm = Math.max(1.5, lateral - (approachEdge.width || 9) / 4);
-    return { type: 'trafficlight', x: r2(N.x + d.x * along + right.x * lateral), z: r2(N.z + d.z * along + right.z * lateral),
+    const half = (approachEdge.width || 9) / 2;
+    const lanesN = Math.max(1, Math.round(half / 3.7));
+    const heads = [];
+    for (let i = lanesN - 1; i >= 0; i--) heads.push(r2(Math.max(1.2, lateral - (i + 0.5) * half / lanesN)));   // one head over each approach lane
+    const arm = heads[0];
+    const sp = spawnC && Math.hypot(N.x - spawnC[0], N.z - spawnC[1]) < 300;      // inner city: suspended cable style
+    const p0 = { type: 'trafficlight', x: r2(N.x + d.x * along + right.x * lateral), z: r2(N.z + d.z * along + right.z * lateral),
       rotation: Math.round(Math.atan2(-d.x, -d.z) * 180 / Math.PI), arm: r2(arm), signalNode: nodeId, signalApproach: approachId };
+    if (heads.length > 1 || sp) {
+      p0.heads = heads;
+      if (sp) {   // the cable runs to a bare pole on the far kerb
+        const span = r2(2 * lateral);
+        p0.span = span; p0.spanPole = false;
+        p0.pair = { x: r2(p0.x - right.x * span), z: r2(p0.z - right.z * span), rotation: p0.rotation };
+      }
+    }
+    return p0;
   }
   signalNodes.forEach(id => {
     const es = byNode[id].filter(e => !(e.oneWay && e.from === id));
@@ -160,7 +176,9 @@ export function buildChicago() {
       const o = nodes[other(e, id)], a = Math.atan2(o.z - nodes[id].z, o.x - nodes[id].x);
       const grpA = Math.abs(Math.cos(a - ra)) > 0.7071;
       signals.push({ id: 'sig_' + id + '_' + k, nodeId: id, edgeId: e.id, greenMs: GREEN, yellowMs: YELLOW, redMs: RED, offsetMs: grpA ? 0 : HALF });
-      props.push(signalPole(id, other(e, id)));
+      const sp0 = signalPole(id, other(e, id));
+      props.push(sp0);
+      if (sp0.pair) props.push({ type: 'trafficlight', spanPole: true, x: sp0.pair.x, z: sp0.pair.z, rotation: sp0.pair.rotation, owner: sp0 });
     });
   });
 
@@ -490,6 +508,8 @@ export function buildChicago() {
   for (let i = props.length - 1; i >= 0; i--) {
     const q = props[i];
     if (q.type !== 'trafficlight' || poleOK(q.x, q.z)) continue;
+    if (q.spanPole) { delete q.owner.span; delete q.owner.pair; props.splice(i, 1); continue; }   // no room on the far kerb: back to a plain mast arm
+    if (q.span) { const k = props.findIndex(o => o.owner === q); if (k >= 0) { props.splice(k, 1); if (k < i) i--; } delete q.span; delete q.pair; }   // cable style needs both poles exactly: fall back to a mast arm
     let found = null;
     for (let r = 1; r <= 12 && !found; r += 1) for (let k = 0; k < 16 && !found; k++) {
       const ang = k * Math.PI / 8, x = q.x + Math.cos(ang) * r, z = q.z + Math.sin(ang) * r;
@@ -497,6 +517,7 @@ export function buildChicago() {
     }
     if (found) { q.x = r2(found[0]); q.z = r2(found[1]); } else props.splice(i, 1);
   }
+  props.forEach(q => { delete q.owner; if (q.spanPole === false) delete q.spanPole; });
 
   // trees: in the parks, and along the quieter streets of the nicer districts
   const treeList = [];
@@ -555,15 +576,15 @@ export function buildChicago() {
     if (e.cls !== 'two' && e.cls !== 'four') return;
     if (e.structure === 'bridge' || nodes[e.from].elevation > 0.5 || nodes[e.to].elevation > 0.5) return;
     const a = nodes[e.from], b = nodes[e.to], len = Math.hypot(b.x - a.x, b.z - a.z);
-    const c1 = intersectionClearance(e.from, e, byNode) + 8, c2 = intersectionClearance(e.to, e, byNode) + 8;
+    const c1 = intersectionClearance(e.from, e, byNode) + ((byNode[e.from] || []).length >= 3 ? 30 : 16), c2 = intersectionClearance(e.to, e, byNode) + ((byNode[e.to] || []).length >= 3 ? 30 : 16);   // corners swing wide: no parked car within 16 u of a junction or a bend
     const dens = e.cls === 'two' ? 0.5 : 0.28;
     [1, -1].forEach(side => {
       for (let t = c1; t < len - c2; t += 7.4) {
         if (rand() > dens) continue;
-        const off = e.width / 2 + 1.3;      // roads have no spare lane any more: cars park up on the kerbside pavement
+        const off = e.width / 2 + (e.cls === 'two' ? 0 : 0.7);      // parked cars stand half on the road, half on the kerb (a local street's lanes leave room for it; on an avenue the cars sit a little further out)
         const p = sidePoint(e, t, side, off);
         if (driveways.some(d => Math.hypot(d.x - p.x, d.z - p.z) < d.hw + 6)) continue;
-        if (roadClear(p.x, p.z) < -2.5 || inWater(p.x, p.z, 2) || parcelsHit(p.x, p.z, 0.3) || outsideHW(p.x, p.z, 0)) continue;
+        if (roadClear(p.x, p.z) < -0.7 || inWater(p.x, p.z, 2) || parcelsHit(p.x, p.z, 0.3) || outsideHW(p.x, p.z, 0)) continue;
         if (!propOK(p.x, p.z, 3.6, parked) || !propOK(p.x, p.z, 2.6, lampList) || !propOK(p.x, p.z, 2.4, treeList) || !propOK(p.x, p.z, 3, props.filter(q => q.type === 'trafficlight'))) continue;
         const h = Math.atan2(p.ux, p.uz) + (rand() < 0.5 ? 0 : Math.PI) + (rand() - 0.5) * 0.06;
         parked.push({ type: 'parkedcar', x: r2(p.x), z: r2(p.z), rotation: Math.round(h * 180 / Math.PI), color: pick(PARK_COLORS) });

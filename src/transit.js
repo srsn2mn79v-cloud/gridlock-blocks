@@ -142,3 +142,10 @@ export function buildTransit(city) {
   }
   return { lines, stops, stopAt, depot, stands };
 }
+
+// bus stops and cab stands are where vehicles pull in to the kerb: no parked car may stand there
+export function clearTransitSpots(city, transit) {
+  const spots = transit.stops.concat(transit.stands);
+  city.props = (city.props || []).filter(p => p.type !== 'parkedcar' || !spots.some(s => Math.hypot(s.x - p.x, s.z - p.z) < 16));
+  return city;
+}

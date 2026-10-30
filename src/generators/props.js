@@ -130,10 +130,14 @@ function signMesh() {
 // userData. The mesh itself is just geometry — it has no idea what phase it's in.
 function trafficLightMesh(prop) {
   const arm = (prop && prop.arm) || 3;
+  const heads = (prop && prop.heads && prop.heads.length) ? prop.heads : [arm];   // distances from the pole toward the centreline, one per lane
+  const wire = !!(prop && prop.span);                  // suspended style: a cable to a pole on the other kerb, heads hang from it
+  const bare = !!(prop && prop.spanPole);              // the far pole of a suspended pair: just a pole (and a cable clip)
+  const over = heads.length > 1 || wire;
   const g = new THREE.Group();
   const poleMat = new THREE.MeshStandardMaterial({ color: 0x2a2f36, roughness: 0.6, metalness: 0.4 });
-  const POLE_H = 5.8, SPLIT = 2.9;
-  poleMat.userData.snow = { grad: [2.9, 5.8] };
+  const POLE_H = over || bare ? 7 : 5.8, SPLIT = 2.9;
+  poleMat.userData.snow = { grad: [2.9, POLE_H] };
   // Built as separate parts (each centred on its own origin) so a crash can break them apart;
   // only a thin base plate stays bolted to the ground.
   const plate = new THREE.Mesh(new THREE.CylinderGeometry(0.22, 0.25, 0.08, 10), poleMat);
@@ -144,36 +148,48 @@ function trafficLightMesh(prop) {
   const upperG = new THREE.Group(); upperG.position.set(0, SPLIT + (POLE_H - SPLIT) / 2, 0);
   const upper = new THREE.Mesh(new THREE.CylinderGeometry(0.1, 0.12, POLE_H - SPLIT, 8), poleMat);
   upper.castShadow = true; upperG.add(upper);
-  const armG = new THREE.Group(); armG.position.set(-arm / 2, POLE_H - 0.35, 0);
-  const armBar = new THREE.Mesh(new THREE.BoxGeometry(arm, 0.16, 0.16), poleMat);
+  g.add(plate, lowerG, upperG);
+  g.userData.parts = { lower: lowerG, upper: upperG };
+  if (bare) { bakeSnowHeights(g); return g; }
+
+  const reach = Math.max(...heads) + (wire ? 0 : 0.5);
+  const spanLen = wire ? prop.span : reach;
+  const armG = new THREE.Group(); armG.position.set(-spanLen / 2, POLE_H - 0.35, 0);
+  const armBar = new THREE.Mesh(wire ? new THREE.BoxGeometry(spanLen, 0.06, 0.06) : new THREE.BoxGeometry(spanLen, over ? 0.22 : 0.16, over ? 0.22 : 0.16), poleMat);
   armBar.castShadow = true; armG.add(armBar);
+  g.add(armG);
+  g.userData.parts.arm = armG;
 
-  const headX = -arm, headY = POLE_H - 1.5;
-  const headG = new THREE.Group(); headG.position.set(headX, headY, 0);
   const housingMat = new THREE.MeshStandardMaterial({ color: 0x15181c, roughness: 0.6 });
-  const housing = new THREE.Mesh(new THREE.BoxGeometry(0.66, 1.9, 0.5), housingMat);
-  housing.castShadow = true;
-  const backplate = new THREE.Mesh(new THREE.BoxGeometry(0.92, 2.16, 0.05),
-    new THREE.MeshStandardMaterial({ color: 0xe9e6dc, roughness: 0.7 }));
-  backplate.position.set(0, 0, -0.27);
-  headG.add(housing, backplate);
-  snowCap(headG, 0.6, 0.12, 0.42, 0, 0.95, 0.02);
-  snowCap(headG, 0.88, 0.07, 0.1, 0, 1.08, -0.24);
-
-  const lensDefs = [
-    ['red', 0xff2a2a, 0.6], ['yellow', 0xffc02a, 0], ['green', 0x2aff6a, -0.6]
-  ];
+  const backMat = new THREE.MeshStandardMaterial({ color: 0xe9e6dc, roughness: 0.7 });
+  const lensDefs = [['red', 0xff2a2a, 0.6], ['yellow', 0xffc02a, 0], ['green', 0x2aff6a, -0.6]];
   const lenses = {}, halos = {};
-  g.add(plate, lowerG, upperG, armG, headG);
-  lensDefs.forEach(([name, color, dy]) => {
-    const mat = new THREE.MeshStandardMaterial({ color: 0x241a1a, emissive: color, emissiveIntensity: 0.05 });
-    const lens = new THREE.Mesh(new THREE.CylinderGeometry(0.22, 0.22, 0.08, 16), mat);
-    lens.rotation.x = Math.PI / 2;
-    lens.position.set(0, dy, 0.27);
-    const halo = createHalo(color, 2.6);
-    halo.position.set(0, dy, 0.5);
-    headG.add(lens, halo);
-    lenses[name] = mat; halos[name] = halo;
+  lensDefs.forEach(([name, color]) => { lenses[name] = new THREE.MeshStandardMaterial({ color: 0x241a1a, emissive: color, emissiveIntensity: 0.05 }); });
+  const headY = POLE_H - (wire ? 1.9 : 1.5);
+  let mainHead = null;
+  heads.forEach((hx, idx) => {
+    const headG = new THREE.Group(); headG.position.set(-hx, headY, 0);
+    const housing = new THREE.Mesh(new THREE.BoxGeometry(0.66, 1.9, 0.5), housingMat);
+    housing.castShadow = true;
+    const backplate = new THREE.Mesh(new THREE.BoxGeometry(0.92, 2.16, 0.05), backMat);
+    backplate.position.set(0, 0, -0.27);
+    headG.add(housing, backplate);
+    snowCap(headG, 0.6, 0.12, 0.42, 0, 0.95, 0.02);
+    snowCap(headG, 0.88, 0.07, 0.1, 0, 1.08, -0.24);
+    if (wire) {   // two droppers up to the cable
+      [-0.22, 0.22].forEach(dx => { const d = new THREE.Mesh(new THREE.BoxGeometry(0.04, 1.0, 0.04), poleMat); d.position.set(dx, 1.45, 0); headG.add(d); });
+    }
+    lensDefs.forEach(([name, color, dy]) => {
+      const lens = new THREE.Mesh(new THREE.CylinderGeometry(0.22, 0.22, 0.08, 16), lenses[name]);
+      lens.rotation.x = Math.PI / 2;
+      lens.position.set(0, dy, 0.27);
+      const halo = createHalo(color, 2.6);
+      halo.position.set(0, dy, 0.5);
+      if (idx === 0) halos[name] = halo; else halo.material = halos[name].material;   // one opacity drives every head
+      headG.add(lens, halo);
+    });
+    g.add(headG);
+    if (idx === 0) mainHead = headG; else g.userData.parts['head' + idx] = headG;
   });
 
   // The pedestrian signal: its own small box lower on the pole, with just two lenses
@@ -193,7 +209,7 @@ function trafficLightMesh(prop) {
   pedG.add(pedHousing, walk.mesh, dontWalk.mesh);
   g.add(pedG);
   bakeSnowHeights(g);
-  g.userData.parts = { lower: lowerG, upper: upperG, arm: armG, head: headG, ped: pedG };
+  g.userData.parts.head = mainHead; g.userData.parts.ped = pedG;
 
   g.userData.lenses = lenses;
   g.userData.halos = halos;

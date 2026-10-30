@@ -34,6 +34,10 @@ export function generateRoads() {
     if (dist(best.q, a) > 4 && dist(best.q, b) > 4) best.L.pts.splice(best.j, 0, best.q);
     return best.q;
   };
+  { // the drawbridge: the street that crosses the north river between (651, 558) and (566, 642) becomes a low movable bridge (see drawbridge.js)
+    const L = lines.find(l => l.pts.length === 2 && Math.hypot(l.pts[0][0] - 651, l.pts[0][1] - 557.75) < 3 && Math.hypot(l.pts[1][0] - 565.75, l.pts[1][1] - 642.25) < 3);
+    if (L) { L.drawbridge = true; L.name = 'Drawbridge'; } else warnings.push('drawbridge street not found');
+  }
   { // the interstate runs from one end of the lake-shore drive to the other
     const s0 = hook(H[0], 45), s1 = hook(H[H.length - 1], 45);
     if (s0) H[0] = s0.slice(); else warnings.push('the interstate does not reach the street map at its first end');
@@ -79,7 +83,7 @@ export function generateRoads() {
       const sa = along(r[ia]).s, total = polyLen(H);
       const room = sg > 0 ? sa - 135 : total - 135 - sa; let xh = Math.max(100, Math.min(XH, room));       // near the interstate's ends the slip road gets less room
       const laneWet = x0 => { for (let x = 0; x <= xh; x += 10) { const s = Math.max(0, Math.min(total, x0 + sg * x)), p = atLen(H, s), l = 23 * f;
-        if (RIVERS.some(rv => nearestOnPoly(p.x - p.dz * l, p.z + p.dx * l, rv.pts).d < rv.half + 4)) return true; } return false; };
+        if (RIVERS.some(rv => nearestOnPoly(p.x - p.dz * l, p.z + p.dx * l, rv.pts).d < rv.half + 64)) return true; } return false; };   // 64 = the bridge approach ramp of the interstate (about 53 u) + margin: a slip road must join the carriageway at ground level
       while (xh > 100 && laneWet(sa - sg * xh)) xh -= 10;                                               // the extra lane must not run over a river
       r.plan = { ia, sg, xh, s0: Math.max(0, Math.min(total, sa - sg * xh)) };
       needS.push(r.plan.s0);
@@ -136,6 +140,14 @@ export function generateRoads() {
       }
       const arc = r.slice(ia + 1, -1).concat([r.junction]);
       const pts = out.concat(arc);
+      // the Hermite join can overshoot and double back by a couple of units, leaving a spike (a dead stub) in the slip road: drop such vertices
+      for (let again = true, guard = 0; again && guard++ < 20;) {
+        again = false;
+        for (let i = 1; i < pts.length - 1; i++) {
+          const ax = pts[i][0] - pts[i - 1][0], az = pts[i][1] - pts[i - 1][1], bx = pts[i + 1][0] - pts[i][0], bz = pts[i + 1][1] - pts[i][1];
+          if (ax * bx + az * bz < -0.2 * Math.hypot(ax, az) * Math.hypot(bx, bz)) { pts.splice(i, 1); again = true; break; }
+        }
+      }
       ramps.push({ pts: ex ? pts : pts.slice().reverse(), kind, f, ix, inside: true });
     });
     // the street: outer junction -> over the interstate -> inner junction -> into the city

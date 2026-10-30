@@ -29,7 +29,7 @@ import { createPedestrianSystem } from './pedestrians.js';
 import { createDriftTracks } from './driftTrack.js';
 import { buildSidewalks } from './sidewalks.js';
 import { createTrafficSystem } from './traffic.js';
-import { buildTransit } from './transit.js';
+import { buildTransit, clearTransitSpots } from './transit.js';
 import { createTransitScene } from './transitScene.js';
 import { createPuffs } from './puffs.js';
 import { setGlow } from './glow.js';
@@ -43,6 +43,7 @@ import { createWeather } from './weather.js';
 import { createPlowFx } from './plowfx.js';
 import { createRadio } from './radio.js';
 import { createAudio } from './audio.js';
+import { createDrawbridge } from './drawbridge.js';
 import { createDrivetrain } from './drivetrain.js';
 import { isCovered } from './covered.js';
 import { createSkidMarks } from './skidmarks.js';
@@ -121,6 +122,7 @@ scene.add(parcelGroup);
 const waterParcels = parcelInstances.filter(p => p.type === 'water');
 
 await tick('Planting trees and lamps...', 0.7);
+const transit = buildTransit(city); clearTransitSpots(city, transit);     // (bus stops and cab stands keep their kerb free of parked cars)
 const { group: propGroup, instances: propInstances } = buildProps(city);
 scene.add(propGroup);
 
@@ -326,7 +328,6 @@ scene.add(ground);
 // player's car can bump against them the same way it bumps against a building or a
 // prop — see traffic.js.
 await tick('Starting traffic...', 0.84);
-const transit = buildTransit(city);
 const traffic = createTrafficSystem(city, scene, heightAt, 40, 800, transit);
 
 // Collision + destruction: buildings, blocking props, and AI traffic are all in this
@@ -402,7 +403,7 @@ const SINK_DURATION = 4.5;
 
 const deckParcels = (city.harbour ? city.harbour.decks : []);
 function isCarInWater() {
-  if (car.y > 1.4) return false;                       // on a bridge deck
+  if (car.y > 0.7) return false;                       // on a bridge deck (the drawbridge's is 1.6 up; when its leaves are raised the road is gone and the car drops)
   return waterParcels.some(w => pointInPolygon(car.x, car.z, w.footprint)) && !deckParcels.some(w => pointInPolygon(car.x, car.z, w));
 }
 
@@ -676,6 +677,7 @@ function dashFrame(dt, rev) {
 const skids = createSkidMarks({ scene, heightAt: world.heightAt });
 const puffs = createPuffs({ scene, heightAt: world.heightAt, renderer });
 const audio = createAudio({ camera });
+const drawbridge = createDrawbridge({ city, scene, collisionWorld, audio, heightAt });
 const radio = createRadio({ audio, weather, settings });
 const unlockAudio = () => audio.unlock();
 ['pointerdown', 'keydown', 'touchstart'].forEach(ev => addEventListener(ev, unlockAudio, { passive: true }));
@@ -850,6 +852,7 @@ function animate() {
       car.update(dt / steps, (world.onFoot || races.frozen()) ? world.parkedInput(input) : input, world.heightAt);
       if (steps > 1) pre.push(...resolveCarCollisions(car, collisionWorld, dt / steps));
     }
+    drawbridge.update(dt, camera);
     traffic.update(dt, hail.following() ? hail.proxy : car, world.onFoot && world.mode === 'city' ? world.focus() : null);
     if (traffic.walkerHit.on) world.shoveFoot(traffic.walkerHit.vx, traffic.walkerHit.vz);
     parkedCars.update(dt, car.x, car.z);
@@ -879,7 +882,7 @@ function animate() {
       const dx = fx + 0.35 * ax / al, dz = fz + 0.35 * az / al;
       if (inst.type === 'light') lampOff(inst);
       if (c.destroy === 'break') { breakTrafficLightInst(inst); destruction.breakTrafficLight(mesh, dx, dz, car.speed); }
-      else destruction.topple(mesh, dx, dz, c.fall);
+      else destruction.topple(mesh, dx, dz, c.fall, { speed: Math.max(Math.abs(car.speed), c.breakSpeed || 0) / Math.max(0.3, 1 - (c.speedPenalty || 0)), carMass: car.mass, mass: c.mass });
     });
     destruction.update(dt, car);
     updateEffects(dt);
@@ -903,6 +906,6 @@ function animate() {
   gfx.render();
   requestAnimationFrame(animate);
 }
-window.__game = { hail, camRig, interior, fuel, radio, weather, plowFx, puffs, gfx, transit, parkedCars, skids, audio, races, structures, world, renderer, taxi, input, destruction, collisionWorld, lampDefs, signs, propInstances, env, settings, menu, minimap, scene, camera, car, city, traffic, pedestrians, lampPool, reflectors, heightAt, offences: { get wrongWay() { return wrongWayOffences; } } };
+window.__game = { drawbridge, hail, camRig, interior, fuel, radio, weather, plowFx, puffs, gfx, transit, parkedCars, skids, audio, races, structures, world, renderer, taxi, input, destruction, collisionWorld, lampDefs, signs, propInstances, env, settings, menu, minimap, scene, camera, car, city, traffic, pedestrians, lampPool, reflectors, heightAt, offences: { get wrongWay() { return wrongWayOffences; } } };
 loadingDone();
 animate();

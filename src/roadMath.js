@@ -185,7 +185,7 @@ export function buildHorizontalCurve(nodeId, nodes, edgesByNode) {
   // (theta(l) only depends on l/Ls and R together, not their absolute sizes), so scaling
   // R, Ls and Lc by the same factor scales every length that falls out of the
   // integration (T, k, p, the drawn samples) by that same factor, without re-integrating.
-  const maxReach = Math.min(d1, d2) * 0.85;
+  const maxReach = Math.min(d1, d2) * 0.49;   // at most half of the shorter edge: two neighbouring corners must never overlap (cars would loop back along the path)
   if (T > maxReach && T > 0.0001) {
     const scale = maxReach / T;
     R *= scale; Ls *= scale; Lc *= scale; T *= scale; k *= scale; p *= scale;

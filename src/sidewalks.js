@@ -67,8 +67,67 @@ export function buildSidewalkSegments(cityData, { cut = true } = {}) {
       });
     });
   });
-  const kept = pruneLonelySidewalks(segments);
+  const kept = pruneLonelySidewalks(cutRoads(segments, cityData));
   return cut ? cutDriveways(kept, cityData.driveways || []) : kept;       // pedestrians and the pavement check use the uncut strips (they walk across a driveway)
+}
+
+// Where a pavement strip would lie on a road (a corner of its own road, a crossing street), the road wins: the strip is cut there.
+// The road surface is rebuilt here from the same centrelines roads.js draws (straight runs between the corner trims, plus the corner curves);
+// only roads at ground level count, so a bridge or ramp overhead does not remove the pavement under it.
+const _clr = new WeakMap();
+function groundRoadClearance(cityData) {
+  if (_clr.has(cityData)) return _clr.get(cityData);
+  const nodes = cityData.roadNodes || {}, by = buildEdgesByNode(cityData.roadEdges || []), segs = [];
+  const add = (ax, az, bx, bz, hw) => segs.push({ ax, az, dx: bx - ax, dz: bz - az, l2: (bx - ax) ** 2 + (bz - az) ** 2 || 1, hw, minx: Math.min(ax, bx) - hw, maxx: Math.max(ax, bx) + hw, minz: Math.min(az, bz) - hw, maxz: Math.max(az, bz) + hw });
+  const low = n => n && (n.elevation || 0) < 1.2;
+  const curves = {};
+  for (const id in nodes) { const c = buildHorizontalCurve(id, nodes, by); if (c) curves[id] = c; }
+  (cityData.roadEdges || []).forEach(e => {
+    const a = nodes[e.from], b = nodes[e.to]; if (!low(a) || !low(b) || e.structure === 'tunnel') return;
+    const L = dist(a.x, a.z, b.x, b.z) || 1, ux = (b.x - a.x) / L, uz = (b.z - a.z) / L;
+    const ta = curves[e.from] ? curves[e.from].trim : 0, tb = curves[e.to] ? curves[e.to].trim : 0;
+    if (ta + tb < L) add(a.x + ux * ta, a.z + uz * ta, b.x - ux * tb, b.z - uz * tb, e.width / 2);
+  });
+  for (const id in curves) {
+    const c = curves[id], n = nodes[id]; if (!low(n)) continue;
+    const w = Math.max(...(by[id] || []).map(e => e.width || 0)) / 2;
+    for (let i = 0; i < c.samples.length - 1; i++) add(c.samples[i].x, c.samples[i].z, c.samples[i + 1].x, c.samples[i + 1].z, w);
+  }
+  const fn = (x, z) => {
+    let best = Infinity;
+    for (let i = 0; i < segs.length; i++) {
+      const q = segs[i];
+      if (x < q.minx - 1 || x > q.maxx + 1 || z < q.minz - 1 || z > q.maxz + 1) continue;
+      const t = Math.max(0, Math.min(1, ((x - q.ax) * q.dx + (z - q.az) * q.dz) / q.l2));
+      const d = Math.hypot(x - (q.ax + q.dx * t), z - (q.az + q.dz * t)) - q.hw;
+      if (d < best) best = d;
+    }
+    return best;
+  };
+  _clr.set(cityData, fn);
+  return fn;
+}
+export function cutRoads(segments, cityData) {
+  const clear = groundRoadClearance(cityData), out = [], half = SIDEWALK_WIDTH / 2;
+  segments.forEach(sg => {
+    const dx = sg.x2 - sg.x1, dz = sg.z2 - sg.z1, L = Math.hypot(dx, dz) || 1, ux = dx / L, uz = dz / L, k = Math.max(1, Math.ceil(L / 0.75));
+    const blocked = [];
+    for (let i = 0; i <= k; i++) {
+      const x = sg.x1 + dx * i / k, z = sg.z1 + dz * i / k;
+      blocked.push([-half, 0, half].some(o => clear(x - uz * o, z + ux * o) < -0.15));
+    }
+    let start = -1;
+    for (let i = 0; i <= k + 1; i++) {
+      const free = i <= k && !blocked[i];
+      if (free && start < 0) start = i;
+      if (!free && start >= 0) {
+        const a = Math.min(k, start + (start > 0 ? 1 : 0)), b = Math.max(0, i - 1 - (i - 1 < k ? 1 : 0));   // keep a 0.75 u margin from the road
+        if ((b - a) * L / k >= 2.5) out.push(a === 0 && b === k ? sg : { ...sg, x1: sg.x1 + dx * a / k, z1: sg.z1 + dz * a / k, x2: sg.x1 + dx * b / k, z2: sg.z1 + dz * b / k, cut: true });
+        start = -1;
+      }
+    }
+  });
+  return out;
 }
 
 // A driveway (gas station forecourt, car park, shop entrance) interrupts the pavement: the kerb dips away so a car drives straight

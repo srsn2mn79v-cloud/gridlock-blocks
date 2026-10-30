@@ -21,14 +21,14 @@ export const propPhysics = {
   // (0.3 = a 30% cut), on top of whatever the redirect nudge already costs. Only light
   // has one set explicitly right now; anything else left at 0 keeps the old "breaks
   // clean, no extra penalty" behavior once it's going fast enough to break at all.
-  light: { radius: 0.3, blocksCar: true, destructible: true, destroy: 'topple', debrisColor: 0xffd23f, speedPenalty: 0.3, response: 'redirect',
+  light: { radius: 0.3, blocksCar: true, destructible: true, destroy: 'topple', debrisColor: 0xffd23f, speedPenalty: 0.3, response: 'redirect', mass: 220,
            fall: { len: 6.6, kind: 'drive', penalty: 0.1, lift: 0.22 } },
-  bench: { radius: 0.9, blocksCar: true, destructible: true, destroy: 'topple', debrisColor: 0xa9825c, response: 'redirect',
+  bench: { radius: 0.9, blocksCar: true, destructible: true, destroy: 'topple', debrisColor: 0xa9825c, response: 'redirect', mass: 70,
            fall: { len: 1.6, kind: 'push', mass: 0.8, radius: 0.9, lift: 0.2 } },
   // Road signs: knocked over at modest speed; the car keeps ~88% of its speed through one.
-  sign:  { radius: 0.3, blocksCar: true, destructible: true, destroy: 'topple', debrisColor: 0xe05252, speedPenalty: 0.12, response: 'redirect', breakSpeed: 3,
+  sign:  { radius: 0.3, blocksCar: true, destructible: true, destroy: 'topple', debrisColor: 0xe05252, speedPenalty: 0.12, response: 'redirect', breakSpeed: 3, mass: 12,
            fall: { len: 2.2, kind: 'drive', penalty: 0.05, lift: 0.05 } },
-  signpost: { radius: 0.3, blocksCar: true, destructible: true, destroy: 'topple', debrisColor: 0xe05252, speedPenalty: 0.12, response: 'redirect', breakSpeed: 3,
+  signpost: { radius: 0.3, blocksCar: true, destructible: true, destroy: 'topple', debrisColor: 0xe05252, speedPenalty: 0.12, response: 'redirect', breakSpeed: 3, mass: 15,
            fall: { len: 2.6, kind: 'drive', penalty: 0.05, lift: 0.05 } },
   oak:   { radius: 1.0, blocksCar: true, destructible: false, response: 'bounce' },
   bush:  { radius: 0.8, blocksCar: true, destructible: false, response: 'redirect' },
