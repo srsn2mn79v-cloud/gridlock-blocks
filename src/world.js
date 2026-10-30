@@ -13,6 +13,7 @@ import { createFlatLights } from './flatlight.js';
 import { buildInterior, buildStoreInterior, buildGarage, buildGateMesh, garageLayout, garageHeight, RAMP, bayAt, FINE_SECS } from './estate.js';
 import { createGroundGlow } from './glow.js';
 import { buildKit } from './bodykit.js';
+import { RIM_NAMES, RIM_COLORS, styleWheel } from './vehicleModels.js';
 import { getUpgrades } from './customData.js';
 const UPG = getUpgrades();      // prices + effects of every upgrade (editable in the Studio)
 
@@ -22,10 +23,11 @@ const CAR_PRICE = UPG.carPrice;
 const PAINTS = [['Racing red', 0xd62a2a], ['Sunset orange', 0xff5e3a], ['Gold', 0xf1b800], ['Lime', 0x7ed321], ['Forest', 0x1f7a44], ['Teal', 0x14b3a6],
   ['Sky blue', 0x3aa0ff], ['Cobalt', 0x2f4fd8], ['Violet', 0x7a3fd1], ['Hot pink', 0xff4fa3], ['Pearl white', 0xf2f2f2], ['Graphite', 0x30343b], ['Jet black', 0x0e0f12]];
 const DECAL_COLORS = [['White', 0xffffff], ['Black', 0x111111], ['Yellow', 0xffd21f], ['Red', 0xe53030], ['Blue', 0x2f7bff], ['Cyan', 0x17d6c8]];
+const HEADLIGHTS = [['Ice blue', 0x9fd0ff], ['Cyan', 0x20e8ff], ['Green', 0x38ff6a], ['Violet', 0xa14bff], ['Pink', 0xff2fa8], ['Red', 0xff2a2a], ['Amber', 0xffa31a]];
 const NEONS = [['Pink', 0xff2fa8], ['Cyan', 0x20e8ff], ['Green', 0x38ff6a], ['Violet', 0xa14bff], ['White', 0xffffff], ['Red', 0xff2a2a]];
 const NITRO_SECS = [0, ...UPG.nitro.secs];
 
-const defaultMods = () => ({ paint: null, decal: { type: 'none', color: 0xffffff }, neon: null, xenon: false, nitro: 0, hud: 0, tank: 0,
+const defaultMods = () => ({ paint: null, decal: { type: 'none', color: 0xffffff }, neon: null, xenon: false, hlight: null, rims: { style: 0, color: null }, nitro: 0, hud: 0, tank: 0,
   perf: { engine: 0, turbo: 0, gearbox: 0, tires: 0, suspension: 0, brakes: 0, weight: 0, seats: 0, limiter: 0 }, kit: { front: 0, rear: 0, skirts: 0, spoiler: 0, fenders: 0, hood: 0 }, own: {} });
 
 function loadSave() {
@@ -135,6 +137,8 @@ export function createWorld({ setGarageHoles, city, scene, camera, car, input, h
     const m = (save.mods[key] ||= defaultMods());
     m.perf = Object.assign({ engine: 0, turbo: 0, gearbox: 0, tires: 0, suspension: 0, brakes: 0, weight: 0, seats: 0, limiter: 0 }, m.perf);   // older saves lack the newer parts
     m.kit = Object.assign({ front: 0, rear: 0, skirts: 0, spoiler: 0, fenders: 0, hood: 0 }, m.kit);
+    if (m.hlight === undefined) m.hlight = null;
+    m.rims = Object.assign({ style: 0, color: null }, m.rims);
     return m;
   };
   const garageSlots = () => (city.apartments || []).reduce((n, a) => n + (save.apts[a.id] ? a.garage : 0), 0);
@@ -216,7 +220,9 @@ export function createWorld({ setGarageHoles, city, scene, camera, car, input, h
   function toast(msg) { toastEl.textContent = msg; toastEl.style.display = 'block'; clearTimeout(toastT); toastT = setTimeout(() => { toastEl.style.display = 'none'; }, 2600); }
 
   // ---------- applying a car's modifications --------------------------------------------------------
-  const neonMesh = createGroundGlow(0xffffff, 3.0, 5.4); neonMesh.position.y = 0.07; car.group.add(neonMesh);
+  const neonMesh = createGroundGlow(0xffffff, 3.6, 6.4); neonMesh.position.y = 0.07; car.group.add(neonMesh);
+  const neonCore = createGroundGlow(0xffffff, 2.5, 4.6); neonCore.position.y = 0.075; car.group.add(neonCore);   // a second, tighter layer: the glow is twice as strong under the car
+  let neonCol = null;
   const flames = [-0.5, 0.5].map(x => { const f = new THREE.Mesh(new THREE.ConeGeometry(0.16, 1.1, 8), new THREE.MeshBasicMaterial({ color: 0xff9a2a, transparent: true, opacity: 0.9 })); f.rotation.x = -Math.PI / 2; f.position.set(x, 0.42, -2.35); f.visible = false; car.group.add(f); return f; });
   const _ray = new THREE.Raycaster(), _v = new THREE.Vector3(), _d = new THREE.Vector3();
 
@@ -301,10 +307,14 @@ export function createWorld({ setGarageHoles, city, scene, camera, car, input, h
     // body kit (bodykit.js)
     grp.add(buildKit(m.kit, { base, heightAtZ, wheels: wz0(), wheelR: model.userData.wheelR || 0.38 }));
     // neon underglow, xenon headlights
-    if (m.neon != null) { neonMesh.material.color.setHex(m.neon); neonMesh.material.opacity = 0.9; neonMesh.visible = true; } else neonMesh.visible = false;
-    const xen = m.xenon;
-    (car.headSpots || []).forEach(sp => sp.color.setHex(xen ? 0xcfe2ff : 0xfff2d0));
-    (car.headlightMeshes || []).forEach(l => l.material.emissive.setHex(xen ? 0xbcd8ff : 0xfff6d0));
+    neonCol = m.neon != null ? m.neon : null;
+    if (neonCol != null) { neonMesh.material.color.setHex(neonCol); neonCore.material.color.setHex(neonCol); }
+    updateNeon(true);
+    const xen = m.xenon, hc = m.hlight != null ? m.hlight : (xen ? 0xcfe2ff : 0xfff2d0);
+    car.headColor = hc;
+    (car.headSpots || []).forEach(sp => sp.color.setHex(hc));
+    (car.headlightMeshes || []).forEach(l => l.material.emissive.setHex(m.hlight != null ? hc : (xen ? 0xbcd8ff : 0xfff6d0)));
+    (model.userData.wheels || []).forEach(w => styleWheel(w, m.rims.style, m.rims.color));
     // nitro tank: twin pipes at the back
     if (m.nitro) { [-0.5, 0.5].forEach(x => add(new THREE.CylinderGeometry(0.07, 0.07, 0.3, 10), new THREE.MeshStandardMaterial({ color: 0xc9ced6, metalness: 0.9, roughness: 0.25 }), x, 0.42, -1.82, Math.PI / 2)); }
     updateCluster(true);
@@ -312,7 +322,16 @@ export function createWorld({ setGarageHoles, city, scene, camera, car, input, h
 
   // ---------- nitro + HUD cluster ---------------------------------------------------------------------
   let nitro = 1, boosting = false;
+  // the underglow is a light: on with the headlights (and always while you fit it in the tuning shop)
+  function updateNeon(force) {
+    const on = neonCol != null && (!!input.lightsOn || (modal && modal.kind === 'shop' && modal.target && modal.target.data && modal.target.data.kind === 'tuning'));
+    const v = on ? 1 : 0;
+    if (!force && neonMesh._v === v) return; neonMesh._v = v;
+    neonMesh.material.opacity = on ? 1 : 0; neonMesh.visible = on;
+    neonCore.material.opacity = on ? 1 : 0; neonCore.visible = on;
+  }
   function beforeCar(dt) {
+    updateNeon(false);
     const m = modsOf(car.styleKey), lvl = m.nitro;
     if (!onFoot && lvl > 0 && input.boost && nitro > 0.02 && car.speed > 1) { boosting = true; nitro = Math.max(0, nitro - dt / NITRO_SECS[lvl]); }
     else { boosting = false; nitro = Math.min(1, nitro + dt * 0.1); }
@@ -323,14 +342,13 @@ export function createWorld({ setGarageHoles, city, scene, camera, car, input, h
   let clusterT = 0;
   function updateCluster(force) {
     const m = modsOf(car.styleKey);
-    if (!m.hud && !m.nitro) { cluster.style.display = 'none'; return; }
+    if (m.hud < 2 && !m.nitro) { cluster.style.display = 'none'; return; }
     const now = performance.now();
     if (!force && now - clusterT < 90) return; clusterT = now;
     cluster.style.display = onFoot ? 'none' : 'block';
     const kmh = Math.round(Math.hypot(car.vx || 0, car.vz || 0) * KMH_PER_U);
     let html = '';
     if (m.hud) {
-      html += `<div class="big">${kmh}<small> km/h</small></div>`;
       if (m.hud >= 2) {
         const dirs = ['N', 'NE', 'E', 'SE', 'S', 'SW', 'W', 'NW'];
         const hdg = (Math.atan2(-Math.sin(car.heading), Math.cos(car.heading)) * 180 / Math.PI + 360) % 360;   // game +z = north
@@ -955,6 +973,13 @@ export function createWorld({ setGarageHoles, city, scene, camera, car, input, h
         rows.push(pickRow({ group: 'decal', key: t, name: n, price: owned ? 0 : p, fitted: real.decal.type === t, apply: mm => { mm.decal.type = t; if (t !== 'none') mm.own['decal.' + t] = true; } }));
       });
       rows.push({ name: 'Decal colour (free)', chips: DECAL_COLORS.map(([n, c]) => ({ label: n, color: c, on: d.decal.color === c, act: () => { if (real.decal.color === c) cartMap.delete('decalcolor'); else cartMap.set('decalcolor', { group: 'decalcolor', key: c, name: n, price: 0, apply: mm => { mm.decal.color = c; } }); applyMods(draft()); refreshPanel(); } })) });
+      rows.push({ hint: 'Rims' });
+      RIM_NAMES.forEach((n, v) => {
+        const owned = v === 0 || real.own['rim.' + v];
+        rows.push(pickRow({ group: 'rimstyle', key: v, name: n, price: owned ? 0 : UPG.rim, fitted: real.rims.style === v, apply: mm => { mm.rims.style = v; if (v) mm.own['rim.' + v] = true; } }));
+      });
+      rows.push({ name: 'Rim colour (free)', chips: RIM_COLORS.map(([n, c]) => ({ label: n, color: c, on: (d.rims.color == null ? RIM_COLORS[0][1] : d.rims.color) === c,
+        act: () => { if ((real.rims.color == null ? RIM_COLORS[0][1] : real.rims.color) === c) cartMap.delete('rimcolor'); else cartMap.set('rimcolor', { group: 'rimcolor', key: c, name: 'Rims ' + n, price: 0, apply: mm => { mm.rims.color = c; } }); applyMods(draft()); refreshPanel(); } })) });
       return { ...base, buy: buyBar(), rows };
     }
     if (shop.kind === 'tuning') {
@@ -962,12 +987,15 @@ export function createWorld({ setGarageHoles, city, scene, camera, car, input, h
         act: () => { const cc = cartMap.get('neon'); if (cc && cc.key === c) cartMap.delete('neon'); else cartMap.set('neon', { group: 'neon', key: c, name: 'Neon ' + n, price: real.own.neon ? 0 : UPG.neon, apply: mm => { mm.neon = c; mm.own.neon = true; } }); applyMods(draft()); refreshPanel(); } })) }];
       if (real.neon != null || d.neon != null) rows.push(pickRow({ group: 'neon', key: 'off', name: 'Remove neon', price: 0, fitted: d.neon == null && real.neon == null, sub: 'Switch the underglow off', apply: mm => { mm.neon = null; } }));
       rows.push(pickRow({ group: 'xenon', key: 'x', name: 'Xenon headlights', price: UPG.xenon, fitted: !!real.xenon, sub: real.xenon ? 'Fitted' : '$' + UPG.xenon + ' · cold blue-white beams', apply: mm => { mm.xenon = true; } }));
+      rows.push({ name: real.own.hlight ? 'Headlight colour (owned - recolour free)' : 'Headlight colour - $' + UPG.hlight + ' (then free to recolour)', chips: HEADLIGHTS.map(([n, c]) => ({ label: n, color: c, on: d.hlight === c,
+        act: () => { const cc = cartMap.get('hlight'); if (cc && cc.key === c) cartMap.delete('hlight'); else cartMap.set('hlight', { group: 'hlight', key: c, name: 'Headlights ' + n, price: real.own.hlight ? 0 : UPG.hlight, apply: mm => { mm.hlight = c; mm.own.hlight = true; } }); applyMods(draft()); refreshPanel(); } })) });
+      if (real.hlight != null || d.hlight != null) rows.push(pickRow({ group: 'hlight', key: 'off', name: 'Stock headlight colour', price: 0, fitted: d.hlight == null && real.hlight == null, sub: 'Back to the factory beams', apply: mm => { mm.hlight = null; } }));
       rows.push({ hint: 'Trunk: nitro tank - hold Shift to boost (+30% top speed, 2.4x acceleration), refills over time' });
       const nr = []; stageRows(nr, 'nitro', 'Nitro tank', UPG.nitro.prices, 'boost time ' + UPG.nitro.secs.join(' / ') + ' s', x => x.nitro, (mm, l) => { mm.nitro = l; }); rows.push(...nr.slice(1));
       rows.push({ hint: 'Fuel' });
       const tr = []; stageRows(tr, 'tank', 'Fuel tank', UPG.tank.prices, '+5 L per stage (tank 25 / 30 / 35 / 40 L)', x => x.tank || 0, (mm, l) => { mm.tank = l; }); rows.push(...tr.slice(1));
       rows.push({ hint: 'HUD' });
-      const hr = []; stageRows(hr, 'hud', 'HUD', UPG.hud.prices, 'stage 1 digital speedo, stage 2 adds compass + clock', x => x.hud, (mm, l) => { mm.hud = l; }); rows.push(...hr.slice(1));
+      const hr = []; stageRows(hr, 'hud', 'HUD', UPG.hud.prices, 'stage 1 digital sport dash (glowing speedo, segmented rev bar), stage 2 adds compass + clock', x => x.hud, (mm, l) => { mm.hud = l; }); rows.push(...hr.slice(1));
       return { ...base, buy: buyBar(), rows };
     }
     // body kit shop
@@ -1314,6 +1342,7 @@ export function createWorld({ setGarageHoles, city, scene, camera, car, input, h
 
   return {
     get onFoot() { return onFoot; },
+    hudLevel: () => modsOf(car.styleKey).hud | 0,
     get modal() { return !!modal; },
     focus() { return onFoot ? foot : car; },
     setDestinations: fn => { extraDest = fn; }, setRaceInfo: fn => { raceInfo = fn; }, setSleepHook: fn => { sleepHook = fn; }, heightAt: hAt, setArena: fn => { arenaH = fn; }, get mode() { return mode; }, get inShop() { return !!modal && modal.kind === 'shop'; }, pocketWall: (x, z) => {

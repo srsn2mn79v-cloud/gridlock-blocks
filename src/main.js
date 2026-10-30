@@ -191,7 +191,7 @@ computeLampGlow();
 // range/width, so studs kept glowing beside and behind the beams and after the lights went
 // off. AI cars get a simpler fixed cone — their lights aren't real THREE.Lights.
 const _lp = new THREE.Vector3(), _lt = new THREE.Vector3();
-const lightSources = [];
+const lightSources = [], _tc = new THREE.Color();
 function gatherLightSources(car) {
   lightSources.length = 0;
   if (car.lightsOn) {
@@ -201,7 +201,7 @@ function gatherLightSources(car) {
       lightSources.push({
         px: _lp.x, py: _lp.y, pz: _lp.z, dx: dx / l, dy: dy / l, dz: dz / l,
         coneCos: Math.cos(sp.angle), penCos: Math.cos(sp.angle * (1 - sp.penumbra)),
-        range: 30, gain: 3.2
+        range: 30, gain: 3.2, col: car.headColor != null ? car.headColor : 0xfff2d0
       });
     });
   }
@@ -223,7 +223,7 @@ function updateReflectors(car) {
   const _col = new THREE.Color(), dirty = new Set();
   reflectors.forEach(r => {
     if (r.last >= 0 && (Math.abs(r.x - car.x) > 90 || Math.abs(r.z - car.z) > 90)) return;
-    let boost = 0;
+    let boost = 0, tint = null;
     for (let i = 0; i < lightSources.length; i++) {
       const L = lightSources[i];
       const vx = r.x - L.px, vz = r.z - L.pz;
@@ -235,10 +235,14 @@ function updateReflectors(car) {
       if (cosA <= L.coneCos) continue;
       const t = Math.min(1, (cosA - L.coneCos) / (L.penCos - L.coneCos));
       const lit = t * t * (3 - 2 * t) * (1 - d / L.range) * L.gain;
-      if (lit > boost) boost = lit;
+      if (lit > boost) { boost = lit; tint = L.col; }
     }
     const v = 0.5 - 0.38 * nightK + Math.max(r.lampGlow0 * nightK, boost * nightK) * 2.2;
-    if (Math.abs(v - r.last) > 0.02) { r.last = v; _col.copy(r.base).multiplyScalar(v); r.im.setColorAt(r.idx, _col); dirty.add(r.im); }
+    const tc = boost * nightK > 0.05 && tint != null && tint !== 0xfff2d0 ? tint : 0;
+    if (Math.abs(v - r.last) > 0.02 || tc !== r.tc) {
+      r.last = v; r.tc = tc; _col.copy(r.base).multiplyScalar(v);
+      if (tc) { const k = Math.min(1, boost * nightK * 1.5); _tc.set(tc); _col.r += (_tc.r * v * 1.6 - _col.r) * k; _col.g += (_tc.g * v * 1.6 - _col.g) * k; _col.b += (_tc.b * v * 1.6 - _col.b) * k; }
+      r.im.setColorAt(r.idx, _col); dirty.add(r.im); }
   });
   dirty.forEach(im => { im.instanceColor.needsUpdate = true; });
 }
@@ -662,14 +666,19 @@ dashStyle.textContent = `#dash { position: fixed; right: 16px; bottom: 16px; z-i
   #dash .bar { position: relative; height: 10px; margin-top: 8px; border-radius: 6px; overflow: hidden; background: rgba(255,255,255,.12); }
   #dash .fill { position: absolute; inset: 0 auto 0 0; width: 0; background: linear-gradient(90deg, #2ee66b 0%, #2ee66b 45%, #ffa51f 68%, #ff3b30 88%, #ff3b30 100%); background-size: 210px 100%; }
   #dash .ticks { position: absolute; inset: 0; background: repeating-linear-gradient(90deg, transparent 0 18px, rgba(0,0,0,.35) 18px 20px); }
+  #dash.h0 .bar { display: none; } #dash.h0 { width: 150px; } #dash.h0 .spd { font-size: 34px; } #dash.h0 .gear { font-size: 24px; }
+  #dash.h1, #dash.h2 { background: linear-gradient(180deg, rgba(0,18,30,.8), rgba(0,8,16,.85)); border: 1px solid #1fd2ff; box-shadow: 0 0 14px rgba(31,210,255,.55), inset 0 0 10px rgba(31,210,255,.18); }
+  #dash.h1 .spd, #dash.h2 .spd { color: #7df; text-shadow: 0 0 10px #0af; } #dash.h1 .ticks, #dash.h2 .ticks { background: repeating-linear-gradient(90deg, transparent 0 8px, rgba(0,0,0,.7) 8px 10px); }
+  #dash.h2 { border-color: #ffd21f; box-shadow: 0 0 16px rgba(255,210,31,.55), inset 0 0 10px rgba(255,210,31,.15); }
   html.touch #dash { bottom: 150px; right: 10px; transform: scale(.85); transform-origin: bottom right; }`;
 document.head.appendChild(dashStyle);
 const dash = document.createElement('div'); dash.id = 'dash';
 dash.innerHTML = '<div class="row"><div><span class="spd">0</span><span class="unit">km/h</span></div><div class="gear">N</div></div><div class="bar"><div class="fill"></div><div class="ticks"></div></div>';
 document.body.appendChild(dash);
 const dashSpd = dash.querySelector('.spd'), dashGear = dash.querySelector('.gear'), dashFill = dash.querySelector('.fill');
-let dashShown = '';
+let dashShown = '', dashLvl = -1;
 function dashFrame(dt, rev) {
+  const hl = world.hudLevel(); if (hl !== dashLvl) { dashLvl = hl; dash.className = 'h' + hl; }
   const kmh = Math.round(Math.hypot(car.vx || 0, car.vz || 0) * KMH_PER_U);
   if (dashSpd.textContent !== String(kmh)) dashSpd.textContent = kmh;
   const g = String(rev.gear); if (dashGear.textContent !== g) dashGear.textContent = g;

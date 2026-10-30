@@ -50,6 +50,46 @@ function wheelGeos(r, w) {
   }
   return (geoCache[key] = { tyre, rim: mergeGeometries(parts) });
 }
+// Rim designs (the player can fit them at the paint shop). Each is a merged geometry in the tyre's own frame (axis = Y), like the stock 5-spoke.
+export const RIM_NAMES = ['Stock 5-spoke', 'Mesh', 'Twin-spoke', 'Aero disc', 'Turbine', 'Deep dish'];
+export const RIM_COLORS = [['Chrome', 0xaab0b8], ['Gloss black', 0x15171a], ['Gold', 0xd4af37], ['Bronze', 0x8c5a2b], ['Red', 0xd62a2a], ['Blue', 0x2f6bd8], ['White', 0xf0f0f0], ['Gunmetal', 0x4a4f57]];
+const rimCache = {};
+export function rimGeometry(style, r, w) {
+  const key = 'rim' + style + '_' + r + '_' + w;
+  if (rimCache[key]) return rimCache[key];
+  const h = w + 0.035, parts = [];
+  const ring = (rad, hh = w + 0.02) => new THREE.CylinderGeometry(rad, rad, hh, 16);
+  const spoke = (len, thick, ang, off = 0) => { const b = new THREE.BoxGeometry(len, h, thick); if (off) b.translate(off, 0, 0); b.rotateY(ang); return b; };
+  if (style === 1) {                       // mesh: a fine lattice of 14 thin spokes
+    parts.push(ring(r * 0.64), ring(r * 0.2, h));
+    for (let i = 0; i < 14; i++) parts.push(spoke(r * 1.2, r * 0.05, (i / 14) * Math.PI));
+  } else if (style === 2) {                // twin-spoke: five pairs
+    parts.push(ring(r * 0.66), ring(r * 0.18, h));
+    for (let i = 0; i < 5; i++) { const a = (i / 5) * Math.PI * 2; parts.push(spoke(r * 1.2, r * 0.07, a / 2 + 0.12), spoke(r * 1.2, r * 0.07, a / 2 - 0.12)); }
+  } else if (style === 3) {                // aero disc: a flat cover with a raised centre
+    parts.push(new THREE.CylinderGeometry(r * 0.7, r * 0.7, w + 0.03, 20), ring(r * 0.22, h + 0.01));
+  } else if (style === 4) {                // turbine: eight swept blades
+    parts.push(ring(r * 0.66), ring(r * 0.16, h));
+    for (let i = 0; i < 8; i++) { const b = new THREE.BoxGeometry(r * 0.62, h, r * 0.13); b.rotateY(0.55); b.translate(r * 0.33, 0, 0); b.rotateY((i / 8) * Math.PI * 2); parts.push(b); }
+  } else if (style === 5) {                // deep dish: a wide lip with six chunky spokes
+    parts.push(new THREE.CylinderGeometry(r * 0.72, r * 0.72, w + 0.06, 18), ring(r * 0.14, h + 0.02));
+    for (let i = 0; i < 6; i++) parts.push(spoke(r * 1.3, r * 0.17, (i / 6) * Math.PI));
+  } else {                                 // 0: stock five spokes
+    parts.push(new THREE.CylinderGeometry(r * 0.66, r * 0.66, w + 0.02, 14));
+    for (let i = 0; i < 5; i++) { const b = new THREE.BoxGeometry(r * 1.25, w + 0.035, r * 0.16); b.rotateY((i / 5) * Math.PI); parts.push(b); }
+  }
+  return (rimCache[key] = mergeGeometries(parts));
+}
+// Swap the look of a wheel's rim (the first child of the tyre mesh); colour null = keep the stock chrome
+export function styleWheel(wheel, style, color) {
+  const rimMesh = wheel.children[0]; if (!rimMesh || !rimMesh.isMesh) return;
+  const gp = wheel.geometry.parameters || {}, r = gp.radiusTop || 0.38, w = gp.height || 0.25;
+  if (!rimMesh.userData.stockGeo) { rimMesh.userData.stockGeo = rimMesh.geometry; rimMesh.userData.stockMat = rimMesh.material; }
+  rimMesh.geometry = style ? rimGeometry(style, r, w) : rimMesh.userData.stockGeo;
+  if (color != null) { if (!rimMesh.userData.ownMat) rimMesh.userData.ownMat = new THREE.MeshStandardMaterial({ roughness: 0.3, metalness: 0.9 }); rimMesh.userData.ownMat.color.setHex(color); rimMesh.material = rimMesh.userData.ownMat; }
+  else rimMesh.material = rimMesh.userData.stockMat;
+}
+
 // wheel mesh whose own rotation.x spins it about the axle (same convention car.js/traffic.js use)
 function makeWheel(r, w) {
   const { tyre, rim } = wheelGeos(r, w);

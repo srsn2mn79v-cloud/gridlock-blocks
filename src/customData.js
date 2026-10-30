@@ -26,7 +26,7 @@ export const UPGRADE_DEFAULTS = {
   nitro: { prices: [900, 1600, 2600], secs: [4, 7, 10] },
   tank:  { prices: [350, 700, 1200, 1800] },
   hud:   { prices: [500, 900] },
-  paint: 200, decal: 300, neon: 400, xenon: 350,
+  paint: 200, decal: 300, neon: 400, xenon: 350, hlight: 300, rim: 250,
   kit: {
     front:   { names: ['Stock', 'Lip splitter', 'Sport bumper', 'Aggressive bumper'], prices: [0, 350, 600, 900] },
     rear:    { names: ['Stock', 'Diffuser', 'Race diffuser'], prices: [0, 400, 700] },
