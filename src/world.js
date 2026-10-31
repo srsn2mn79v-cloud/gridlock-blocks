@@ -1363,6 +1363,7 @@ export function createWorld({ transit = null, setGarageHoles, city, scene, camer
     const px = onFoot ? foot.x : car.x, pz = onFoot ? foot.z : car.z, out = [];
     targets.forEach(t => {
       if (!all && t.kind !== 'shop' && Math.hypot(t.x - px, t.z - pz) > 170) return;   // shops are always pinned
+      if (t.kind === 'metro') return;                     // (the metro stations are drawn by main.js with the other transport markers)
       if (t.kind === 'gate') { out.push({ x: t.x, z: t.z, color: '#4aa3ff', label: 'P' }); return; }
       if (t.kind === 'agent') { out.push({ x: t.x, z: t.z, color: '#19c6b7', label: 'RE' }); return; }
       if (t.kind === 'store') { out.push({ x: t.x, z: t.z, color: t.data.gym ? '#ff7a1a' : '#ff5fa8', label: t.data.gym ? 'G' : 'C' }); return; }
