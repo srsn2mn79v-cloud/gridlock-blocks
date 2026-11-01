@@ -454,6 +454,7 @@ export function createPedestrianSystem(cityData, scene, count = 14, maxCount = c
         else waiting = true;
       }
 
+      if (!Number.isFinite(p.t)) p.t = 0;
       if (!waiting) {
         const len = Math.max(0.5, dist(
           waypoints[p.from].x, waypoints[p.from].z, waypoints[p.to].x, waypoints[p.to].z

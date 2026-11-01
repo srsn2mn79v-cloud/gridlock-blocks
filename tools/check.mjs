@@ -721,7 +721,7 @@ async function checkDoors() {
   const sp = (city.gameplay || []).find(g => g.type === 'spawn') || { x: 0, z: 0 };
   const car = { x: sp.x, z: sp.z, y: 0, vx: 0, vz: 0, speed: 0 };
   for (let i = 0; i < 15 * 60 * 6; i++) { T += 66; ps.update(1 / 15, car); }
-  let stuck = 0; ps.peds.forEach(p => { if (p.state === 'enter' && p.enter && p.enter.phase !== 1 && !Number.isFinite(p.renderX)) stuck++; if (!Number.isFinite(p.mesh.position.x)) stuck++; });
+  let stuck = 0; ps.peds.forEach(p => { if (p.state === 'enter' && p.enter && p.enter.phase !== 1 && !Number.isFinite(p.renderX)) stuck++; if (!Number.isFinite(p.mesh.position.x)) { stuck++; if (process.env.DBGP) console.log('BADPED', p.state, JSON.stringify({ seg: p.seg && (p.seg.edgeId || p.seg.id), x: p.x, z: p.z, t: p.t, dir: p.dir })); } });
   if (stuck) bad.push(stuck + ' people at a bad position');
   if (!(ps.stats.entered > 0)) bad.push('nobody ever walked into a door');
   if (!(ps.stats.exited > 0)) bad.push('nobody ever came out of a door');
