@@ -870,3 +870,13 @@ Still to come in this phase: storefronts, parks with seating, food stands, gyms.
 - Movable bridges tilt up to 35 degrees; every arterial movable bridge now opens (staggered).
 - The river sits below street level with banks (`src/rivers.js`, `src/riverbanks.js`) and has boats (`src/boats.js`).
 - Advertising boards along the freeway (`src/billboards.js`).
+
+## Latest round (rivers, pavements, ramps, car parks, cockpit)
+- **Racers keep racing** when you hit them (they get shoved and lose a little speed, they never tumble out of the race).
+- **Water** has moving ripples and swell (shader patch, `waterTime`); river **banks** are a height-field that follows the water, so there are no spikes at river corners.
+- **Pavement** is joined at bends, junction corners and notches (`src/sidewalks.js`: bend pavement, junction corners, loose-end joins, notch closing). Roads always win over pavement.
+- **Cloverleaf loops** are classified by their turning angle: traffic leaves *after* the crossing and loops round, and joins *before* it; loop ramps get a short lane.
+- **Bridge parapets** on every raised deck (cars cannot drive through or over); knocked AI cars now collide with walls and every other obstacle (`src/aiCollide.js`).
+- **Car parks** (`src/lotGeo.js`, `src/lots.js`): more frequent arrivals, smooth Bezier in/out paths, a STOP sign on the way out; supermarkets are either **24/7** (always busy, lit) or a **Quick 7-11** (dark and empty out of hours). Market signs glow at night and always stand square to the road.
+- **Driver cam** has a full cabin (dash, vents, doors, seats, pillars, roof, rear-view and wing mirrors) with a different look per car (`PROFILES` in `src/interior.js`). **Bumper cam** is 1 m above the road.
+- New permanent checks: `pavementgaps`, `riverbanks`, `bridgewalls`, `obstacles`, `lotgeo` (groups: `placement`, `roads`, `sim`). Run `node tools/check.mjs all` after changing maps.

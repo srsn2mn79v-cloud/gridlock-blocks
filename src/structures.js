@@ -32,7 +32,7 @@ function segInter(a, b, c, d) {
 
 export function buildStructures(city) {
   const riverField = createRiverField(city.rivers);
-  const group = new THREE.Group(), colliders = [], piers = [], walls = [];
+  const group = new THREE.Group(), colliders = [], piers = [], walls = [], parapets = [];
   const nodes = city.roadNodes, edges = city.roadEdges;
   const vc = buildVerticalCurves(nodes, buildEdgesByNode(edges));
   const light = [], dark = [], rail = [], post = [], railCol = [];
@@ -79,6 +79,18 @@ export function buildStructures(city) {
         if (my > 0.6) light.push(prism(prev, cur, -hw - 0.35, hw + 0.35, prev.y - 0.95, cur.y - 0.95, prev.y - 0.04, cur.y - 0.04));   // deck slab
         // crash barrier along both sides
         if (my > 0.6) { dark.push(prism(prev, cur, hw - 0.1, hw + 0.35, prev.y, cur.y, prev.y + 0.75, cur.y + 0.75)); dark.push(prism(prev, cur, -hw - 0.35, -hw + 0.1, prev.y, cur.y, prev.y + 0.75, cur.y + 0.75)); }
+      }
+      // parapet: a solid barrier along both edges of every raised deck, high enough that a car can neither drive through nor jump over it
+      const sMid = len * (i - 0.5) / n, nearJunction = ((byNode[e.from] || []).length >= 3 && sMid < 18) || ((byNode[e.to] || []).length >= 3 && sMid > len - 18);      // a side street or slip road joins here: the barrier gives way
+      if (my > 0.5 && !nearJunction) {
+        const dx = cur.x - prev.x, dz = cur.z - prev.z, dl = Math.hypot(dx, dz) || 1, cx = (prev.x + cur.x) / 2, cz = (prev.z + cur.z) / 2;
+        [1, -1].forEach(side => {
+          if (!bridge) { const l0 = side > 0 ? hw - 0.1 : -hw - 0.35, l1 = side > 0 ? hw + 0.35 : -hw + 0.1; dark.push(prism(prev, cur, l0, l1, prev.y, cur.y, prev.y + 0.75, cur.y + 0.75)); }
+          if (i % 2 === 0 || i === n) {
+            const lc = side * (hw + 0.12), px0 = cx + dz / dl * lc * 1, pz0 = cz - dx / dl * lc * 1;
+            parapets.push({ kind: 'parcel', footprint: quad(px0, pz0, dx / dl, dz / dl, dl * (i === n && n % 2 ? 1 : 2) / 2 + 0.2, 0.4), blocksCar: true, destructible: false, response: 'bounce', destroyed: false, ymin: my - 0.7, ymax: my + 6, parapet: true, edgeId: e.id, y: my, ex: px0, ez: pz0 });
+          }
+        });
       }
       // solid sides while the deck is low
       if (my > WALL_MIN_Y && my < WALL_MAX_Y && !(bridge && my > 2.2 && false)) {
@@ -138,6 +150,6 @@ export function buildStructures(city) {
   };
   addMerged(light, concrete); addMerged(dark, concreteDark);
   addMerged(rail, new THREE.MeshStandardMaterial({ color: 0xc4c8cc, roughness: 0.45, metalness: 0.7 })); addMerged(post, concreteDark);
-  colliders.push(...railCol);
-  return { group, colliders, piers, walls };
+  colliders.push(...railCol, ...parapets);
+  return { group, colliders, piers, walls, parapets };
 }

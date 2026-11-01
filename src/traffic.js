@@ -40,6 +40,7 @@ const bodyColors = [0x3a6ea5, 0x8a8a8a, 0x5a9e5a, 0xb5543a, 0xcac35a, 0x6a4a8a];
 
 import { KMH_PER_U, SPEED_SCALE } from './units.js';
 import { bodyLift } from './bodyLift.js';
+import { resolveKnockAgainstWorld } from './aiCollide.js';
 import { addServiceGear, SERVICE_BASE, SERVICE_COLOR, isService } from './serviceVehicles.js';
 import { buildTrafficBody, TRAFFIC_DIMS } from './vehicleModels.js';
 
@@ -371,6 +372,13 @@ export function createTrafficSystem(cityData, scene, heightAt, count = 6, maxCou
     // A hit from the player (or anything): swap to free physics. `v` is the new world
     // velocity, `spin` a yaw kick, `dv` how big the velocity change was (drives the hop/tumble).
     car.applyImpact = (vx, vz, spin, dv, sideSign) => {
+      if (car.rival) {          // a racer never stops for a bump: it loses a little speed, gets shoved sideways, and keeps racing
+        const R = car.rival, q = R.sample(R.s), lat = vx * -q.dz + vz * q.dx, along = vx * q.dx + vz * q.dz;
+        R.latCur += Math.max(-1.6, Math.min(1.6, lat * 0.12));
+        R.v = Math.max(R.v * 0.75, Math.min(R.v, Math.max(0, along)) * 0.9);
+        car.wobble = 0.5;
+        return;
+      }
       if (dv > 1.5 && (car.honkCool || 0) <= 0) { events.push({ t: 'honk', x: mesh.position.x, z: mesh.position.z, type: car.type, seed: car.seed, angry: true }); car.honkCool = 3 + Math.random() * 4; }
       if (!car.knock) {
         car.knock = { x: mesh.position.x, z: mesh.position.z, y: mesh.position.y, yaw: mesh.rotation.y, vx: 0, vz: 0, vy: 0, wy: 0, wr: 0, wp: 0, roll: mesh.rotation.z, pitch: mesh.rotation.x, air: false, restRoll: 0, age: 0 };
@@ -450,7 +458,8 @@ export function createTrafficSystem(cityData, scene, heightAt, count = 6, maxCou
     car.speed = R.v; car.hdg = Math.atan2(fz, fx); car.braking = R.v > vt + 0.6; car.crashTimer = 0;
     const y = heightAt ? heightAt(x, z, m.position.y) : 0;
     m.position.set(x, y, z);
-    const yaw = Math.atan2(fx, fz) + Math.max(-0.4, Math.min(0.4, (R.latTarget - R.latCur) * 0.12));
+    if (car.wobble > 0) car.wobble = Math.max(0, car.wobble - dt);
+    const yaw = Math.atan2(fx, fz) + Math.max(-0.4, Math.min(0.4, (R.latTarget - R.latCur) * 0.12)) + (car.wobble > 0 ? Math.sin(car.wobble * 22) * car.wobble * 0.25 : 0);
     m.rotation.y += normalizeAngle(yaw - m.rotation.y) * (1 - Math.exp(-dt * 10));
     if (heightAt) { const hx = Math.sin(m.rotation.y), hz = Math.cos(m.rotation.y); m.rotation.x = Math.atan2(heightAt(x - hx * 1.7, z - hz * 1.7, y) - heightAt(x + hx * 1.7, z + hz * 1.7, y), 3.4); }
     if (car.wheels) { const sp = R.v * dt / (m.userData.wheelR || 0.4); car.wheels.forEach(w => { w.rotation.x += sp; }); }
@@ -675,6 +684,7 @@ export function createTrafficSystem(cityData, scene, heightAt, count = 6, maxCou
       if (!k.air) { const e = Math.exp(-1.5 * dt); k.vx *= e; k.vz *= e; }
     }
     k.x += k.vx * dt; k.z += k.vz * dt;
+    if (sink && (k.vx || k.vz)) resolveKnockAgainstWorld(k, car.veh.r + 0.3, sink);      // walls, buildings, parapets, posts: a knocked car does not slide through them
     k.yaw += k.wy * dt;
     k.wy *= Math.exp(-5.5 * dt);
     const ground = heightAt ? heightAt(k.x, k.z, k.y) : 0;
@@ -1246,5 +1256,26 @@ export function createTrafficSystem(cityData, scene, heightAt, count = 6, maxCou
     adopted.push(car);
     return true;
   }
-  return { adopt, update, walkerHit, events, setClearZone, addRival, clearRivals, rivalPool, colliders: colliderList, cars, svcCars, setPlows, setCount, activeCount, maxCount, setSink(arr) { sink = arr; } };
+  // A car park wants to merge a car into the traffic without a jump: reserve a hidden traffic car on `edge`, heading along `D`, in the kerb lane, at
+  // the point nearest (x, z). Returns where that car will be ({x, z, hx, hz}); the lot car drives there along a curve and calls release(), which
+  // shows the traffic car in exactly that spot and speed.
+  function reserveLane(edge, D, x, z, color) {
+    const a = nodes[edge.from], b = nodes[edge.to]; if (!a || !b) return null;
+    const dx = b.x - a.x, dz = b.z - a.z, l = Math.hypot(dx, dz) || 1, ux = dx / l, uz = dz / l;
+    const reversed = (ux * D.x + uz * D.z) < 0; if (reversed && edge.oneWay) return null;
+    let car;
+    if (adopted.length >= 10) { car = adopted.shift(); place(car, edge, reversed); }       // at the cap, the oldest visitor is recycled
+    else car = spawnOn(edge, reversed, { type: 'sedan', color });
+    const tp = Math.max(0, Math.min(l, (x - a.x) * ux + (z - a.z) * uz));
+    car.s = Math.min(Math.max(0, reversed ? l - tp : tp), Math.max(0, car.path.length - 2));
+    car.laneIndex = Math.max(0, (car.lanes || 1) - 1); car.homeLane = car.laneIndex; car.lat = laneLateral(car.width, car.lanes, car.laneIndex, car.oneWay);
+    car.active = false; car.mesh.visible = false; car.colliders.forEach(k => { k.blocksCar = false; k.x = 1e6; k.z = 1e6; });
+    adopted.push(car);
+    const p = sampleAt(car.path, car.s), o = offsetVec(p.heading, car.lat);
+    return { car, x: p.x + o.x, z: p.z + o.z, hx: Math.cos(p.heading), hz: Math.sin(p.heading) };
+  }
+  function release(car, speed = 4) {
+    car.active = true; car.mesh.visible = true; car.speed = speed; car.colliders.forEach(k => { k.blocksCar = true; });
+  }
+  return { reserveLane, release, adopt, update, walkerHit, events, setClearZone, addRival, clearRivals, rivalPool, colliders: colliderList, cars, svcCars, setPlows, setCount, activeCount, maxCount, setSink(arr) { sink = arr; } };
 }

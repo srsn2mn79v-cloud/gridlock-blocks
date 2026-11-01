@@ -20,7 +20,7 @@ export function pointInPolygon(px, pz, poly) {
   return inside;
 }
 
-function closestPointOnPolygon(px, pz, poly) {
+export function closestPointOnPolygon(px, pz, poly) {
   let best = null, bestD = Infinity;
   for (let i = 0; i < poly.length; i++) {
     const a = poly[i], b = poly[(i + 1) % poly.length];
@@ -172,6 +172,7 @@ export function resolveCarCollisions(car, colliders, dt = 1 / 60) {
 
     if (c.kind === 'parcel') {
       if (c.ymax !== undefined && (car.y || 0) > c.ymax) continue;     // a deck above you is not a wall
+      if (c.ymin !== undefined && (car.y || 0) < c.ymin) continue;     // a parapet on a deck is not a wall for the road below
       // cheap reject first: the footprint's bounding box (cached) grown by the car's reach
       let bb = c._bb;
       if (!bb) { let x0 = 1e9, x1 = -1e9, z0 = 1e9, z1 = -1e9; for (const q of c.footprint) { if (q[0] < x0) x0 = q[0]; if (q[0] > x1) x1 = q[0]; if (q[1] < z0) z0 = q[1]; if (q[1] > z1) z1 = q[1]; } bb = c._bb = [x0, x1, z0, z1]; }

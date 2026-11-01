@@ -346,6 +346,7 @@ export function createEnvironment({ scene, camera, hemi, sun, ground, roadsGroup
         const v = Math.round(255 * Math.min(1, 1.3 - d / r)); const i = cz * MASK_N + cx; if (maskData[i] < v) { maskData[i] = v; maskDirty = true; }
       }
     },
+    get hour() { return state.hour; },
     setTemp(t) { state.temp = t; },
     get temp() { return state.temp; },
     // road grip: 1 dry, ~0.7 wet, down to ~0.3 once snow has settled

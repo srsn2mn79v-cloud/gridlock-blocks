@@ -5,6 +5,7 @@ import { collapse } from '../collapse.js';
 import { pointInPolygon } from '../collision.js';
 import { snowCap } from '../surfaceShaders.js';
 import { buildEdgesByNode, intersectionClearance } from '../roadMath.js';
+import { lotGeometry } from '../lotGeo.js';
 import { computeStopApproaches, speedLimitFor } from '../junctionRules.js';
 import { makeRoadClearance } from '../roadClearance.js';
 
@@ -276,6 +277,15 @@ export function buildSigns(city, heightAt, mapPaths) {
     }
     if (!ok) return;
     add(place(stopSignMesh(), x, heightAt(x, z), z, d), x, z);
+  });
+
+  // --- STOP signs where a shop car park lets out onto the street --------------------------
+  (city.shops || []).concat((city.stations || []).filter(q => q.market)).forEach(sh => {
+    if (!sh.mouth || !sh.door || !sh.bays) return;
+    const g = lotGeometry(city, sh); if (!g) return;
+    const { x, z, dir } = g.stopSign;
+    if (distToRoad(x, z) < MARGIN || inSolid(x, z)) return;
+    add(place(stopSignMesh(), x, heightAt(x, z), z, dir), x, z);
   });
 
   // --- speed limit signs ---------------------------------------------------------------

@@ -49,14 +49,15 @@ function signTexture(b, wide, sub) {
 
 export function buildMarketDecor(city, heightAt) {
   const root = new THREE.Group(), signMats = [];
-  const glassM = new THREE.MeshStandardMaterial({ color: 0xa8d4ea, roughness: 0.08, metalness: 0.25, transparent: true, opacity: 0.38, depthWrite: false, side: THREE.DoubleSide });
-  const lightM = new THREE.MeshBasicMaterial({ color: 0xfff1cc });
+  const markets = [];
   const solidM = new THREE.MeshStandardMaterial({ color: 0xffffff, roughness: 0.75, vertexColors: true });
   (city.stations || []).filter(st => st.market).forEach(st => {
     const info = st.info, hw = info.w / 2, hd = info.d / 2, h = info.h, theta = Math.atan2(-st.nx, -st.nz), ct = Math.cos(theta), sn = Math.sin(theta);
     const brand = { name: info.name, trim: info.trim, glyph: info.glyph };
     const grp = new THREE.Group(); grp.position.set(st.x, heightAt(st.x, st.z, 0), st.z); grp.rotation.y = theta; root.add(grp);
-    const solid = [], glass = [], lights = [];
+    const solid = [], glass = [], lights = [], mySigns = [];
+    const glassM = new THREE.MeshStandardMaterial({ color: 0xa8d4ea, roughness: 0.08, metalness: 0.25, transparent: true, opacity: 0.38, depthWrite: false, side: THREE.DoubleSide, emissive: 0xffe2a0, emissiveIntensity: 0 });
+    const lightM = new THREE.MeshBasicMaterial({ color: 0xfff1cc });
     const col = new THREE.Color();
     const box = (list, w, hh, d, x, y, z, color) => {
       const g = new THREE.BoxGeometry(w, hh, d); g.translate(x, y + hh / 2, z);
@@ -65,7 +66,7 @@ export function buildMarketDecor(city, heightAt) {
     };
     const cyl = (r, hh, x, y, z, color) => { const g = new THREE.CylinderGeometry(r, r, hh, 10); g.translate(x, y + hh / 2, z); col.setHex(color); const n = g.attributes.position.count, a = new Float32Array(n * 3); for (let i = 0; i < n; i++) { a[i * 3] = col.r; a[i * 3 + 1] = col.g; a[i * 3 + 2] = col.b; } g.setAttribute('color', new THREE.BufferAttribute(a, 3)); solid.push(g); };
     const plane = (w, hh, x, y, z, tex, ry = 0) => {          // a sign board that reads from the street (and from behind when ry = PI)
-      const mat = new THREE.MeshBasicMaterial({ map: tex, toneMapped: false }); signMats.push(mat);
+      const mat = new THREE.MeshBasicMaterial({ map: tex, toneMapped: false }); signMats.push(mat); mySigns.push(mat);
       const m = new THREE.Mesh(new THREE.PlaneGeometry(w, hh), mat); m.position.set(x, y, z); m.rotation.y = ry; grp.add(m); return m;
     };
     const TRIM = info.trim, DARK = 0x262b33, WHITE = 0xf2f2ee, STEEL = 0x9aa3ad;
@@ -111,9 +112,9 @@ export function buildMarketDecor(city, heightAt) {
     {
       const mx = st.mouth.x - st.x, mz = st.mouth.z - st.z, lx = mx * ct - mz * sn, lz = mx * sn + mz * ct;     // the mouth in the building's frame
       const px = lx + 11.2, pz = lz + 4.5, tex = signTexture(brand, false, 'SUPERMARKET');
-      cyl(0.22, 6.2, px, 0, pz, DARK); box(solid, 3.5, 4.0, 0.3, px, 5.2, pz, DARK);
-      plane(3.3, 3.8, px, 7.2, pz + 0.18, tex); plane(3.3, 3.8, px, 7.2, pz - 0.18, tex, Math.PI);
-      const ty = 6.2; box(solid, 3.6, 0.2, 0.5, px, ty - 0.1, pz, TRIM);
+      cyl(0.22, 6.2, px, 0, pz, DARK); box(solid, 0.3, 4.0, 3.5, px, 5.2, pz, DARK);
+      plane(3.3, 3.8, px + 0.18, 7.2, pz, tex, Math.PI / 2); plane(3.3, 3.8, px - 0.18, 7.2, pz, tex, -Math.PI / 2);      // perpendicular to the street: the faces look along it, so drivers see the sign head-on
+      const ty = 6.2; box(solid, 0.5, 0.2, 3.6, px, ty - 0.1, pz, TRIM);
       // painted arrows into the lot, in both lanes of the driveway
       for (const dx of [-3.2, 3.2]) { const ax = lx + dx; box(solid, 0.3, 0.02, 3.0, ax, 0.06, lz - 5.5, WHITE); box(solid, 1.6, 0.02, 0.3, ax - (dx < 0 ? -0.0 : 0), 0.06, lz - 4.2, WHITE); }
       box(solid, 7.0, 0.02, 0.3, lx, 0.06, lz - 1.0, WHITE);                           // a white line across the driveway
@@ -135,7 +136,17 @@ export function buildMarketDecor(city, heightAt) {
     const sm = new THREE.Mesh(mergeGeometries(solid, false), solidM); sm.castShadow = true; sm.receiveShadow = true; grp.add(sm);
     grp.add(new THREE.Mesh(mergeGeometries(glass, false), glassM));
     grp.add(new THREE.Mesh(mergeGeometries(lights, false), lightM));
+    markets.push({ st, glassM, lightM, signs: mySigns, hours: info.hours || '24/7' });
   });
+  // each frame (cheap): the storefront glows when the shop is open after dark; a shop that is shut goes dark, its sign dim
+  root.userData.update = (hour, nightK) => {
+    for (const m of markets) {
+      const open = m.hours === '24/7' || (hour >= m.hours[0] && hour < m.hours[1]);
+      m.glassM.emissiveIntensity = open ? 0.15 + 1.1 * nightK : 0;
+      m.lightM.color.setScalar(open ? 1 : 0.18);
+      m.signs.forEach(mat => mat.color.setScalar(open ? 1 : 0.25 + 0.75 * (1 - nightK)));
+    }
+  };
   root.userData.signMats = signMats;
   return root;
 }

@@ -246,13 +246,13 @@ export function buildChicago() {
   // supermarkets: same side-street layout as the services, but set deeper with a big car park of six rows of bays (see the bay loop below)
   // each supermarket is a different brand and building: size, colour, roof, logo and any little shops attached to its side (drawn by marketDecor.js)
   const MARKET_VARIANTS = [
-    { name: 'FreshMart', neon: 'FRESH', color: 0xe6e9dc, trim: 0x2e9b4e, glyph: 'leaf', w: 26, d: 15, h: 8 },
-    { name: 'Mega Save', neon: 'SAVE', color: 0xd9d4c3, trim: 0xd62d20, glyph: 'burst', w: 30, d: 17, h: 9, roofUnits: 5 },
-    { name: 'Corner Grocer', neon: 'GROCER', color: 0xb98f68, trim: 0x7a4a2a, glyph: 'basket', w: 17, d: 12, h: 6, roof: 'gable', units: [{ name: 'Bakery', color: 0xe9b44c, glyph: 'wheat' }, { name: 'Florist', color: 0xd96a9a, glyph: 'flower' }] },
-    { name: 'Sunrise Foods', neon: 'SUNRISE', color: 0xf0e2c0, trim: 0xf08a1c, glyph: 'sun', w: 24, d: 14, h: 7, units: [{ name: 'Pharmacy', color: 0x2f9a8c, glyph: 'cross' }] },
-    { name: 'Urban Pantry', neon: 'PANTRY', color: 0x3c4a52, trim: 0x37c8b4, glyph: 'drop', w: 22, d: 14, h: 10, glass: true },
-    { name: 'Harvest Hall', neon: 'HARVEST', color: 0xa23b2c, trim: 0xf2cf6a, glyph: 'wheat', w: 24, d: 16, h: 8, roof: 'gable' },
-    { name: 'Bulk Barn', neon: 'BULK', color: 0x8b9298, trim: 0x2f6fe0, glyph: 'star', w: 30, d: 18, h: 8, roofUnits: 6, units: [{ name: 'Tyres', color: 0x333a44, glyph: 'star' }] }
+    { name: 'FreshMart', hours: [6, 23], neon: 'FRESH', color: 0xe6e9dc, trim: 0x2e9b4e, glyph: 'leaf', w: 26, d: 15, h: 8 },
+    { name: 'Mega Save', hours: '24/7', neon: 'SAVE', color: 0xd9d4c3, trim: 0xd62d20, glyph: 'burst', w: 30, d: 17, h: 9, roofUnits: 5 },
+    { name: 'Quick 7-11', hours: [7, 23], convenience: true, neon: '7-11', color: 0xb98f68, trim: 0x7a4a2a, glyph: 'basket', w: 17, d: 12, h: 6, roof: 'gable', units: [{ name: 'Bakery', color: 0xe9b44c, glyph: 'wheat' }, { name: 'Florist', color: 0xd96a9a, glyph: 'flower' }] },
+    { name: 'Sunrise 24', hours: '24/7', neon: 'SUNRISE', color: 0xf0e2c0, trim: 0xf08a1c, glyph: 'sun', w: 24, d: 14, h: 7, units: [{ name: 'Pharmacy', color: 0x2f9a8c, glyph: 'cross' }] },
+    { name: 'Urban Pantry', hours: '24/7', neon: 'PANTRY', color: 0x3c4a52, trim: 0x37c8b4, glyph: 'drop', w: 22, d: 14, h: 10, glass: true },
+    { name: 'Harvest Hall', hours: [8, 21], neon: 'HARVEST', color: 0xa23b2c, trim: 0xf2cf6a, glyph: 'wheat', w: 24, d: 16, h: 8, roof: 'gable' },
+    { name: 'Bulk Barn', hours: [9, 20], neon: 'BULK', color: 0x8b9298, trim: 0x2f6fe0, glyph: 'star', w: 30, d: 18, h: 8, roofUnits: 6, units: [{ name: 'Tyres', color: 0x333a44, glyph: 'star' }] }
   ];
   const MARKET_SPECS = [[345, 700], [610, 640], [380, 450], [300, 900], [640, 1010], [560, 880], [250, 450]].map((at, i) => ({ kind: 'market', at, r: 120, v: MARKET_VARIANTS[i % MARKET_VARIANTS.length] }));
   [...STATION_SPECS, ...MARKET_SPECS].forEach((spec, i) => {
@@ -421,7 +421,7 @@ export function buildChicago() {
     }
     // a big lit sign over the entrance, facing the street (projecting neon, same instanced sign pool)
     const px = st.door.x, pz = st.door.z;
-    props.push({ type: 'neonsign', x: r2(px - st.nx * 1.0), z: r2(pz - st.nz * 1.0), y: st.market ? info.h - 1.6 : 4.2, rotation: Math.round(Math.atan2(st.nz, -st.nx) * 180 / Math.PI), w: st.market ? 3.0 : 3.6, h: 1.2, blade: false, word: info.neon, color: info.neonCol });
+    if (!st.market) props.push({ type: 'neonsign', x: r2(px - st.nx * 1.0), z: r2(pz - st.nz * 1.0), y: 4.2, rotation: Math.round(Math.atan2(st.nz, -st.nx) * 180 / Math.PI), w: 3.6, h: 1.2, blade: false, word: info.neon, color: info.neonCol });
   });
 
   // ---- apartments: the nicer the district the bigger the flat

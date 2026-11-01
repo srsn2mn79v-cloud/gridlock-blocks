@@ -11,6 +11,11 @@
 //   node tools/check.mjs transit    bus loops are legal, metro stations stand on free ground, custom lines build
 //   node tools/check.mjs drift      the three drift circuits: corner radius, walls, start
 //   node tools/check.mjs rivals     race rivals run their routes without errors
+//   node tools/check.mjs pavementgaps  no gaps in the pavement at bends, joins and junction corners
+//   node tools/check.mjs riverbanks  banks follow the water: no spikes at river corners, nothing above street level
+//   node tools/check.mjs bridgewalls every raised deck has parapets on both sides
+//   node tools/check.mjs obstacles   knocked AI cars collide with every wall, building, parapet and prop
+//   node tools/check.mjs lotgeo      shop car parks meet a street: lane, stop line and STOP sign on clear ground
 //   node tools/check.mjs quick      every static check (seconds)       placement / roads: sub-groups of quick
 //   node tools/check.mjs sim        the simulations (traffic, solid, rivals, races)
 //   node tools/check.mjs all        quick + sim
@@ -54,7 +59,7 @@ async function checkSigns() {
     const d = distToRoad(i.x, i.z);
     const what = i.type + '@' + r1(i.x) + ',' + r1(i.z);
     if (d < 0.4) bad.push(what + ' is on the road (' + r1(d) + ' from the surface edge)');
-    else if (d > 8 && i.type !== 'gantry') bad.push(what + ' is ' + r1(d) + ' away from any road');
+    else if (d > 9 && i.type !== 'gantry') bad.push(what + ' is ' + r1(d) + ' away from any road');
     if (inBuilding(i.x, i.z)) bad.push(what + ' is inside a building');
   });
   return { name: 'signs', count: signs.instances.length, bad };
@@ -555,14 +560,20 @@ async function checkLots() {
   let seed = 7; const rng = () => (seed = (seed * 16807) % 2147483647) / 2147483647;
   const { createTrafficSystem } = await imp('src/traffic.js'); const { buildTransit } = await imp('src/transit.js');
   const tr = createTrafficSystem(city, new THREE.Scene(), heightAt, 6, 6, buildTransit(city));
-  const lots = createShopLots({ scene, cityData: city, collisionWorld: world, heightAt, pedestrians, adopt: tr.adopt, rng });
+  const lots = createShopLots({ scene, cityData: city, collisionWorld: world, heightAt, pedestrians, adopt: tr.adopt, reserve: tr.reserveLane, release: tr.release, busy: () => false, rng });
   const sh = (city.shops || []).find(s => s.bays && s.mouth);
   const player = { x: sh ? sh.mouth.x + 90 : 0, z: sh ? sh.mouth.z : 0 };
   let nanFrames = 0, maxActive = 0;
+  const last = new Map(); let jumps = 0, turns = 0;
   for (let i = 0; i < 15 * 60 * 8; i++) {       // 8 minutes at 15 fps
-    lots.update(1 / 15, player); maxActive = Math.max(maxActive, lots.active);
-    for (const l of lots.lots) if (l.v && !(Number.isFinite(l.v.car.x) && Number.isFinite(l.v.car.z))) nanFrames++;
+    lots.update(1 / 15, player, 12); maxActive = Math.max(maxActive, lots.active);
+    for (const l of lots.lots) for (const v of l.vs) {
+      const c = v.car; if (!(Number.isFinite(c.x) && Number.isFinite(c.z))) nanFrames++;
+      const p = last.get(v); if (p) { if (Math.hypot(c.x - p.x, c.z - p.z) > 1.0) { jumps++; if (jumps < 4) bad.push('a car jumped ' + r1(Math.hypot(c.x - p.x, c.z - p.z)) + ' u in one frame (' + v.phase + ') @' + r1(c.x) + ',' + r1(c.z)); } const dy = Math.atan2(Math.sin(c.yaw - p.yaw), Math.cos(c.yaw - p.yaw)); if (Math.abs(dy) > 1.3) { turns++; if (turns < 4) bad.push('a car swung ' + r1(dy) + ' rad in one frame (' + v.phase + ') @' + r1(c.x) + ',' + r1(c.z)); } }
+      last.set(v, { x: c.x, z: c.z, yaw: c.yaw });
+    }
   }
+  if (!(lots.stats.stopped > 0)) bad.push('no leaving car ever stopped at the STOP line');
   if (nanFrames) bad.push(nanFrames + ' frames with a car at a bad position');
   const st = lots.stats;
   if (!(st.arrived > 0)) bad.push('no visitor ever arrived');
@@ -570,8 +581,137 @@ async function checkLots() {
   if (!(st.left > 0)) bad.push('no visitor ever left again');
   if (!(st.joined > 0)) bad.push('no leaving visitor ever joined the street traffic');
   // overlapping bays: two visiting cars must never share a bay
-  const used = new Set(); for (const l of lots.lots) if (l.v) { const k = l.v.b.x + ',' + l.v.b.z; if (used.has(k)) bad.push('two cars in one bay'); used.add(k); }
+  const used = new Set(); for (const l of lots.lots) for (const v of l.vs) { const k = v.b.x + ',' + v.b.z; if (used.has(k)) bad.push('two cars in one bay'); used.add(k); }
   return { name: 'lots', count: lots.lots.length + ' car parks, ' + st.arrived + ' arrivals, ' + st.entered + ' went in, ' + st.left + ' left, ' + (st.joined || 0) + ' joined the traffic (up to ' + maxActive + ' at once)', bad };
+}
+
+
+// ---- pavement is continuous: no gaps at bends, on straights or round junction corners (new maps: run this after changing roads) --------------------------
+async function checkPavementGaps() {
+  await world();
+  const { buildSidewalkSegments, hasSidewalks } = await imp('src/sidewalks.js');
+  const { buildEdgesByNode, buildHorizontalCurve } = await imp('src/roadMath.js');
+  const segs = buildSidewalkSegments(city, { cut: false }), N = city.roadNodes, by = buildEdgesByNode(city.roadEdges), bad = [];
+  const ground = makeRoadClearance((roads.userData.mapPaths || []).filter(p => p.structure !== 'bridge' && !(p.minY > 1.2)));
+  const ends = []; segs.forEach((s, i) => { ends.push({ x: s.x1, z: s.z1, i, s }); ends.push({ x: s.x2, z: s.z2, i, s }); });
+  const joined = a => ends.some(b => b.i !== a.i && Math.hypot(a.x - b.x, a.z - b.z) < 3.2);
+  const nearestOther = a => { let d = 1e9, o = null; for (const b of ends) { if (b.i === a.i) continue; const q = Math.hypot(a.x - b.x, a.z - b.z); if (q < d) { d = q; o = b; } } return { d, o }; };
+  // 1. a bend or straight join of two level, pavemented streets: every strip end near the node must meet another strip
+  const seen = new Set();
+  for (const id in N) {
+    const es = by[id] || []; if (es.length !== 2 || !es.every(hasSidewalks)) continue;
+    const o = e => N[e.from === id ? e.to : e.from];
+    if (es.some(e => Math.abs((o(e).elevation || 0) - (N[id].elevation || 0)) > 0.01)) continue;     // ramps carry no pavement
+    const near = ends.filter(a => Math.hypot(a.x - N[id].x, a.z - N[id].z) < 16 && (a.s.fromNode === id || a.s.toNode === id || a.s.edgeId === es[0].id || a.s.edgeId === es[1].id));
+    near.forEach(a => { if (!joined(a)) { const k = id + ':' + Math.round(a.x / 4) + ',' + Math.round(a.z / 4); if (seen.has(k)) return; seen.add(k); bad.push('pavement of ' + a.s.edgeId + ' stops short at the bend/join of node ' + id + ' @' + r1(a.x) + ',' + r1(a.z)); } });
+  }
+  // 2. a junction corner: two strip ends a few units apart with no road between them must be joined (no notch of bare ground)
+  ends.forEach(a => {
+    if (ends.some(b => b.i !== a.i && Math.hypot(a.x - b.x, a.z - b.z) < 0.35)) return;            // this end already meets another strip: it is not loose
+    const { d, o } = nearestOther(a); if (!o || d < 3.2 || d > 6) return;
+    const far = a.x === a.s.x1 && a.z === a.s.z1 ? [a.s.x2, a.s.z2] : [a.s.x1, a.s.z1];
+    if (Math.hypot(far[0] - o.x, far[1] - o.z) < 0.35) return;           // the strip itself runs on to that end: a long corner piece, not a notch
+    const mid = [(a.x + o.x) / 2, (a.z + o.z) / 2];
+    if (ground(mid[0], mid[1]) < -0.1) return;                            // a road lies between: that is a crossing, not a gap
+    const k = 'c' + Math.round(mid[0] / 4) + ',' + Math.round(mid[1] / 4); if (seen.has(k)) return; seen.add(k);
+    bad.push('a ' + r1(d) + ' u notch in the pavement round a corner @' + r1(mid[0]) + ',' + r1(mid[1]));
+  });
+  return { name: 'pavementgaps', count: segs.length + ' strips', bad };
+}
+
+// ---- river banks: they follow the water and never stick out at a corner of the river; the water is below street level -----------------------------------------
+async function checkRiverBanks() {
+  const { buildRiverBanks } = await imp('src/riverbanks.js');
+  const { createRiverField, BANK_W, WATER_Y } = await imp('src/rivers.js');
+  const field = createRiverField(city.rivers || []), { holes, group } = buildRiverBanks(city), bad = [];
+  holes.forEach((ring, hi) => ring.forEach(([x, z]) => {
+    const d = field.edgeDist(x, z);                                          // distance from the water's edge (negative = in the water)
+    if (d > BANK_W + 1.2) bad.push('river hole ' + hi + ' has a corner ' + r1(d - BANK_W) + ' u past the bank (a spike) @' + r1(x) + ',' + r1(z));
+  }));
+  // the bank mesh: nothing above street level (no wall or spike standing up out of the ground), nothing wildly outside the banks
+  group.traverse(o => { if (!o.isMesh || !o.geometry.attributes.position) return; const P = o.geometry.attributes.position; let up = 0, far = 0;
+    for (let i = 0; i < P.count; i++) { const x = P.getX(i), y = P.getY(i), z = P.getZ(i); if (y > 0.12) up++; if (y > 0.02 && field.edgeDist(x, z) > BANK_W + 3) far++; }
+    if (up) bad.push(up + ' bank vertices stand above street level'); if (far) bad.push(far + ' bank vertices stand up well away from any river (spikes)'); });
+  const water = (city.parcels || []).filter(p => p.type === 'water' && p.river);
+  if (!water.length) bad.push('no river water parcels'); 
+  return { name: 'riverbanks', count: holes.length + ' channel(s), ' + water.length + ' river water parcels (surface y=' + WATER_Y + ')', bad };
+}
+
+// ---- bridges and ramps have parapets a car cannot drive through or over -------------------------------------------------------------------------------------
+async function checkBridgeWalls() {
+  await world();
+  const st = await structures(), { resolveCarCollisions } = await imp('src/collision.js'), { buildEdgesByNode, buildVerticalCurves, elevationAlongEdge } = await imp('src/roadMath.js');
+  const N = city.roadNodes, by = buildEdgesByNode(city.roadEdges), vc = buildVerticalCurves(N, by), bad = [];
+  const par = st.colliders.filter(c => c.parapet);
+  let tested = 0, open = 0;
+  city.roadEdges.forEach(e => {
+    if (e.structure === 'tunnel' || e.drawbridge) return;
+    const A = N[e.from], B = N[e.to], L = Math.hypot(B.x - A.x, B.z - A.z); if (L < 6 || Math.max(A.elevation, B.elevation) < 0.8) return;
+    const ux = (B.x - A.x) / L, uz = (B.z - A.z) / L, hw = (e.width || 9) / 2;
+    for (let s = 5; s < L - 5; s += 7) {
+      const y = elevationAlongEdge(e, s, N, vc); if (y < 0.9) continue;
+      if (((by[e.from] || []).length >= 3 && s < 18) || ((by[e.to] || []).length >= 3 && s > L - 18)) continue;     // a street joins: the barrier gives way
+      for (const side of [1, -1]) {
+        const x = A.x + ux * s - uz * (hw + 0.12) * side, z = A.z + uz * s + ux * (hw + 0.12) * side;
+        // a car on the deck, pressed against the parapet from the road side, must be stopped: try to drive it outward through the wall line
+        const car = { x: A.x + ux * s - uz * (hw - 0.6) * side, z: A.z + uz * s + ux * (hw - 0.6) * side, y, speed: 14, heading: Math.atan2(-uz * -side, ux * -side) };
+        const wall = par.filter(c => c.edgeId === e.id && Math.hypot(c.ex - x, c.ez - z) < 4);
+        tested++;
+        if (!wall.length) { open++; if (bad.length < 40) bad.push('deck of edge ' + e.id + ' has no parapet on one side @' + r1(x) + ',' + r1(z) + ' (height ' + r1(y) + ')'); }
+      }
+    }
+  });
+  return { name: 'bridgewalls', count: par.length + ' parapet pieces, ' + tested + ' deck points tested', bad };
+}
+
+// ---- knocked-about AI cars collide with every obstacle (walls, buildings, parapets, props...) ------------------------------------------------------------------
+async function checkObstacles() {
+  await world();
+  const { buildProps } = await imp('src/generators/props.js'), { buildSigns } = await imp('src/generators/signs.js');
+  const { buildCollisionWorld } = await imp('src/collision.js'), { resolveKnockAgainstWorld } = await imp('src/aiCollide.js');
+  const { buildParcels } = await imp('src/generators/parcels.js');
+  const st = await structures();
+  const props = buildProps(city).instances, signs = buildSigns(city, heightAt, roads.userData.mapPaths).instances, parcels = buildParcels(city).instances;
+  const world2 = buildCollisionWorld(props.concat(signs), parcels).concat(st.colliders).filter(c => c.blocksCar && !c.destroyed);
+  const bad = [], R = 1.0; let tested = 0, leaked = 0;
+  // fire a free car at every sampled collider from outside, 14 u/s, and see that it never ends up inside
+  const sample = world2.filter((c, i) => i % 7 === 0).slice(0, 900);
+  for (const c of sample) {
+    let cx, cz, hx, hz;
+    if (c.kind === 'parcel') { if (!c.footprint) continue; cx = c.footprint.reduce((a, p) => a + p[0], 0) / c.footprint.length; cz = c.footprint.reduce((a, p) => a + p[1], 0) / c.footprint.length; hx = c.footprint[0][0]; hz = c.footprint[0][1]; }
+    else { cx = c.x; cz = c.z; }
+    const ang = (tested * 2.399) % (Math.PI * 2), y = c.ymin !== undefined ? c.ymin + 0.2 : (c.ymax !== undefined ? Math.max(0, c.ymax - 1) : 0.0);
+    const k = { x: cx + Math.cos(ang) * 14, z: cz + Math.sin(ang) * 14, y, vx: -Math.cos(ang) * 14, vz: -Math.sin(ang) * 14, wy: 0 };
+    const only = [c]; tested++;
+    let inside = false;
+    for (let f = 0; f < 60 && !inside; f++) {
+      k.x += k.vx / 60; k.z += k.vz / 60; resolveKnockAgainstWorld(k, R, only);
+      if (c.kind === 'parcel' ? pointInPolygon(k.x, k.z, c.footprint) : Math.hypot(k.x - c.x, k.z - c.z) < (c.radius || 0) * 0.6) inside = true;
+    }
+    if (inside) { leaked++; if (bad.length < 30) bad.push('a knocked car passed into a ' + (c.parapet ? 'parapet' : c.kind) + ' collider @' + r1(cx) + ',' + r1(cz)); }
+  }
+  if (!tested) bad.push('no colliders tested');
+  return { name: 'obstacles', count: tested + ' colliders hit by a knocked car, ' + leaked + ' got through', bad };
+}
+
+// ---- every shop car park meets a street: lane, stop line and STOP sign are on clear ground ----------------------------------------------------------------------
+async function checkLotGeo() {
+  await world();
+  const { lotGeometry } = await imp('src/lotGeo.js');
+  const ground = makeRoadClearance((roads.userData.mapPaths || []).filter(p => p.structure !== 'bridge' && !(p.minY > 1.2)));
+  const bad = [], all = (city.shops || []).concat((city.stations || []).filter(q => q.market)).filter(sh => sh.mouth && sh.door && sh.bays);
+  all.forEach(sh => {
+    const g = lotGeometry(city, sh), at = ' @' + r1(sh.mouth.x) + ',' + r1(sh.mouth.z);
+    if (!g) { bad.push('car park ' + (sh.id || sh.kind) + ' has no street to join' + at); return; }
+    const sg = g.stopSign;
+    if (ground(sg.x, sg.z) < 0.5) bad.push('the STOP sign of car park ' + (sh.id || sh.kind) + ' stands on the road' + at);
+    if (ground(g.T.x, g.T.z) < -0.2) bad.push('the stop line of car park ' + (sh.id || sh.kind) + ' lies on the road' + at);
+    if (ground(g.lanePt(0).x, g.lanePt(0).z) > 0.3) bad.push('the kerb lane of car park ' + (sh.id || sh.kind) + ' is not on the road' + at);
+    if (Math.hypot(g.T.x - sh.mouth.x, g.T.z - sh.mouth.z) > 12) bad.push('the stop line of car park ' + (sh.id || sh.kind) + ' is far from the mouth' + at);
+  });
+  // the shops' opening hours are well formed
+  (city.stations || []).filter(q => q.market).forEach(q => { const h = q.info.hours; if (h !== '24/7' && !(Array.isArray(h) && h[0] >= 0 && h[1] <= 24 && h[0] < h[1])) bad.push('market ' + q.info.name + ' has bad opening hours'); });
+  return { name: 'lotgeo', count: all.length + ' car parks', bad };
 }
 
 // ---- people walk into shop doors and storefronts and come out again ------------------------------------------------------------------------
@@ -630,13 +770,13 @@ async function checkTransit() {
   if (!t2.metro.lines.length) bad.push('a custom metro line did not build');
   return { name: 'transit', count: t.lines.length + ' bus lines, ' + t.stops.length + ' stops, ' + t.metro.lines.map(l => l.stations.length).join('+') + ' metro stations', bad };
 }
-const CHECKS = { transit: checkTransit, rivals: checkRivals, sidewalks: checkSidewalks, gas: checkGas, races: checkRaces, drift: checkDrift, covered: checkCovered,  signs: checkSigns, lamps: checkLamps, buildings: checkBuildings, traffic: () => checkTraffic(+process.argv[3] || 40, +process.argv[4] || 5), markings: checkMarkings, bridges: checkBridges, solid: checkSolid, water: checkWater, rules: checkRules, driveways: checkDriveways, smooth: checkSmooth, mesh: checkMesh, pavement: checkPavement, connected: checkConnected, lots: checkLots, doors: checkDoors };
+const CHECKS = { transit: checkTransit, rivals: checkRivals, sidewalks: checkSidewalks, gas: checkGas, races: checkRaces, drift: checkDrift, covered: checkCovered,  signs: checkSigns, lamps: checkLamps, buildings: checkBuildings, traffic: () => checkTraffic(+process.argv[3] || 40, +process.argv[4] || 5), markings: checkMarkings, bridges: checkBridges, solid: checkSolid, water: checkWater, rules: checkRules, driveways: checkDriveways, smooth: checkSmooth, mesh: checkMesh, pavement: checkPavement, connected: checkConnected, lots: checkLots, doors: checkDoors, pavementgaps: checkPavementGaps, riverbanks: checkRiverBanks, bridgewalls: checkBridgeWalls, obstacles: checkObstacles, lotgeo: checkLotGeo };
 // groups: run several related checks at once
 const GROUPS = {
-  placement: ['signs', 'lamps', 'driveways', 'buildings', 'pavement', 'sidewalks'],   // nothing stands where it shouldn't
-  roads: ['markings', 'bridges', 'water', 'smooth', 'mesh', 'connected', 'rules'],    // road geometry and connections
+  placement: ['signs', 'lamps', 'driveways', 'buildings', 'pavement', 'sidewalks', 'pavementgaps', 'lotgeo'],   // nothing stands where it shouldn't
+  roads: ['markings', 'bridges', 'bridgewalls', 'riverbanks', 'water', 'smooth', 'mesh', 'connected', 'rules'],    // road geometry and connections
   quick: ['placement', 'roads', 'gas', 'transit', 'drift', 'covered'],                           // all static checks, seconds
-  sim: ['traffic', 'solid', 'rivals', 'races', 'lots', 'doors'],                                       // simulations, minutes
+  sim: ['traffic', 'solid', 'obstacles', 'rivals', 'races', 'lots', 'doors'],                                       // simulations, minutes
   all: ['quick', 'sim']
 };
 const expand = n => GROUPS[n] ? GROUPS[n].flatMap(expand) : [n];

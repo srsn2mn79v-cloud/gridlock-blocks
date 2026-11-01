@@ -13,29 +13,115 @@ export function createInterior({ car, input }) {
   const add = (geo, m, x, y, z, parent = root) => { const o = new THREE.Mesh(geo, m); o.position.set(x, y, z); parent.add(o); return o; };
   const box = (w, h, d) => new THREE.BoxGeometry(w, h, d);
 
-  // ---- dash, console, panels ----
-  add(box(1.72, 0.16, 0.5), plastic, 0, 0.78, 0.92);                    // dash top
-  add(box(1.72, 0.3, 0.12), plastic, 0, 0.62, 0.7);                     // dash face
-  const binnacle = add(box(0.66, 0.3, 0.2), plasticL, 0.4, 0.92, 0.72); binnacle.rotation.x = -0.25;
-  add(box(0.3, 0.34, 0.8), plasticL, 0, 0.42, 0.25);                    // centre console
-  add(box(0.08, 0.5, 2.3), plastic, 0.9, 0.42, -0.2); add(box(0.08, 0.5, 2.3), plastic, -0.9, 0.42, -0.2);   // door cards
-  add(box(0.06, 0.1, 2.3), trim, 0.9, 0.7, -0.2); add(box(0.06, 0.1, 2.3), trim, -0.9, 0.7, -0.2);
-  // seats
-  [0.42, -0.42].forEach(x => { add(box(0.5, 0.14, 0.55), leather, x, 0.42, -0.1); add(box(0.5, 0.62, 0.13), leather, x, 0.76, -0.4); add(box(0.24, 0.16, 0.1), leather, x, 1.16, -0.4); });
-  add(box(1.55, 0.16, 0.5), leather, 0, 0.42, -1.1); add(box(1.55, 0.55, 0.13), leather, 0, 0.72, -1.38);
-  // roof, pillars, mirror
-  add(box(1.84, 0.05, 1.6), headliner, 0, 1.46, -0.5);
-  [0.88, -0.88].forEach(x => {
-    const a = add(box(0.07, 0.07, 0.85), plastic, x, 1.17, 0.42); a.rotation.x = 0.62;                    // A pillar
-    add(box(0.07, 0.62, 0.08), plastic, x, 1.15, -1.3);                                                  // C pillar
-    add(box(0.07, 0.07, 0.8), plastic, x, 1.44, -0.35);                                                  // roof rail
-  });
-  add(box(1.84, 0.06, 0.1), plastic, 0, 1.46, 0.78);                                                      // header rail
-  const mirror = add(box(0.26, 0.07, 0.04), plastic, 0.05, 1.3, 0.66); mirror.rotation.x = 0.1;
-  [0.99, -0.99].forEach(x => { const m = add(box(0.05, 0.13, 0.2), plastic, x, 0.98, 0.7); m.rotation.y = x > 0 ? -0.2 : 0.2; });   // door mirrors
-  const hood = add(box(1.58, 0.1, 1.2), mat(0x888888, 0.35, 0.5), 0, 0.82, 1.55); hood.rotation.x = 0.09;
-  root.userData.hood = hood;
-
+  // ---- the cabin shell: dash, doors, seats, roof, pillars and mirrors. It is rebuilt per car (see PROFILES) in fit() ----
+  const shell = new THREE.Group(); root.add(shell);
+  const glassM = new THREE.MeshStandardMaterial({ color: 0x9fc4d8, roughness: 0.1, metalness: 0.2, transparent: true, opacity: 0.16, depthWrite: false });
+  const mirrorM = new THREE.MeshStandardMaterial({ color: 0xcfd8e0, roughness: 0.05, metalness: 0.9 });
+  const cyl = (rt, rb, h, n = 16) => new THREE.CylinderGeometry(rt, rb, h, n);
+  const PROFILES = {
+    _:       { leather: 0x1b1d22, plastic: 0x23262c, trim: 0x8d949f, roof: 1.46, dash: 0.78, wedge: 0.0, thick: 0.07, vents: 'bar', shift: 'stick', seat: 'bench' },
+    hatch:   { leather: 0x2b2f38, plastic: 0x2a2d33, trim: 0xd9593a, roof: 1.46, dash: 0.78, wedge: 0.0, thick: 0.07, vents: 'round', shift: 'stick', seat: 'bucket' },
+    taxi:    { leather: 0x3a352a, plastic: 0x2d2b26, trim: 0xf4c400, roof: 1.46, dash: 0.78, wedge: 0.0, thick: 0.07, vents: 'bar', shift: 'column', seat: 'bench', meter: true },
+    van:     { leather: 0x3b3f46, plastic: 0x363a40, trim: 0xb7bcc4, roof: 1.62, dash: 0.84, wedge: 0.0, thick: 0.08, vents: 'bar', shift: 'column', seat: 'bench', tall: 0.16 },
+    bus:     { leather: 0x2c4a7a, plastic: 0x2c3036, trim: 0xd9a21b, roof: 1.62, dash: 0.84, wedge: 0.0, thick: 0.09, vents: 'bar', shift: 'column', seat: 'bench', tall: 0.2 },
+    pickup:  { leather: 0x5a4632, plastic: 0x34302a, trim: 0xb08d57, roof: 1.55, dash: 0.82, wedge: 0.0, thick: 0.08, vents: 'round', shift: 'stick', seat: 'bench', tall: 0.08 },
+    muscle:  { leather: 0x6b1d1d, plastic: 0x16171a, trim: 0xd0d3d8, roof: 1.36, dash: 0.74, wedge: 0.08, thick: 0.09, vents: 'round', shift: 'stick', seat: 'bucket', stripe: 0xd0d3d8, low: 0.08 },
+    wagon:   { leather: 0x3c4a58, plastic: 0x2c3138, trim: 0xa9b4bf, roof: 1.5, dash: 0.78, wedge: 0.0, thick: 0.07, vents: 'bar', shift: 'stick', seat: 'bench' },
+    suv:     { leather: 0x3b3626, plastic: 0x2a2c26, trim: 0x9aa17f, roof: 1.56, dash: 0.84, wedge: 0.0, thick: 0.08, vents: 'round', shift: 'stick', seat: 'bucket', tall: 0.08 },
+    rally:   { leather: 0x15171c, plastic: 0x1c1e23, trim: 0xe03a2e, roof: 1.4, dash: 0.76, wedge: 0.04, thick: 0.08, vents: 'round', shift: 'stick', seat: 'bucket', cage: true, low: 0.04 },
+    roadster:{ leather: 0x5b2a22, plastic: 0x1a1a1d, trim: 0xe0b45a, roof: 1.32, dash: 0.72, wedge: 0.1, thick: 0.06, vents: 'round', shift: 'stick', seat: 'bucket', low: 0.1 },
+    supercar:{ leather: 0x16171a, plastic: 0x111215, trim: 0xffd400, roof: 1.3, dash: 0.7, wedge: 0.14, thick: 0.1, vents: 'hex', shift: 'paddle', seat: 'bucket', low: 0.14 },
+    hyper:   { leather: 0xd9d9dd, plastic: 0x1a1b1f, trim: 0x2f3a46, roof: 1.3, dash: 0.7, wedge: 0.14, thick: 0.1, vents: 'hex', shift: 'paddle', seat: 'bucket', low: 0.14 },
+    sport:   { leather: 0x1d2330, plastic: 0x181a1f, trim: 0x4a86e8, roof: 1.36, dash: 0.74, wedge: 0.08, thick: 0.08, vents: 'round', shift: 'stick', seat: 'bucket', low: 0.08 }
+  };
+  let shellKey = null;
+  function buildShell(key) {
+    shell.children.slice().forEach(c => { shell.remove(c); c.traverse(o => { if (o.geometry) o.geometry.dispose(); }); });
+    const P = PROFILES[key] || PROFILES._, add = (geo, m, x, y, z, par = shell) => { const o = new THREE.Mesh(geo, m); o.position.set(x, y, z); par.add(o); return o; };
+    const plastic = mat(P.plastic), plasticL = mat(new THREE.Color(P.plastic).offsetHSL(0, 0, 0.05).getHex()), leather = mat(P.leather, 0.95), trim = mat(P.trim, 0.4, 0.6), headliner = mat(0x4b4f57, 1), carpet = mat(0x121316, 1);
+    const R = P.roof, W = 0.9;   // half cabin width
+    // floor, firewall, transmission tunnel
+    add(box(1.8, 0.04, 2.9), carpet, 0, 0.2, -0.1); add(box(1.76, 0.5, 0.06), plastic, 0, 0.5, 0.76);
+    add(box(0.36, 0.14, 1.9), plastic, 0, 0.3, -0.05);
+    // ---- dash: a deep top, a face, a visor over the binnacle, vents, glovebox, a centre stack ----
+    const top = add(box(1.78, 0.14, 0.5), plastic, 0, P.dash, 0.94); top.rotation.x = -P.wedge * 0.4;
+    add(box(1.78, 0.3, 0.14), plastic, 0, P.dash - 0.14, 0.72); add(box(1.78, 0.2, 0.3), plastic, 0, P.dash - 0.33, 0.8);
+    const vis = add(box(0.74, 0.05, 0.22), plasticL, 0.4, P.dash + 0.17, 0.74); vis.rotation.x = -0.25 - P.wedge * 0.3;
+    add(box(0.74, 0.3, 0.05), plasticL, 0.4, P.dash + 0.03, 0.8).rotation.x = -0.25;                   // binnacle housing
+    add(box(0.6, 0.025, 0.02), trim, -0.45, P.dash - 0.02, 0.69);                                      // dash trim line
+    add(box(0.5, 0.2, 0.03), plasticL, -0.45, P.dash - 0.2, 0.69);                                     // glovebox lid
+    add(box(0.26, 0.4, 0.1), plasticL, 0, P.dash - 0.2, 0.68);                                         // centre stack
+    add(box(0.2, 0.1, 0.02), mat(0x0a1016, 0.3, 0.2), 0, P.dash - 0.08, 0.625);                        // infotainment screen
+    add(box(0.2, 0.05, 0.02), trim, 0, P.dash - 0.2, 0.625);
+    const vent = (x, y) => {
+      if (P.vents === 'round') { const v = add(cyl(0.05, 0.05, 0.03, 20), trim, x, y, 0.64, shell); v.rotation.x = Math.PI / 2; add(cyl(0.035, 0.035, 0.035, 20), plastic, x, y, 0.64).rotation.x = Math.PI / 2; }
+      else if (P.vents === 'hex') { const v = add(cyl(0.05, 0.05, 0.03, 6), trim, x, y, 0.64); v.rotation.x = Math.PI / 2; add(cyl(0.032, 0.032, 0.035, 6), plastic, x, y, 0.64).rotation.x = Math.PI / 2; }
+      else { add(box(0.18, 0.045, 0.03), trim, x, y, 0.645); add(box(0.15, 0.02, 0.035), plastic, x, y, 0.645); }
+    };
+    vent(-0.28, P.dash - 0.1); vent(0.28, P.dash - 0.1); vent(-0.75, P.dash - 0.05); vent(0.82, P.dash - 0.05);
+    if (P.stripe) add(box(0.26, 0.02, 0.5), mat(P.stripe, 0.4, 0.3), 0, P.dash + 0.075, 0.94);          // racing stripe up the dash
+    if (P.meter) { add(box(0.22, 0.1, 0.1), mat(0x15181d), -0.04, P.dash + 0.12, 0.9); add(box(0.18, 0.05, 0.02), mat(0xffb020, 0.3, 0, ), -0.04, P.dash + 0.12, 0.845); }   // taxi meter
+    // ---- centre console, shifter, handbrake, cupholders ----
+    add(box(0.32, 0.22, 1.1), plasticL, 0, 0.42, 0.15); add(box(0.3, 0.03, 0.55), trim, 0, 0.545, 0.35);
+    if (P.shift === 'stick') { add(cyl(0.012, 0.012, 0.22, 8), plastic, 0, 0.66, 0.38).rotation.x = 0.2; add(new THREE.SphereGeometry(0.035, 12, 10), leather, 0, 0.78, 0.4); }
+    else if (P.shift === 'column') add(box(0.035, 0.035, 0.28), plastic, 0.25, 0.64, 0.5);
+    else { add(box(0.1, 0.06, 0.12), trim, 0, 0.56, 0.42); add(box(0.2, 0.012, 0.02), trim, 0.4, 0.82, 0.58); }
+    add(box(0.06, 0.05, 0.3), plastic, 0, 0.58, 0.0).rotation.x = -0.2;                                  // handbrake
+    // ---- doors: panel, upholstered insert, armrest, window sill, handle, speaker, mirror stalk, glass ----
+    [1, -1].forEach(s => {
+      const x = s * 0.93;
+      add(box(0.07, 0.55, 2.4), plastic, x, 0.5, -0.1);                                                 // lower card
+      add(box(0.075, 0.2, 1.7), leather, x - s * 0.005, 0.62, -0.35);                                    // insert
+      add(box(0.12, 0.07, 0.8), leather, x - s * 0.04, 0.78, -0.2);                                     // armrest
+      add(box(0.075, 0.07, 2.4), trim, x, 0.8, -0.1);                                                    // belt line
+      add(box(0.08, 0.05, 0.22), trim, x - s * 0.02, 0.72, -0.62);                                       // handle
+      add(cyl(0.07, 0.07, 0.03, 16), plasticL, x - s * 0.02, 0.5, 0.2).rotation.z = Math.PI / 2;        // speaker
+      add(box(0.04, 0.5, 0.2), plastic, x, 0.64, 0.84);                                                  // dash end / kick panel
+      const g = add(box(0.02, 0.62 + (R - 1.46) * 0.8, 2.0), glassM, x + s * 0.01, 1.12, -0.2);          // side glass
+      // wing mirror: arm, housing and reflecting face
+      const arm = add(box(0.2, 0.025, 0.05), plastic, x + s * 0.1, 0.92, 0.58); arm.rotation.y = s * 0.2;
+      const hs = add(box(0.07, 0.13, 0.2), plastic, x + s * 0.2, 0.96, 0.58); hs.rotation.y = -s * 0.1;
+      const face = add(box(0.005, 0.1, 0.16), mirrorM, x + s * 0.2 - s * 0.037, 0.96, 0.57); face.rotation.y = -s * 0.1;
+    });
+    // ---- seats: driver's (left) and passenger's with headrests and belts; rear bench ----
+    const bucket = P.seat === 'bucket';
+    [0.42, -0.42].forEach(x => {
+      add(box(0.5, 0.13, 0.55), leather, x, 0.4, -0.1);
+      const back = add(box(0.5, 0.64, 0.13), leather, x, 0.74, -0.4); back.rotation.x = bucket ? -0.12 : -0.05;
+      if (bucket) { add(box(0.07, 0.4, 0.3), leather, x + 0.27, 0.62, -0.28); add(box(0.07, 0.4, 0.3), leather, x - 0.27, 0.62, -0.28); }
+      add(box(0.24, 0.17, 0.1), leather, x, 1.16, -0.4); add(box(0.015, 0.15, 0.04), trim, x - 0.05, 1.0, -0.41); add(box(0.015, 0.15, 0.04), trim, x + 0.05, 1.0, -0.41);
+    });
+    add(box(0.04, 0.9, 0.025), mat(0x1a1a1a, 1), 0.61, 0.95, -0.34).rotation.z = 0.5;                       // seat belt
+    add(box(1.55, 0.14, 0.5), leather, 0, 0.4, -1.1); add(box(1.55, 0.55, 0.13), leather, 0, 0.7, -1.38);
+    // rear parcel shelf, rear window glass and pillars
+    add(box(1.7, 0.04, 0.35), plastic, 0, 0.95, -1.5);
+    // ---- roof, headliner, pillars (A, B, C), rails, grab handles, dome light, sun visors ----
+    add(box(1.86, 0.05, 2.2), headliner, 0, R, -0.45);
+    add(box(1.86, 0.05, 0.12), plastic, 0, R - 0.005, 0.74);
+    add(box(0.28, 0.02, 0.22), mat(0xe9e3c8, 0.6), 0, R - 0.035, -0.4);                                   // dome light
+    [0.88, -0.88].forEach(x => {
+      const by = 0.85, bz = 1.05, ty = R, tz = 0.62, dy = ty - by, dz = tz - bz, len = Math.hypot(dy, dz);
+      const a = add(box(P.thick, P.thick * 1.4, len), plastic, x, (by + ty) / 2, (bz + tz) / 2); a.rotation.x = Math.atan2(-dy, dz);   // windscreen A pillar
+      add(box(P.thick * 1.2, R - 0.8, 0.12), plastic, x, 0.8 + (R - 0.8) / 2, -0.55);                      // B pillar
+      add(box(P.thick * 1.3, R - 0.86, 0.2), plastic, x, 0.86 + (R - 0.86) / 2, -1.34);                    // C pillar
+      add(box(P.thick, 0.06, 2.2), plastic, x, R - 0.04, -0.45);                                           // roof rail
+      add(box(0.05, 0.04, 0.2), trim, x - Math.sign(x) * 0.04, R - 0.1, -0.2);                             // grab handle
+    });
+    add(box(1.86, 0.06, 0.1), plastic, 0, R - 0.02, 0.76);                                                  // header rail
+    [0.4, -0.4].forEach(x => { const v = add(box(0.38, 0.015, 0.2), mat(0x6a6f78, 1), x, R - 0.06, 0.58); v.rotation.x = x > 0 ? 0 : 0.0; });   // sun visors
+    // ---- rear-view mirror: stalk from the headliner, housing, reflecting face ----
+    const stalk = add(box(0.03, 0.14, 0.03), plastic, 0.02, R - 0.1, 0.7); stalk.rotation.x = -0.4;
+    const mh = add(box(0.3, 0.085, 0.045), plastic, 0.02, R - 0.2, 0.64); mh.rotation.set(0.12, 0.05, 0);
+    const mf = add(box(0.27, 0.06, 0.005), mirrorM, 0.02, R - 0.2, 0.615); mf.rotation.set(0.12, 0.05, 0);
+    if (P.cage) [0.88, -0.88].forEach(x => { add(cyl(0.025, 0.025, R - 0.4, 8), mat(0xc0c4c8, 0.4, 0.8), x * 0.9, 0.2 + (R - 0.4) / 2, -0.3); });   // roll cage uprights
+    if (P.cage) add(cyl(0.025, 0.025, 1.7, 8), mat(0xc0c4c8, 0.4, 0.8), 0, R - 0.08, -0.35).rotation.z = Math.PI / 2;
+    // ---- visible bonnet through the windscreen ----
+    const hood = add(box(1.58, 0.1, 1.2), mat(0x888888, 0.35, 0.5), 0, P.dash + 0.04 - (P.low || 0) * 0.2, 1.62); hood.rotation.x = 0.09 + P.wedge * 0.2;
+    root.userData.hood = hood; shellHood = hood;
+    shellKey = key; root.userData.profile = P;
+  }
+  let shellHood = null;
+  buildShell('_');
   // ---- steering wheel (turns with the car) ----
   const wheel = new THREE.Group(); wheel.position.set(0.4, 0.7, 0.4); wheel.rotation.x = 0.5; root.add(wheel);
   const spin = new THREE.Group(); wheel.add(spin);
@@ -114,9 +200,10 @@ export function createInterior({ car, input }) {
     // body paint for the hood and a taller/longer layout for big vehicles
     fit() {
       const st = car.model && car.model.userData.style, k = Math.max(0.9, Math.min(1.3, (car.dimLen || 3.6) / 3.6));
-      const h = ((car.dimHeight || 1.5) - 1.5) * 0.75;
+      const key = (st && st.key) || '_'; if (key !== shellKey) buildShell(key);
+      const P = root.userData.profile || {}, h = ((car.dimHeight || 1.5) - 1.5) * 0.75 - (P.low || 0) + (P.tall || 0) * 0.5;
       root.position.y = h; root.scale.set(1, 1, k > 1.1 ? 1.1 : 1);
-      if (st && st.color != null) hood.material.color.set(car.paintColor != null ? car.paintColor : st.color);
+      if (st && st.color != null && shellHood) shellHood.material.color.set(car.paintColor != null ? car.paintColor : st.color);
     },
     update(dt, st) {
       if (!root.visible) return;

@@ -135,7 +135,7 @@ export function generateRoads() {
   // to meet the outside ramps - that is how the "outside lane" gets its exits.
   const IX = IXS.map((ix, k) => {
     const sw = TP(ix.pts); const q = hook(sw[sw.length - 1], 60); if (q) sw[sw.length - 1] = q;
-    return { sw, ramps: (ix.ramps || []).map(r => TP(r)), cls: ix.cls || 'six', no: k + 1, label: ix.label || ('Interchange ' + (k + 1)) };
+    return { sw, loops: /cloverleaf/i.test(ix.template || ''), ramps: (ix.ramps || []).map(r => TP(r)), cls: ix.cls || 'six', no: k + 1, label: ix.label || ('Interchange ' + (k + 1)) };
   });
   const ramps = [];
   const XH = 210, ENTRY_END = 45;       // a slip road touches its carriageway XH units from where its curve takes over; ENTRY_END only places the 'next exits' signs
@@ -161,12 +161,15 @@ export function generateRoads() {
     Object.assign(ix, { P, hs });
     ix.ramps.forEach(r => {
       const e = along(r[0]); r.info = e; r.junction = dist(r[r.length - 1], sw[0]) < dist(r[r.length - 1], sw[1]) ? sw[0] : sw[1];
-      const f = e.side, exitKind = (f > 0 ? e.s < hs : e.s > hs);   // the right-hand carriageway of the side the arc is on; upstream of the street = exit
-      r.f = f; r.kind = exitKind ? 'exit' : 'entry';
+      const f = e.side, up = (f > 0 ? e.s < hs : e.s > hs);   // the right-hand carriageway of the side the arc is on; upstream of the street = diagonal exit
+      const turning = (() => { let t = 0, ph = null; for (let i = 1; i < r.length; i++) { const h = Math.atan2(r[i][1] - r[i - 1][1], r[i][0] - r[i - 1][0]); if (ph !== null) t += Math.abs(Math.atan2(Math.sin(h - ph), Math.cos(h - ph))); ph = h; } return t; })();
+      const isLoop = turning > 3.4, exitKind = isLoop ? !up : up;                      // a cloverleaf's loops are the other way round: traffic leaves AFTER the crossing and loops round 270 degrees back to the street, and joins BEFORE it
+      r.f = f; r.isLoop = isLoop; r.kind = exitKind ? 'exit' : 'entry';
       const sg = exitKind ? f : -f;                                  // direction of travel along the interstate as seen from the ramp's outward end
       let ia = 0; while (ia < r.length - 3 && along(r[ia]).d < 50) ia++;
       const sa = along(r[ia]).s, total = polyLen(H);
-      const room = sg > 0 ? sa - 135 : total - 135 - sa; let xh = Math.max(100, Math.min(XH, room));       // near the interstate's ends the slip road gets less room
+      const room = sg > 0 ? sa - 135 : total - 135 - sa; let xh = Math.max(100, Math.min(r.isLoop ? 100 : XH, room));      // loops: a short lane (the loop ramps of one carriageway would otherwise overlap each other)
+            // near the interstate's ends the slip road gets less room
       const laneWet = x0 => { for (let x = 0; x <= xh; x += 10) { const s = Math.max(0, Math.min(total, x0 + sg * x)), p = atLen(H, s), l = 23 * f;
         if (RIVERS.some(rv => nearestOnPoly(p.x - p.dz * l, p.z + p.dx * l, rv.pts).d < rv.half + 64)) return true; } return false; };   // 64 = the bridge approach ramp of the interstate (about 53 u) + margin: a slip road must join the carriageway at ground level
       while (xh > 100 && laneWet(sa - sg * xh)) xh -= 10;                                               // the extra lane must not run over a river

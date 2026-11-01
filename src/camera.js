@@ -67,10 +67,10 @@ export function createCameraRig({ camera, car, getOffset, interior, onMode, getI
       }
       if (mode === 'bumper') {
         const len = (car.dimLen || 3.6) * 0.5;
-        eye.set(car.x + sin * (len + 0.15), car.y + 0.55 + ((car.dimHeight || 1.5) - 1.5) * 0.3, car.z + cos * (len + 0.15));
+        eye.set(car.x + sin * (len + 0.15), car.y + 0.8, car.z + cos * (len + 0.15));   // 1 m above the road (1 u = 1.25 m)
         camera.position.copy(eye);
         camera.up.set(Math.sin(roll), Math.cos(roll), 0);
-        camera.lookAt(eye.x + sin * 20, eye.y + 0.55 - pitch * 8, eye.z + cos * 20);
+        camera.lookAt(eye.x + sin * 20, eye.y - pitch * 8, eye.z + cos * 20);
         return;
       }
       // inside: the driver's eye, a little left of centre

@@ -44,10 +44,13 @@ export function buildSidewalkSegments(cityData, { cut = true } = {}) {
     const trimAt = nodeId => {
       if ((edgesByNode[nodeId] || []).length >= 3) return intersectionClearance(nodeId, e, edgesByNode);
       const curve = buildHorizontalCurve(nodeId, nodes, edgesByNode);
-      return curve ? Math.max(TRIM, curve.trim + 0.5) : TRIM;
+      if (curve) return Math.max(TRIM, curve.trim);
+      const es = edgesByNode[nodeId] || [];
+      return es.length === 2 && es.every(hasSidewalks) && Math.abs((nodes[es[0].from === nodeId ? es[0].to : es[0].from].elevation || 0) - (nodes[nodeId].elevation || 0)) < 0.01 ? 0 : TRIM;   // a straight join of two sidewalked edges: no gap
     };
     const trimA = trimAt(e.from), trimB = trimAt(e.to);
-    if (len <= trimA + trimB + 1) return;
+    if (len <= trimA + trimB + 0.05) return;
+    const shortRun = len - trimA - trimB < 2.5;     // a short piece between two bends: kept (it is what joins the two bend pavements)
     if (Math.abs((a.elevation || 0) - (b.elevation || 0)) > 0.01) return;   // slopes (ramps) get no pavement
 
     const heading = Math.atan2(b.z - a.z, b.x - a.x);
@@ -63,12 +66,128 @@ export function buildSidewalkSegments(cityData, { cut = true } = {}) {
         x1: startX + perpX * offset * side, z1: startZ + perpZ * offset * side,
         x2: endX + perpX * offset * side, z2: endZ + perpZ * offset * side,
         elevation: (a.elevation || 0) + CURB_HEIGHT,
-        fromNode: e.from, toNode: e.to, side, edgeId: e.id
+        fromNode: e.from, toNode: e.to, side, edgeId: e.id, ...(shortRun ? { corner: true } : {})
       });
     });
   });
-  const kept = pruneLonelySidewalks(cutRoads(segments, cityData));
+  addBendPavement(segments, cityData, nodes, edgesByNode);
+  let cutSegs = cutRoads(segments, cityData);                                       // the road wins over the strips ...
+  const corners = addJunctionCorners(cutSegs, cityData, nodes, edgesByNode);        // ... then the corners and joins are drawn between what is left (and cut in turn)
+  cutSegs = cutSegs.concat(cutRoads(corners, cityData));
+  cutSegs = cutSegs.concat(cutRoads(joinLooseEnds(cutSegs, edgesByNode, nodes, cityData), cityData));
+  cutSegs = cutSegs.concat(cutRoads(closeNotches(cutSegs, cityData), cityData));
+  const kept = pruneLonelySidewalks(cutSegs);
   return cut ? cutDriveways(kept, cityData.driveways || []) : kept;       // pedestrians and the pavement check use the uncut strips (they walk across a driveway)
+}
+
+
+// move a point away from the road surface (down the road-clearance gradient) until a pavement centred on it (1.4 u half width + margin) is clear
+function pushClear(clear, x, z, want = 1.55) {
+  for (let it = 0; it < 14 && clear(x, z) < want; it++) {
+    const e = 0.6, gx = clear(x + e, z) - clear(x - e, z), gz = clear(x, z + e) - clear(x, z - e), gl = Math.hypot(gx, gz);
+    if (gl < 1e-6) break;
+    const st = Math.min(0.7, want - clear(x, z) + 0.1); x += gx / gl * st; z += gz / gl * st;
+  }
+  return [x, z];
+}
+
+// the road node a strip end belongs to: the nearer of the strip's two nodes, if within `r` u
+function nearestNode(sg, x, z, nodes, r) {
+  let best = null, bd = r;
+  for (const id of [sg.fromNode, sg.toNode]) { const n = nodes[id]; if (!n) continue; const d = Math.hypot(n.x - x, n.z - z); if (d < bd) { bd = d; best = id; } }
+  return best;
+}
+
+// Pavement round a bend: the straight strips of the two edges stop where the corner curve starts, so a strip of short pieces follows the curve
+// (both sides) to join them. The pieces carry `corner: true`, which lets them stay shorter than the usual 2.5 u minimum.
+function addBendPavement(segments, cityData, nodes, by) {
+  for (const id in nodes) {
+    const es = by[id] || [];
+    if (es.length !== 2 || !es.every(hasSidewalks) || Math.abs((nodes[id].elevation || 0) - (nodes[es[0].from === id ? es[0].to : es[0].from].elevation || 0)) > 0.01) continue;
+    const c = buildHorizontalCurve(id, nodes, by); if (!c) continue;
+    const n = c.samples.length, w0 = es[0].width / 2 + 1.4, w1 = es[1].width / 2 + 1.4;
+    [1, -1].forEach(side => {
+      const pts = c.samples.map((q, i) => { const off = w0 + (w1 - w0) * i / (n - 1); return [q.x + Math.sin(q.heading) * off * side, q.z - Math.cos(q.heading) * off * side]; });
+      let prev = pts[0];
+      for (let i = 1; i < n; i++) {
+        const q = pts[i], last = i === n - 1;
+        if (Math.hypot(q[0] - prev[0], q[1] - prev[1]) < 1.6 && !last) continue;
+        segments.push({ x1: prev[0], z1: prev[1], x2: q[0], z2: q[1], elevation: (nodes[id].elevation || 0) + CURB_HEIGHT, fromNode: id, toNode: id, side, edgeId: 'bend:' + id + ':' + side, corner: true });
+        prev = q;
+      }
+    });
+  }
+}
+
+// Any two loose strip ends that belong to the same two-street node (a bend whose curve is too slight to draw, a join of streets of different
+// width, a short street between two bends) are joined by a short connector: no gap is left at a node of two streets.
+function joinLooseEnds(segments, by, nodes, cityData) {
+  const clear = groundRoadClearance(cityData), ends = [];
+  segments.forEach((sg, i) => [[sg.x1, sg.z1], [sg.x2, sg.z2]].forEach(([x, z]) => { const node = nearestNode(sg, x, z, nodes, 16); if (node !== null && (by[node] || []).length === 2) ends.push({ x, z, node, i, sg }); }));
+  const done = new Set(), add = [];
+  ends.forEach(a => {
+    if (ends.some(b => b.i !== a.i && b.node === a.node && Math.hypot(a.x - b.x, a.z - b.z) < 0.35)) return;          // already meets another strip
+    let best = null, bd = 1e9;
+    ends.forEach(b => { if (b.i === a.i || b.node !== a.node || b.sg.edgeId === a.sg.edgeId) return; const d = Math.hypot(a.x - b.x, a.z - b.z); if (d < bd) { bd = d; best = b; } });
+    if (!best || bd > 12) return;
+    const k = [a.i, best.i].sort().join('-') + ':' + Math.round(a.x) + ',' + Math.round(a.z); if (done.has(k)) return; done.add(k);
+    const M = pushClear(clear, (a.x + best.x) / 2, (a.z + best.z) / 2);
+    add.push({ x1: a.x, z1: a.z, x2: M[0], z2: M[1], elevation: a.sg.elevation, fromNode: a.node, toNode: a.node, side: 0, edgeId: 'join:' + a.node + ':' + done.size + 'a', corner: true },
+             { x1: M[0], z1: M[1], x2: best.x, z2: best.z, elevation: a.sg.elevation, fromNode: a.node, toNode: a.node, side: 0, edgeId: 'join:' + a.node + ':' + done.size + 'b', corner: true });
+  });
+  return add;
+}
+
+// Last pass: two strip ends 3-6 u apart with open ground (no road) between them are a notch in the pavement: bridge them.
+function closeNotches(segments, cityData) {
+  const clear = groundRoadClearance(cityData), ends = [], out = [], done = new Set();
+  segments.forEach((sg, i) => { ends.push({ x: sg.x1, z: sg.z1, i, sg }); ends.push({ x: sg.x2, z: sg.z2, i, sg }); });
+  ends.forEach(a => {
+    let d = 1e9, o = null; for (const b of ends) { if (b.i === a.i) continue; const q = Math.hypot(a.x - b.x, a.z - b.z); if (q < d) { d = q; o = b; } }
+    if (!o || d < 3.2 || d > 6) return;
+    const mx = (a.x + o.x) / 2, mz = (a.z + o.z) / 2; if (clear(mx, mz) < -0.1) return;
+    const k = Math.round(mx / 2) + ',' + Math.round(mz / 2); if (done.has(k)) return; done.add(k);
+    const M = pushClear(clear, mx, mz), el = Math.max(a.sg.elevation || 0, o.sg.elevation || 0);
+    out.push({ x1: a.x, z1: a.z, x2: M[0], z2: M[1], elevation: el, fromNode: a.sg.fromNode, toNode: a.sg.toNode, side: 0, edgeId: 'notch:' + k + 'a', corner: true },
+             { x1: M[0], z1: M[1], x2: o.x, z2: o.z, elevation: el, fromNode: o.sg.fromNode, toNode: o.sg.toNode, side: 0, edgeId: 'notch:' + k + 'b', corner: true });
+  });
+  return out;
+}
+
+// Junction corners: where two neighbouring streets meet, their pavement strips stop at the cross street's kerb a couple of units apart
+// (a notch of bare ground at the block corner). Join the two ends round the corner: along the strips' own lines to where they meet, or
+// straight across when they do not meet nearby. The road still wins: anything over a road surface is cut away afterwards.
+function addJunctionCorners(segments, cityData, nodes, by) {
+  const clear = groundRoadClearance(cityData), ends = new Map(), out = [];
+  segments.forEach(sg => {
+    if (sg.corner) return;
+    [[sg.x1, sg.z1, sg.x2, sg.z2], [sg.x2, sg.z2, sg.x1, sg.z1]].forEach(([x, z, ox, oz]) => {
+      const node = nearestNode(sg, x, z, nodes, 16); if (node === null) return;
+      if ((by[node] || []).length < 3) return;
+      const L = Math.hypot(ox - x, oz - z) || 1;
+      (ends.get(node) || ends.set(node, []).get(node)).push({ x, z, dx: (ox - x) / L, dz: (oz - z) / L, edgeId: sg.edgeId, el: sg.elevation });
+    });
+  });
+  ends.forEach((list, node) => {
+    const used = new Set();
+    const pairs = [];
+    list.forEach((A, i) => list.forEach((B, k) => { if (k <= i || A.edgeId === B.edgeId) return; const gap = Math.hypot(A.x - B.x, A.z - B.z); if (gap >= 0.8 && gap <= 7) pairs.push([gap, i, k]); }));
+    pairs.sort((p, q) => p[0] - q[0]);
+    pairs.forEach(([gap, i, k]) => {
+      if (used.has(i) || used.has(k)) return; used.add(i); used.add(k);
+      const A = list[i], B = list[k];
+      // meeting point of the two strip lines (A + s*dA = B + t*dB), taken only if it lies just beyond both ends
+      const den = A.dx * B.dz - A.dz * B.dx; let Q = null;
+      if (Math.abs(den) > 0.2) {
+        const s2 = ((B.x - A.x) * B.dz - (B.z - A.z) * B.dx) / den, t2 = ((B.x - A.x) * A.dz - (B.z - A.z) * A.dx) / den;
+        if (s2 > -9 && s2 < 0.1 && t2 > -9 && t2 < 0.1) Q = [A.x + A.dx * s2, A.z + A.dz * s2];
+      }
+      const mk = (x1, z1, x2, z2, kk) => out.push({ x1, z1, x2, z2, elevation: A.el, fromNode: node, toNode: node, side: 0, edgeId: 'junction:' + node + ':' + i + ':' + k + kk, corner: true });
+      const M = pushClear(clear, ...(Q || [(A.x + B.x) / 2, (A.z + B.z) / 2]));                 // the corner point, kept off the road
+      mk(A.x, A.z, M[0], M[1], 'a'); mk(M[0], M[1], B.x, B.z, 'b');
+    });
+  });
+  return out;
 }
 
 // Where a pavement strip would lie on a road (a corner of its own road, a crossing street), the road wins: the strip is cut there.
@@ -120,7 +239,7 @@ export function cutRoads(segments, cityData) {
     const blocked = [];
     for (let i = 0; i <= k; i++) {
       const x = sg.x1 + dx * i / k, z = sg.z1 + dz * i / k;
-      blocked.push([-half, 0, half].some(o => clear(x - uz * o, z + ux * o) < -0.15));
+      blocked.push(sg.corner ? clear(x, z) < 0.9 : [-half, 0, half].some(o => clear(x - uz * o, z + ux * o) < -0.15));      // a corner piece (pushed clear of the road when drawn) is cut only if its middle comes within 0.9 u of the road
     }
     let start = -1;
     for (let i = 0; i <= k + 1; i++) {
@@ -128,7 +247,7 @@ export function cutRoads(segments, cityData) {
       if (free && start < 0) start = i;
       if (!free && start >= 0) {
         const a = Math.min(k, start + (start > 0 ? 1 : 0)), b = Math.max(0, i - 1 - (i - 1 < k ? 1 : 0));   // keep a 0.75 u margin from the road
-        if ((b - a) * L / k >= 2.5) out.push(a === 0 && b === k ? sg : { ...sg, x1: sg.x1 + dx * a / k, z1: sg.z1 + dz * a / k, x2: sg.x1 + dx * b / k, z2: sg.z1 + dz * b / k, cut: true });
+        if ((b - a) * L / k >= (sg.corner ? 0.25 : 2.5) || (sg.corner && a === 0 && b === k)) out.push(a === 0 && b === k ? sg : { ...sg, x1: sg.x1 + dx * a / k, z1: sg.z1 + dz * a / k, x2: sg.x1 + dx * b / k, z2: sg.z1 + dz * b / k, cut: true });
         start = -1;
       }
     }
@@ -151,7 +270,7 @@ export function cutDriveways(segments, driveways) {
       pieces.forEach(([a, b]) => { if (hi <= a || lo >= b) { next.push([a, b]); return; } if (lo > a) next.push([a, lo]); if (hi < b) next.push([hi, b]); });
       pieces = next;
     });
-    pieces.forEach(([a, b]) => { if ((b - a) * L < 2.5) return; out.push({ ...sg, x1: sg.x1 + dx * a, z1: sg.z1 + dz * a, x2: sg.x1 + dx * b, z2: sg.z1 + dz * b, cut: pieces.length > 1 || a > 0 || b < 1 }); });
+    pieces.forEach(([a, b]) => { if ((b - a) * L < 2.5 && !sg.corner) return; out.push({ ...sg, x1: sg.x1 + dx * a, z1: sg.z1 + dz * a, x2: sg.x1 + dx * b, z2: sg.z1 + dz * b, cut: pieces.length > 1 || a > 0 || b < 1 }); });
   });
   return out;
 }
@@ -193,7 +312,8 @@ export function buildSidewalks(cityData) {
     const y = seg.elevation, y0 = y - CURB_HEIGHT - 0.02;
     const b = pos.length / 3;
     // 0..3 top (L1, R1, L2, R2), 4..7 bottom of the same
-    const P = [[seg.x1 + px, y, seg.z1 + pz], [seg.x1 - px, y, seg.z1 - pz], [seg.x2 + px, y, seg.z2 + pz], [seg.x2 - px, y, seg.z2 - pz]];
+    const ex = seg.corner ? Math.cos(heading) * 0.7 : 0, ez = seg.corner ? Math.sin(heading) * 0.7 : 0;     // bend pieces overlap a little so the joints leave no wedge
+    const P = [[seg.x1 - ex + px, y, seg.z1 - ez + pz], [seg.x1 - ex - px, y, seg.z1 - ez - pz], [seg.x2 + ex + px, y, seg.z2 + ez + pz], [seg.x2 + ex - px, y, seg.z2 + ez - pz]];
     P.forEach(q => pos.push(q[0], q[1], q[2]));
     P.forEach(q => pos.push(q[0], y0, q[2]));
     idx.push(b, b + 2, b + 1, b + 1, b + 2, b + 3);                         // top

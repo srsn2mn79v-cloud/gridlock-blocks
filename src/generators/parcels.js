@@ -2,6 +2,34 @@ import * as THREE from 'three';
 import { WATER_Y } from '../rivers.js';
 import { mergeGeometries } from 'three/examples/jsm/utils/BufferGeometryUtils.js';
 
+// Moving water: a few crossing wave trains bend the normal (so the sky and sun glint ripple), a slow dark/light mottling and bright crests
+// give the surface depth and flow. `waterTime` is advanced by main.js every frame.
+export const waterTime = { value: 0 };
+function animateWater(mat, river) {
+  mat.onBeforeCompile = sh => {
+    sh.uniforms.uTime = waterTime;
+    sh.vertexShader = sh.vertexShader.replace('#include <common>', '#include <common>\nvarying vec3 vWPos;').replace('#include <begin_vertex>', '#include <begin_vertex>\nvWPos = (modelMatrix * vec4(transformed, 1.0)).xyz;');
+    sh.fragmentShader = sh.fragmentShader.replace('#include <common>', `#include <common>
+      uniform float uTime; varying vec3 vWPos;
+      vec3 waveGrad(vec2 p) {                       // xy: slope, z: height
+        vec3 r = vec3(0.0);
+        for (int i = 0; i < 6; i++) {
+          float fi = float(i), a = 0.9 + fi * 1.13, f = 0.55 + fi * 0.47, sp = 0.8 + fi * 0.35;
+          vec2 d = vec2(cos(a), sin(a));
+          ${river ? 'd = normalize(d + vec2(0.0, 1.6));' : ''}
+          float ph = dot(d, p) * f + uTime * sp + fi * 2.1, amp = 1.0 / (1.0 + fi * 0.8);
+          r.xy += d * f * cos(ph) * amp; r.z += sin(ph) * amp;
+        }
+        return r * 0.22;
+      }`).replace('#include <color_fragment>', `#include <color_fragment>
+      vec3 wv = waveGrad(vWPos.xz);
+      float mott = 0.5 + 0.5 * sin(vWPos.x * 0.07 + uTime * 0.2) * sin(vWPos.z * 0.09 - uTime * 0.15);
+      diffuseColor.rgb = mix(diffuseColor.rgb * vec3(0.55, 0.78, 0.82), diffuseColor.rgb * vec3(1.05, 1.1, 1.08), mott * 0.6 + wv.z * 0.25);
+      diffuseColor.rgb += vec3(0.55, 0.62, 0.68) * smoothstep(0.55, 0.95, wv.z * 0.9 + 0.35) * 0.35;`).replace('#include <normal_fragment_maps>', `#include <normal_fragment_maps>
+      normal = normalize(normal + (viewMatrix * vec4(wv.x, 0.0, wv.y, 0.0)).xyz * 0.9);`);
+  };
+  mat.customProgramCacheKey = () => 'water' + (river ? 'R' : 'L');
+}
 const parcelColor = { building: 0x566072, park: 0x2f5a3a, plaza: 0xd9c79a, water: 0x3fa7ff };
 
 // Three's ExtrudeGeometry/ShapeGeometry build in the shape's local XY plane and extrude
@@ -103,6 +131,7 @@ export function buildParcels(cityData) {
     const geo = new THREE.ShapeGeometry(footprintToShape(p.footprint));
     geo.rotateX(-Math.PI / 2);
     const mat = new THREE.MeshStandardMaterial({ color: (p.type === 'plaza' && p.color != null) ? p.color : (parcelColor[p.type] || 0x888888), roughness: p.type === 'water' ? 0.2 : 0.9 });
+    if (p.type === 'water' && !p.deck) animateWater(mat, !!p.river);
     const mesh = new THREE.Mesh(geo, mat);
     mesh.position.y = p.deck ? 0.12 : p.river ? WATER_Y : p.type === 'water' ? 0.05 : p.type === 'plaza' ? 0.04 : 0.02;
     mesh.receiveShadow = true;

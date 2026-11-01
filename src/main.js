@@ -8,7 +8,7 @@ import { buildStructures } from './structures.js';
 import { buildCuts, groundGeometry } from './generators/cuts.js';
 import { buildShopBays } from './shopBays.js';
 import { buildSigns } from './generators/signs.js';
-import { buildParcels } from './generators/parcels.js';
+import { buildParcels, waterTime } from './generators/parcels.js';
 import { buildDoors } from './generators/doors.js';
 import { buildProps } from './generators/props.js';
 import { getSpawn } from './generators/gameplay.js';
@@ -500,7 +500,13 @@ world.setBlocked(() => races.active() || races.offering() || hail.busy());
 world.setRaceInfo(() => races.plan);
 world.setSleepHook(h => weather.advance(h));
 // walls the chase camera must not sit inside: building footprints (bucketed) and, in a garage, its concrete
-const shopLots = createShopLots({ scene, cityData: city, collisionWorld, heightAt, pedestrians, adopt: (x, z, fx, fz, col) => traffic.adopt(x, z, fx, fz, col) });
+const shopLots = createShopLots({ scene, cityData: city, collisionWorld, heightAt, pedestrians, adopt: (x, z, fx, fz, col) => traffic.adopt(x, z, fx, fz, col),
+  reserve: (edge, D, x, z, col) => traffic.reserveLane(edge, D, x, z, col), release: (car, sp) => traffic.release(car, sp),
+  busy: (x, z, r, g) => {       // a car (or you) coming along the street toward the mouth: wait
+    const pts = [g.lanePt(0), g.lanePt(-12), g.lanePt(-26)];
+    if (pts.some(p => Math.hypot(car.x - p.x, car.z - p.z) < 9)) return true;
+    return traffic.cars.some(c => c.active && c.mesh.visible && !c.parked && pts.some((p, i) => Math.hypot(c.mesh.position.x - p.x, c.mesh.position.z - p.z) < (i ? 11 : 8)));
+  } });
 const parkedCars = createParkedCars({ scene, propInstances, handles: propGroup.userData.parkedHandles, collisionWorld, heightAt, events: traffic.events });
 const camGrid = new Map();
 collisionWorld.forEach(c => {
@@ -813,6 +819,8 @@ function animate() {
   fpsFrames++; fpsT += rawDt;
   if (fpsT >= 0.5) { fpsEl.textContent = Math.round(fpsFrames / fpsT) + ' FPS'; fpsFrames = 0; fpsT = 0; }
   env.update(dt, camera.position);
+  waterTime.value += dt;
+  marketDecor.userData.update(env.hour, nightK);
   // View distance: scale the fog and cut the camera's far plane just beyond it, so geometry
   // that fog would hide anyway isn't drawn at all.
   scene.fog.near *= viewMul; scene.fog.far *= viewMul;
@@ -927,7 +935,7 @@ function animate() {
     sprays.update(dt);
     updateEffects(dt);
     pedestrians.update(dt, hail.following() ? hail.proxy : car);
-    shopLots.update(dt, car);
+    shopLots.update(dt, car, env.hour);
     updateWrongWay();
 
     if (isCarInWater()) {
