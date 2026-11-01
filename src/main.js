@@ -22,6 +22,9 @@ import { createInput } from './input.js';
 import { updateFollowCamera, createCameraRig, CAM_MODES } from './camera.js';
 import { createInterior } from './interior.js';
 import { createGroundSampler } from './terrain.js';
+import { buildMarketDecor } from './marketDecor.js';
+import { buildBillboards } from './billboards.js';
+import { buildRiverBanks } from './riverbanks.js';
 import { buildCollisionWorld, resolveCarCollisions, pointInPolygon } from './collision.js';
 import { spawnDebris, spawnLeaves, updateEffects } from './effects.js';
 import { createDestruction } from './destruction.js';
@@ -46,6 +49,7 @@ import { createPlowFx } from './plowfx.js';
 import { createRadio } from './radio.js';
 import { createAudio } from './audio.js';
 import { createDrawbridge } from './drawbridge.js';
+import { createBoats } from './boats.js';
 import { createDrivetrain } from './drivetrain.js';
 import { isCovered } from './covered.js';
 import { createSkidMarks } from './skidmarks.js';
@@ -141,7 +145,7 @@ function onNight(k) {
     l.lens.forEach(m => { m.emissiveIntensity = 0.05 + 1.05 * nightK; });
     l.pools.forEach(pl => setGlow(pl, 0.28));
   });
-  const neon = propGroup.userData.neon; if (neon) neon.mats.forEach(m => { m.opacity = Math.min(1, nightK * 1.15); });
+  const neon = propGroup.userData.neon; if (neon) neon.mats.forEach(m => { m.color.setScalar(0.28 + 0.72 * Math.min(1, nightK * 1.15)); });          // dim by day, blazing at night (the panels are solid)
   const pth = propGroup.userData.pathLights;
   if (pth) { pth.lensMat.emissiveIntensity = 0.1 + 1.6 * nightK; pth.glowMat.opacity = 0.75 * nightK; }
 }
@@ -315,10 +319,16 @@ const heightAt = createGroundSampler(city);
 const cuts = buildCuts(city, heightAt);
 scene.add(cuts.group);
 scene.add(buildShopBays(city, heightAt));
+const marketDecor = buildMarketDecor(city, heightAt);
+scene.add(marketDecor);
+scene.add(buildBillboards(city, heightAt));
 const signs = buildSigns(city, heightAt, roadsGroup.userData.mapPaths);
 scene.add(signs.group);
 signs.group.traverse(o => { if (o.isMesh) (Array.isArray(o.material) ? o.material : [o.material]).forEach(installSnowCap); });
 const destruction = createDestruction(scene);
+const riverbanks = buildRiverBanks(city);
+scene.add(riverbanks.group);
+riverbanks.holes.forEach(poly => cuts.holes.push({ poly }));        // the ground is cut open where the rivers run
 const ground = new THREE.Mesh(
   groundGeometry(2600, cuts.holes),
   new THREE.MeshStandardMaterial({ color: 0x575c61, roughness: 0.95 })
@@ -699,6 +709,7 @@ const skids = createSkidMarks({ scene, heightAt: world.heightAt });
 const puffs = createPuffs({ scene, heightAt: world.heightAt, renderer });
 const audio = createAudio({ camera });
 const drawbridge = createDrawbridge({ city, scene, collisionWorld, audio, heightAt });
+const boats = createBoats({ city, scene, drawbridge });
 const radio = createRadio({ audio, weather, settings });
 const unlockAudio = () => audio.unlock();
 ['pointerdown', 'keydown', 'touchstart'].forEach(ev => addEventListener(ev, unlockAudio, { passive: true }));
@@ -874,6 +885,7 @@ function animate() {
       if (steps > 1) pre.push(...resolveCarCollisions(car, collisionWorld, dt / steps));
     }
     drawbridge.update(dt, camera);
+    boats.update(dt, world.focus());
     traffic.update(dt, hail.following() ? hail.proxy : car, world.onFoot && world.mode === 'city' ? world.focus() : null);
     if (traffic.walkerHit.on) world.shoveFoot(traffic.walkerHit.vx, traffic.walkerHit.vz);
     parkedCars.update(dt, car.x, car.z);
@@ -935,6 +947,6 @@ function animate() {
   gfx.render();
   requestAnimationFrame(animate);
 }
-window.__game = { shopLots, drawbridge, hail, camRig, interior, fuel, radio, weather, plowFx, puffs, gfx, transit, parkedCars, skids, audio, races, structures, world, renderer, taxi, input, destruction, collisionWorld, lampDefs, signs, propInstances, env, settings, menu, minimap, scene, camera, car, city, traffic, pedestrians, lampPool, reflectors, heightAt, offences: { get wrongWay() { return wrongWayOffences; } } };
+window.__game = { shopLots, drawbridge, boats, hail, camRig, interior, fuel, radio, weather, plowFx, puffs, gfx, transit, parkedCars, skids, audio, races, structures, world, renderer, taxi, input, destruction, collisionWorld, lampDefs, signs, propInstances, env, settings, menu, minimap, scene, camera, car, city, traffic, pedestrians, lampPool, reflectors, heightAt, offences: { get wrongWay() { return wrongWayOffences; } } };
 loadingDone();
 animate();

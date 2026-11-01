@@ -457,12 +457,13 @@ const builders = {
 function neonTexture(word, blade) {
   const c = document.createElement('canvas'), W = blade ? 64 : 256, H = blade ? 256 : 96; c.width = W; c.height = H;
   const g = c.getContext('2d'); g.textAlign = 'center'; g.textBaseline = 'middle'; g.lineJoin = 'round';
+  g.fillStyle = '#07080c'; g.fillRect(0, 0, W, H);                                   // a solid dark panel behind the glowing tubes: opaque, never see-through
   const draw = (txt, x, y, size) => {
     g.font = '900 ' + size + 'px "Arial Black", system-ui, sans-serif';
     if (!blade) { const mw = g.measureText(txt).width; if (mw > W - 28) { size = Math.floor(size * (W - 28) / mw); g.font = '900 ' + size + 'px "Arial Black", system-ui, sans-serif'; } }
     g.shadowColor = '#fff'; g.shadowBlur = 14; g.strokeStyle = 'rgba(255,255,255,0.35)'; g.lineWidth = 9; g.strokeText(txt, x, y);
     g.shadowBlur = 0; g.strokeStyle = '#fff'; g.lineWidth = 3; g.strokeText(txt, x, y);
-    g.fillStyle = 'rgba(255,255,255,0.5)'; g.fillText(txt, x, y);
+    g.fillStyle = 'rgba(255,255,255,0.85)'; g.fillText(txt, x, y);
   };
   if (blade) { const ch = word.split(''); const step = H / (ch.length + 0.6); ch.forEach((t, i) => draw(t, W / 2, step * (i + 0.8), Math.min(52, step * 0.95))); }
   else draw(word, W / 2, H / 2, 64);
@@ -475,13 +476,19 @@ function buildNeonSigns(list) {
   const m = new THREE.Matrix4(), q = new THREE.Quaternion(), sc = new THREE.Vector3(), pos = new THREE.Vector3(), col = new THREE.Color(), up = new THREE.Vector3(0, 1, 0);
   const geo = new THREE.PlaneGeometry(1, 1);
   byKey.forEach((arr, k) => {
-    const mat = new THREE.MeshBasicMaterial({ map: neonTexture(arr[0].word, arr[0].blade), transparent: true, blending: THREE.AdditiveBlending, depthWrite: false, toneMapped: false, opacity: 0, side: THREE.DoubleSide });
-    const im = new THREE.InstancedMesh(geo, mat, arr.length);
+    // opaque panel, drawn twice back to back: the second copy faces the other way so the words read correctly from behind too
+    const mat = new THREE.MeshBasicMaterial({ map: neonTexture(arr[0].word, arr[0].blade), toneMapped: false });
+    const front = new THREE.InstancedMesh(geo, mat, arr.length), back = new THREE.InstancedMesh(geo, mat, arr.length);
+    const flip = new THREE.Quaternion().setFromAxisAngle(up, Math.PI), qb = new THREE.Quaternion(), off = new THREE.Vector3(), pb = new THREE.Vector3();
     arr.forEach((p, i) => {
-      q.setFromAxisAngle(up, (p.rotation || 0) * Math.PI / 180); sc.set(p.w, p.h, 1); pos.set(p.x, p.y + p.h / 2, p.z);
-      m.compose(pos, q, sc); im.setMatrixAt(i, m); col.setHex(p.color).multiplyScalar(2.2); im.setColorAt(i, col);
+      q.setFromAxisAngle(up, (p.rotation || 0) * Math.PI / 180); sc.set(p.w, p.h, 1);
+      off.set(0, 0, 0.02).applyQuaternion(q);
+      pos.set(p.x, p.y + p.h / 2, p.z).add(off); m.compose(pos, q, sc); front.setMatrixAt(i, m);
+      qb.copy(q).multiply(flip); pb.set(p.x, p.y + p.h / 2, p.z).sub(off); m.compose(pb, qb, sc); back.setMatrixAt(i, m);
+      col.setHex(p.color).multiplyScalar(2.2); front.setColorAt(i, col); back.setColorAt(i, col);
     });
-    im.frustumCulled = false; im.renderOrder = 3; g.add(im); mats.push(mat);
+    [front, back].forEach(im => { im.frustumCulled = false; g.add(im); });
+    mats.push(mat);
   });
   g.userData = { mats };
   return g;

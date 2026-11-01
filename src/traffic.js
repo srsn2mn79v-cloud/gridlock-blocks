@@ -552,7 +552,7 @@ export function createTrafficSystem(cityData, scene, heightAt, count = 6, maxCou
   }
 
   const stopSet = computeStopApproaches(cityData).stops;
-  const bridgeNodes = new Set(); drivable.forEach(e => { if (e.drawbridge) { bridgeNodes.add(e.from); bridgeNodes.add(e.to); } });
+  const bridgeNodes = new Map(); drivable.forEach(e => { if (e.drawbridge) { bridgeNodes.set(e.from, e); bridgeNodes.set(e.to, e); } });
 
   // Is it safe to leave the stop line? Nobody in the junction box, and (for a minor road
   // meeting a bigger one) no car on the bigger road about to reach the junction.
@@ -844,7 +844,7 @@ export function createTrafficSystem(cityData, scene, heightAt, count = 6, maxCou
       }
 
       // The drawbridge: while its gates are down or its leaves are up, cars wait at the gates (5 u before the leaf hinge)
-      if (!conn && car.edge && cityData.drawbridgeStop && bridgeNodes.has(car.to) && !car.edge.drawbridge) {
+      if (!conn && car.edge && bridgeNodes.has(car.to) && bridgeNodes.get(car.to).bridgeStop && !car.edge.drawbridge) {
         const toStop = distToNode - 5.5;
         if (toStop > -1.5) hold(toStop, 'bridge');
       }

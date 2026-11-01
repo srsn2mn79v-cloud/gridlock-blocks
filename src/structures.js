@@ -4,6 +4,7 @@
 import * as THREE from 'three';
 import { mergeGeometries } from 'three/examples/jsm/utils/BufferGeometryUtils.js';
 import { buildEdgesByNode, buildVerticalCurves, elevationAlongEdge } from './roadMath.js';
+import { createRiverField } from './rivers.js';
 
 export const WALL_MIN_Y = 0.25, WALL_MAX_Y = 3.0;     // walls stand where the deck is between these heights
 const concrete = new THREE.MeshStandardMaterial({ color: 0x9c9a94, roughness: 0.92, metalness: 0.02 });
@@ -30,6 +31,7 @@ function segInter(a, b, c, d) {
 }
 
 export function buildStructures(city) {
+  const riverField = createRiverField(city.rivers);
   const group = new THREE.Group(), colliders = [], piers = [], walls = [];
   const nodes = city.roadNodes, edges = city.roadEdges;
   const vc = buildVerticalCurves(nodes, buildEdgesByNode(edges));
@@ -98,8 +100,9 @@ export function buildStructures(city) {
     const pillar = (x, z, ux2, uz2, hl, hwid, deckY, kind) => {
       const top = deckY - 0.95;
       if (top < 0.8) return;
-      const g = new THREE.BoxGeometry(hl * 2, top, hwid * 2);
-      g.rotateY(-Math.atan2(uz2, ux2)); g.translate(x, top / 2, z);
+      const base = Math.min(0, riverField.groundY(x, z)), ph = top - base;          // a pier standing in a river goes down to the river bed
+      const g = new THREE.BoxGeometry(hl * 2, ph, hwid * 2);
+      g.rotateY(-Math.atan2(uz2, ux2)); g.translate(x, base + ph / 2, z);
       light.push(g);
       // hammerhead beam under the slab, across the full deck width
       const beam = new THREE.BoxGeometry(2.6, 1.2, e.width + 0.2);

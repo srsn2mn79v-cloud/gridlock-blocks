@@ -11,10 +11,10 @@ import * as THREE from 'three';
 import { createHalo, setGlow } from './glow.js';
 
 export const CYCLE = 300, OPEN_FOR = 60, RAISE = 12, WARN = 10, OFFSET = 190;      // first opening ~ 110 s after the game starts
-const LEAF_MAX = 1.32;                                                            // ~76 degrees
+export const LEAF_MAX = 35 * Math.PI / 180;                                       // the leaves tilt up to 35 degrees: a ramp you can jump
 
-export function bridgePhase(clock) {
-  const t = (((clock + OFFSET + WARN) % CYCLE) + CYCLE) % CYCLE - WARN;           // -10 .. 290: 0 is the moment the leaves start to rise
+export function bridgePhase(clock, offset = OFFSET) {
+  const t = (((clock + offset + WARN) % CYCLE) + CYCLE) % CYCLE - WARN;           // -10 .. 290: 0 is the moment the leaves start to rise
   const sm = k => k * k * (3 - 2 * k), end = OPEN_FOR + 2 * RAISE;                // 84: the leaves are down again
   let angle = 0, bell = false, gate = 0, flash = false;
   if (t < 0) { bell = true; flash = true; gate = sm(Math.min(1, (t + WARN) / 1.5)); }                          // warning before opening: the gates come down
@@ -26,9 +26,18 @@ export function bridgePhase(clock) {
   return { t, angle, bell, flash, gate };
 }
 
+// Every movable bridge (edges flagged `drawbridge`) gets its own leaves, gates and schedule, 75 s apart so they do not all open together.
 export function createDrawbridge({ city, scene, collisionWorld, audio, heightAt }) {
-  const e = (city.roadEdges || []).find(q => q.drawbridge);
-  if (!e) return { update() {}, phase: null };
+  const edges = (city.roadEdges || []).filter(q => q.drawbridge);
+  const list = edges.map((e, k) => makeBridge({ city, scene, collisionWorld, audio, heightAt }, e, OFFSET + k * 75));
+  return {
+    bridges: list, edge: edges[0] || null, phase: list[0] ? list[0].phase : null,
+    skipTo(t) { list.forEach(b => b.skipTo(t)); },
+    update(dt, camera) { list.forEach(b => b.update(dt, camera)); }
+  };
+}
+
+function makeBridge({ city, scene, collisionWorld, audio, heightAt }, e, offset) {
   const N = city.roadNodes, A = N[e.from], B = N[e.to];
   const len = Math.hypot(B.x - A.x, B.z - A.z), ux = (B.x - A.x) / len, uz = (B.z - A.z) / len, hw = e.width / 2, deckY = A.elevation;
   const rx = uz, rz = -ux;                                         // right of travel A -> B
@@ -57,7 +66,7 @@ export function createDrawbridge({ city, scene, collisionWorld, audio, heightAt 
   };
   leaves.push(leaf(A.x, A.z, ux, uz), leaf(B.x, B.z, -ux, -uz));
   // concrete abutments at both banks
-  [[A, 1], [B, -1]].forEach(([P, s]) => { const g = new THREE.Group(); g.position.set(P.x - ux * s * 2.5, 0, P.z - uz * s * 2.5); g.rotation.y = -Math.atan2(uz, ux); box(5, deckY + 0.2, e.width + 1.0, concrete, 0, (deckY + 0.2) / 2 - 0.4, 0, g); scene.add(g); });
+  [[A, 1], [B, -1]].forEach(([P, s]) => { const g = new THREE.Group(); g.position.set(P.x - ux * s * 2.5, 0, P.z - uz * s * 2.5); g.rotation.y = -Math.atan2(uz, ux); box(5, deckY + 3.0, e.width + 1.0, concrete, 0, (deckY - 0.4 - 3.2 + 0.2) / 2, 0, g); scene.add(g); });
 
   // ---- gates: a post at each kerb and a striped arm over that half of the road; two at each end -----------------------------------------------
   const gates = [], halos = [];
@@ -93,16 +102,16 @@ export function createDrawbridge({ city, scene, collisionWorld, audio, heightAt 
   const phase = { t: 0, angle: 0, bell: false, flash: false, gate: 1 };
   const apply = (p) => {
     leaves.forEach(l => { l.pivot.rotation.z = p.angle * LEAF_MAX; });
-    gates.forEach(g => { g.arm.rotation.z = (1 - p.gate) * 1.45; g.col.blocksCar = p.gate > 0.5; });
-    city.drawbridgeOpen = p.angle > 0.04;
-    city.drawbridgeStop = p.gate > 0.05 || p.angle > 0.001;
+    gates.forEach(g => { g.arm.rotation.z = (1 - p.gate) * 1.45; g.col.blocksCar = p.gate > 0.5 && p.angle < 0.02; });      // once the leaves rise the barrier gives way, so you can try the jump
+    e.bridgeAngle = p.angle * LEAF_MAX;                       // terrain.js turns the raised leaves into a ramp that ends at the gap
+    e.bridgeStop = p.gate > 0.05 || p.angle > 0.001;          // traffic.js halts cars at the gates
   };
-  apply(bridgePhase(0));
+  apply(bridgePhase(0, offset));
   return {
     phase, edge: e, deckEdgeId: e.id, skipTo(t) { clock = t; },
     update(dt, camera) {
       clock += dt;
-      Object.assign(phase, bridgePhase(clock));
+      Object.assign(phase, bridgePhase(clock, offset));
       apply(phase);
       flashPhase += dt;
       const on = phase.flash && Math.floor(flashPhase * 2.2) % 2 === 0;

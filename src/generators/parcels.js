@@ -1,4 +1,5 @@
 import * as THREE from 'three';
+import { WATER_Y } from '../rivers.js';
 import { mergeGeometries } from 'three/examples/jsm/utils/BufferGeometryUtils.js';
 
 const parcelColor = { building: 0x566072, park: 0x2f5a3a, plaza: 0xd9c79a, water: 0x3fa7ff };
@@ -103,7 +104,7 @@ export function buildParcels(cityData) {
     geo.rotateX(-Math.PI / 2);
     const mat = new THREE.MeshStandardMaterial({ color: (p.type === 'plaza' && p.color != null) ? p.color : (parcelColor[p.type] || 0x888888), roughness: p.type === 'water' ? 0.2 : 0.9 });
     const mesh = new THREE.Mesh(geo, mat);
-    mesh.position.y = p.deck ? 0.12 : p.type === 'water' ? 0.05 : p.type === 'plaza' ? 0.04 : 0.02;
+    mesh.position.y = p.deck ? 0.12 : p.river ? WATER_Y : p.type === 'water' ? 0.05 : p.type === 'plaza' ? 0.04 : 0.02;
     mesh.receiveShadow = true;
     group.add(mesh);
     instances.push({ id: 'parcel' + i, type: p.type, footprint: p.footprint, mesh, deck: !!p.deck });

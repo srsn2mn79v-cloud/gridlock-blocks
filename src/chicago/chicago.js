@@ -4,6 +4,7 @@
 import { generateRoads } from './gen_network.js';
 import { CLASSES } from './network.js';
 import { buildEdgesByNode, intersectionClearance } from '../roadMath.js';
+import { BANK_W } from '../rivers.js';
 import { S, T, TP, fromWorld, LAKES, DECKS, SPOTS, MAP, X0, Y0, RIVERS, PARKS, LANDMARKS, STADIUM, districtAt, DISTRICTS } from './map.js';
 import { rng, dist, distToSeg, pointInPoly, ribbonPoly, nearestOnPoly, atLen, polyLen } from './geom.js';
 
@@ -43,10 +44,12 @@ export function buildChicago() {
   const nodes = {};
   R.net.nodes.forEach((n, i) => { if (!used.has(i)) return; const id = 'n' + ni++; idOf[i] = id; nodes[id] = { x: r2(n.x), z: r2(n.z), elevation: r2(n.elev) }; });
   const CL = CLASSES;
+  // movable bridges: the drawbridge street and every low river bridge whose deck is a single straight piece (drawbridge.js gives each its own leaves and schedule)
+  const deckCount = new Map(); R.net.edges.forEach(e => { if (e.deckEdge) deckCount.set(e.line, (deckCount.get(e.line) || 0) + 1); });
   const edges = R.net.edges.map((e, i) => {
     const c = CL[e.line.cls];
     const o = { id: 'e' + i, from: idOf[e.from], to: idOf[e.to], width: c.width, type: c.type, structure: e.deckEdge ? 'bridge' : 'surface' };
-    if (e.deckEdge && e.line.drawbridge) { o.drawbridge = true; o.sidewalks = false; }
+    if (e.deckEdge && (e.line.drawbridge || e.line.lowBridge) && deckCount.get(e.line) === 1) { o.drawbridge = true; o.sidewalks = false; }
     if (c.lanes) o.lanes = c.lanes;
     o.speedLimit = c.speedLimit;
     if (e.line.cls === 'hw' || e.line.cls === 'ramp') o.sidewalks = false;
@@ -118,7 +121,7 @@ export function buildChicago() {
   const riverPolys = RIVERS.map(r => ribbonPoly(r.pts, r.half));
   const inWater = (x, z, m = 0) => {
     if (LAKES.some(l => pointInPoly(x, z, l))) return true;
-    for (const r of RIVERS) if (nearestOnPoly(x, z, r.pts).d < r.half + m) return true;
+    for (const r of RIVERS) if (nearestOnPoly(x, z, r.pts).d < r.half + BANK_W + m) return true;
     return false;
   };
   const parkAt = (x, z) => PARKS.find(p => pointInPoly(x, z, p.pts));
@@ -241,12 +244,26 @@ export function buildChicago() {
     fire:     { name: 'Fire Station', color: 0xb2301f, h: 9, w: 19, d: 12, neon: 'FIRE', neonCol: 0xff7a1a }
   };
   // supermarkets: same side-street layout as the services, but set deeper with a big car park of six rows of bays (see the bay loop below)
-  const MARKET_SPECS = [[345, 700], [610, 640], [380, 450], [300, 900], [640, 1010], [560, 880], [250, 450]].map(at => ({ kind: 'market', at, r: 120 }));
+  // each supermarket is a different brand and building: size, colour, roof, logo and any little shops attached to its side (drawn by marketDecor.js)
+  const MARKET_VARIANTS = [
+    { name: 'FreshMart', neon: 'FRESH', color: 0xe6e9dc, trim: 0x2e9b4e, glyph: 'leaf', w: 26, d: 15, h: 8 },
+    { name: 'Mega Save', neon: 'SAVE', color: 0xd9d4c3, trim: 0xd62d20, glyph: 'burst', w: 30, d: 17, h: 9, roofUnits: 5 },
+    { name: 'Corner Grocer', neon: 'GROCER', color: 0xb98f68, trim: 0x7a4a2a, glyph: 'basket', w: 17, d: 12, h: 6, roof: 'gable', units: [{ name: 'Bakery', color: 0xe9b44c, glyph: 'wheat' }, { name: 'Florist', color: 0xd96a9a, glyph: 'flower' }] },
+    { name: 'Sunrise Foods', neon: 'SUNRISE', color: 0xf0e2c0, trim: 0xf08a1c, glyph: 'sun', w: 24, d: 14, h: 7, units: [{ name: 'Pharmacy', color: 0x2f9a8c, glyph: 'cross' }] },
+    { name: 'Urban Pantry', neon: 'PANTRY', color: 0x3c4a52, trim: 0x37c8b4, glyph: 'drop', w: 22, d: 14, h: 10, glass: true },
+    { name: 'Harvest Hall', neon: 'HARVEST', color: 0xa23b2c, trim: 0xf2cf6a, glyph: 'wheat', w: 24, d: 16, h: 8, roof: 'gable' },
+    { name: 'Bulk Barn', neon: 'BULK', color: 0x8b9298, trim: 0x2f6fe0, glyph: 'star', w: 30, d: 18, h: 8, roofUnits: 6, units: [{ name: 'Tyres', color: 0x333a44, glyph: 'star' }] }
+  ];
+  const MARKET_SPECS = [[345, 700], [610, 640], [380, 450], [300, 900], [640, 1010], [560, 880], [250, 450]].map((at, i) => ({ kind: 'market', at, r: 120, v: MARKET_VARIANTS[i % MARKET_VARIANTS.length] }));
   [...STATION_SPECS, ...MARKET_SPECS].forEach((spec, i) => {
     const mk = spec.kind === 'market';
     const k = findAlley(spec, mk ? 44 : 36);
     if (!k) { if (!mk) warnings.push('no alley found for ' + spec.kind + ' station'); return; }
-    const info = STATION_INFO[spec.kind];
+    const info = mk ? { ...STATION_INFO.market, ...spec.v } : STATION_INFO[spec.kind];
+    if (mk) {       // the widest the building can be on this ground: no road or water at its corners and along its sides
+      const sy0 = 34, okW = w => { for (let a = -w / 2 - 6; a <= w / 2 + 6; a += 5) for (const dd of [sy0 - info.d / 2 - 1, sy0, sy0 + info.d / 2 + 1]) { const x = k.mx + k.nx * dd + k.ux * a, z = k.mz + k.nz * dd + k.uz * a; if (inWater(x, z, 4) || roadClear(x, z) < 3) return false; } return true; };
+      let w = info.w; while (w > 16 && !okW(w)) w -= 2; info.w = w;
+    }
     const sy = mk ? 34 : 27, sx = k.mx + k.nx * sy, sz = k.mz + k.nz * sy;
     const rot = Math.round(Math.atan2(-k.nx, -k.nz) * 180 / Math.PI);
     // parked emergency vehicles on the apron between the street and the building: two rows, nose out
@@ -256,11 +273,17 @@ export function buildChicago() {
       const lat = (b - (nb - 1) / 2) * 6.2, dep = 12 + (spec.kind === 'fire' ? 0 : 0);
       bays.push({ x: r2(k.mx + k.nx * dep + k.ux * lat), z: r2(k.mz + k.nz * dep + k.uz * lat), rotation: rot, type: spec.kind === 'hospital' ? 'ambulance' : spec.kind === 'police' ? 'police' : 'fire' });
     }
-    stations.push({ id: 'svc' + i, market: mk, kind: spec.kind, name: info.name, x: r2(sx), z: r2(sz), door: { x: r2(sx - k.nx * (info.d / 2 + 1.5)), z: r2(sz - k.nz * (info.d / 2 + 1.5)), rotation: rot },
+    stations.push({ id: 'svc' + i, market: mk, info, kind: spec.kind, name: info.name, x: r2(sx), z: r2(sz), door: { x: r2(sx - k.nx * (info.d / 2 + 1.5)), z: r2(sz - k.nz * (info.d / 2 + 1.5)), rotation: rot },
       mouth: { x: r2(k.mx + k.nx * 3), z: r2(k.mz + k.nz * 3) }, nx: k.nx, nz: k.nz, ux: k.ux, uz: k.uz, bays });
     blockedRects.push(Math.abs(k.nx) > Math.abs(k.nz)
       ? [Math.min(k.mx, k.mx + k.nx * (mk ? 44 : 36)), k.mz - 12, Math.max(k.mx, k.mx + k.nx * (mk ? 44 : 36)), k.mz + 12]
       : [k.mx - 12, Math.min(k.mz, k.mz + k.nz * (mk ? 44 : 36)), k.mx + 12, Math.max(k.mz, k.mz + k.nz * (mk ? 44 : 36))]);
+    if (mk) {       // the building and its side units are wider than the alley: keep other buildings off them too
+      const ext = info.w / 2 + 14 * (info.units ? 1 : 0.4) + 3, c0 = [sx - k.ux * 0, sz];
+      const xs = [], zs = []; for (const aa of [-ext, ext]) for (const bb of [-info.d / 2 - 2, info.d / 2 + 2]) { xs.push(sx + k.ux * aa + k.nx * bb); zs.push(sz + k.uz * aa + k.nz * bb); }
+      blockedRects.push([Math.min(...xs), Math.min(...zs), Math.max(...xs), Math.max(...zs)]);
+      driveways.push({ x: r2(k.mx), z: r2(k.mz), hw: 13, kind: 'market' });
+    }
   });
 
   // ---------------------------------------------------------------- buildings
@@ -283,7 +306,7 @@ export function buildChicago() {
   const rectFp = (x0, z0, x1, z1) => [[x0, z0], [x0, z1], [x1, z1], [x1, z0]];
   // water
   LAKES.forEach(l => parcels.push({ type: 'water', footprint: l.map(p => [r2(p[0]), r2(p[1])]) }));
-  riverPolys.forEach(p => parcels.push({ type: 'water', footprint: p.map(q => [r2(q[0]), r2(q[1])]) }));
+  riverPolys.forEach(p => parcels.push({ type: 'water', river: true, footprint: p.map(q => [r2(q[0]), r2(q[1])]) }));
   // piers, causeways and the island platforms: plazas laid over the water, so cars and people can use them
   const harbour = { slips: [], decks: [] };
   DECKS.forEach(d => { const f = d.pts.map(p => [r2(p[0]), r2(p[1])]); parcels.push({ type: 'plaza', deck: true, color: d.color, footprint: f }); harbour.decks.push(f); });
@@ -376,14 +399,29 @@ export function buildChicago() {
   });
 
   stations.forEach(st => {
-    const info = STATION_INFO[st.kind], along = Math.abs(st.nx) > Math.abs(st.nz) ? 'x' : 'z';
+    const info = st.info || STATION_INFO[st.kind], along = Math.abs(st.nx) > Math.abs(st.nz) ? 'x' : 'z';
     const hw = info.w / 2, hd = info.d / 2;
     const x0 = along === 'x' ? st.x - hd : st.x - hw, x1 = along === 'x' ? st.x + hd : st.x + hw, z0 = along === 'x' ? st.z - hw : st.z - hd, z1 = along === 'x' ? st.z + hw : st.z + hd;
-    parcels.push({ type: 'building', station: st.id, height: info.h, color: info.color, roof: 'flat', footprint: rectFp(r2(x0), r2(z0), r2(x1), r2(z1)) });
+    // a supermarket's footprint is turned to match its car park; the services' stay axis-aligned
+    const orect = (cx, cz, w, d) => [[-1, -1], [1, -1], [1, 1], [-1, 1]].map(([a, b]) => [r2(cx + st.ux * w / 2 * a + st.nx * d / 2 * b), r2(cz + st.uz * w / 2 * a + st.nz * d / 2 * b)]);
+    parcels.push({ type: 'building', station: st.id, height: info.h, color: info.color, roof: info.roof || 'flat', footprint: st.market ? orect(st.x, st.z, info.w, info.d) : rectFp(r2(x0), r2(z0), r2(x1), r2(z1)) });
+    if (st.market) {
+      // the car park: asphalt from the street to the shop front, a wide mouth where it meets the road; side shops share the building's front line
+      const P = (dd, a) => [r2(st.mouth.x - st.nx * 3 + st.nx * dd + st.ux * a), r2(st.mouth.z - st.nz * 3 + st.nz * dd + st.uz * a)];
+      const front = 34 - info.d / 2 + 3;
+      parcels.push({ type: 'plaza', color: 0x2f3238, footprint: [P(-1.5, -13), P(-1.5, 13), P(front, 13), P(front, -13)] });
+      st.units = [];
+      (info.units || []).forEach((u, i) => {
+        const side = i % 2 ? -1 : 1, uw = 8, lat = side * (hw + uw / 2 + 0.4), ud = Math.min(10, info.d - 2), cx = st.x + st.ux * lat + st.nx * (ud - info.d) / 2, cz = st.z + st.uz * lat + st.nz * (ud - info.d) / 2;
+        const fp = orect(cx, cz, uw, ud);
+        if (fp.some(q => inWater(q[0], q[1], 3) || roadClear(q[0], q[1]) < 3 || outsideHW(q[0], q[1], 0))) return;
+        parcels.push({ type: 'building', station: st.id + 'u' + i, height: 4.6, color: u.color, roof: 'flat', footprint: fp });
+        st.units.push({ ...u, x: r2(cx), z: r2(cz), w: uw, d: ud, lat, h: 4.6 });
+      });
+    }
     // a big lit sign over the entrance, facing the street (projecting neon, same instanced sign pool)
     const px = st.door.x, pz = st.door.z;
-    props.push({ type: 'neonsign', x: r2(px - st.nx * 1.0), z: r2(pz - st.nz * 1.0), y: 4.2, rotation: Math.round(Math.atan2(st.nz, -st.nx) * 180 / Math.PI), w: 3.6, h: 1.6, blade: false, word: info.neon, color: info.neonCol });
-    // (no coloured beacon lamp here: only shops get one)
+    props.push({ type: 'neonsign', x: r2(px - st.nx * 1.0), z: r2(pz - st.nz * 1.0), y: st.market ? info.h - 1.6 : 4.2, rotation: Math.round(Math.atan2(st.nz, -st.nx) * 180 / Math.PI), w: st.market ? 3.0 : 3.6, h: 1.2, blade: false, word: info.neon, color: info.neonCol });
   });
 
   // ---- apartments: the nicer the district the bigger the flat
@@ -562,6 +600,18 @@ export function buildChicago() {
       treeList.push({ type: rand() < 0.3 ? 'bush' : (rand() < 0.5 ? 'oak' : 'tree'), x: r2(p.x), z: r2(p.z), rotation: Math.floor(rand() * 360) });
     }
   });
+  // roadside advertising boards along the freeway (drawn by billboards.js): one every ~150 u, alternating sides, only on level ground in the clear
+  const billboards = []; let bbN = 0;
+  edges.forEach(e => {
+    if (e.type !== 'highway' || (e.structure && e.structure !== 'surface') || Math.max(nodes[e.from].elevation, nodes[e.to].elevation) > 0.25) return;
+    const a = nodes[e.from], b = nodes[e.to], len = Math.hypot(b.x - a.x, b.z - a.z);
+    for (let t = 12; t < len - 12; t += 28) {
+      const side = (bbN++ % 2) ? 1 : -1, p = sidePoint(e, t, side, e.width / 2 + 11);
+      if (roadClear(p.x, p.z) < 7 || inWater(p.x, p.z, 4) || parcelsHit(p.x, p.z, 7) || outsideHW(p.x, p.z, 0) || inDrive(p.x, p.z, 4)) continue;
+      if (!propOK(p.x, p.z, 8, treeList) || billboards.some(q => Math.hypot(q.x - p.x, q.z - p.z) < 120)) continue;
+      billboards.push({ x: r2(p.x), z: r2(p.z), face: Math.atan2(p.uz * side, -p.ux * side), ad: bbN % 8 });
+    }
+  });
   // street furniture: fire hydrants and mailboxes along the kerb of the streets, café sets (a table and chairs) outside the busy districts' buildings
   const CAFE_DISTRICTS = ['Gold Coast', 'Old Town', 'Chinatown', 'Loop Edge', 'Downtown', 'River North'];
   edges.forEach(e => {
@@ -738,7 +788,8 @@ export function buildChicago() {
     else if (['oak', 'bush', 'birch', 'pine', 'tree', 'shopsign'].includes(q.type) && (parcelsHit(q.x, q.z, 0.3) || inWater(q.x, q.z, 0.5))) props.splice(i, 1);
   }
   const districts = DISTRICTS.map(d => { const poly = d.poly.map(([X, Y]) => T(X, Y).map(r2)); return { name: d.name, color: d.color || '#9aa7b8', blurb: d.blurb || '', poly, cx: r2(poly.reduce((a, p) => a + p[0], 0) / poly.length), cz: r2(poly.reduce((a, p) => a + p[1], 0) / poly.length) }; }).filter(d => d.color !== '#9aa7b8' || true);
-  const city = { districts, roadNodes: nodes, roadEdges: edges, parcels, props, signals, gameplay, shops, stations, gasStations, driveways, harbour, apartments, agents, stores, warnings, hwSigns, hwLine: R.H.map(p => [r2(p[0]), r2(p[1])]),
+  const rivers = RIVERS.map(r => ({ id: r.id, half: r.half, pts: r.pts.map(p => [r2(p[0]), r2(p[1])]) }));
+  const city = { rivers, districts, roadNodes: nodes, roadEdges: edges, parcels, props, signals, gameplay, shops, stations, billboards, gasStations, driveways, harbour, apartments, agents, stores, warnings, hwSigns, hwLine: R.H.map(p => [r2(p[0]), r2(p[1])]),
     bounds: (() => { let x0 = 1e9, x1 = -1e9, z0 = 1e9, z1 = -1e9; Object.values(nodes).forEach(n => { x0 = Math.min(x0, n.x); x1 = Math.max(x1, n.x); z0 = Math.min(z0, n.z); z1 = Math.max(z1, n.z); }); return [x0 - 90, z0 - 90, x1 + 90, z1 + 90]; })() };
   return city;
 }

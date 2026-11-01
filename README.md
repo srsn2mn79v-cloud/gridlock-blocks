@@ -863,3 +863,10 @@ Still to come in this phase: storefronts, parks with seating, food stands, gyms.
 - **Metro** (two default lines of six stations, marker M): walk up to a station entrance, press E, pick another station on the line ($3), step out on foot there.
 - **Studio > Transit**: draw your own bus loops (stops) and metro lines (stations). "Check" runs the game's line builder. Custom bus lines replace the four built-in ones; the metro falls back to the defaults if none are drawn.
 - `node tools/check.mjs transit` checks the bus loops, that stations stand on free ground and that custom lines build.
+
+## Latest round
+- Supermarkets are real shops: storefront with sliding doors, canopy, brand logo, pylon sign at the car park mouth, roof units, loading dock, side shops (`src/marketDecor.js`).
+- Neon signs are solid and readable from both sides.
+- Movable bridges tilt up to 35 degrees; every arterial movable bridge now opens (staggered).
+- The river sits below street level with banks (`src/rivers.js`, `src/riverbanks.js`) and has boats (`src/boats.js`).
+- Advertising boards along the freeway (`src/billboards.js`).

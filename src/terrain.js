@@ -13,6 +13,7 @@ import {
   elevationAlongEdge, curveElevationAt, dist, buildBanks, edgeBank, cornerBanks
 } from './roadMath.js';
 import { buildSidewalkSegments, SIDEWALK_WIDTH } from './sidewalks.js';
+import { createRiverField } from './rivers.js';
 
 export function createGroundSampler(cityData) {
   const nodes = cityData.roadNodes || {};
@@ -24,6 +25,7 @@ export function createGroundSampler(cityData) {
     if (c) curveInfo[id] = c;
   }
   const vcByNode = buildVerticalCurves(nodes, edgesByNode);
+  const river = createRiverField(cityData.rivers);        // the rivers lie below the city: their banks and beds are the ground there
   const bankFor = buildBanks(nodes, edgesByNode);
 
   // Straight runs: height now follows the same vertical-curve-aware elevation lookup
@@ -39,6 +41,15 @@ export function createGroundSampler(cityData) {
     const mg = e.width / 2 + 2;
     return { edge: e, a, b, len, halfWidth: e.width / 2, t0, t1, minx: Math.min(a.x, b.x) - mg, maxx: Math.max(a.x, b.x) + mg, minz: Math.min(a.z, b.z) - mg, maxz: Math.max(a.z, b.z) + mg, junctA: deg(e.from) >= 3, junctB: deg(e.to) >= 3 };
   }).filter(Boolean);
+
+  // drawbridge hinges: at each end node of a movable span, the direction along the span (the corner curve there also lifts with the leaf)
+  const hinge = new Map();
+  (cityData.roadEdges || []).forEach(e => {
+    if (!e.drawbridge) return;
+    const a = nodes[e.from], b = nodes[e.to]; if (!a || !b) return;
+    const l = dist(a.x, a.z, b.x, b.z) || 1, ux = (b.x - a.x) / l, uz = (b.z - a.z) / l;
+    hinge.set(e.from, { e, x: a.x, z: a.z, ux, uz, reach: l / 2 }); hinge.set(e.to, { e, x: b.x, z: b.z, ux: -ux, uz: -uz, reach: l / 2 });
+  });
 
   // Corners: sampled points along the same spiral-arc-spiral curve roads.js draws, each
   // with the bank angle and local tangent heading at that point, so a query off-center
@@ -103,14 +114,13 @@ export function createGroundSampler(cityData) {
   }
   const BB = ['minx', 'maxx', 'minz', 'maxz'];
   const segAt = buildIdx(segments, BB), cornerAt = buildIdx(corners, BB), walkAt = buildIdx(walks, BB), pavedAt = buildIdx(paved, ['x0', 'x1', 'z0', 'z1']);
-  const cy = new Float64Array(64), cd = new Float64Array(64), ck = new Array(64);
+  const cy = new Float64Array(64), cd = new Float64Array(64), ck = new Array(64), cramp = new Uint8Array(64);
   function heightAt(x, z, refY) {
     let n = 0, kind = 'ground';
-    const consider = (d, y, k) => { cy[n] = y; cd[n] = d; ck[n] = k; n++; };
+    const consider = (d, y, k, ramp) => { cy[n] = y; cd[n] = d; ck[n] = k; cramp[n] = ramp ? 1 : 0; n++; };
 
     for (const s of segAt(x, z)) {
       if (x < s.minx || x > s.maxx || z < s.minz || z > s.maxz) continue;
-      if (s.edge.drawbridge && cityData.drawbridgeOpen) continue;            // the leaves are up: there is no road over the water
       const dx = s.b.x - s.a.x, dz = s.b.z - s.a.z;
       const rawT = ((x - s.a.x) * dx + (z - s.a.z) * dz) / (s.len * s.len || 1);
       const along = rawT * s.len;
@@ -122,9 +132,15 @@ export function createGroundSampler(cityData) {
       const d = dist(x, z, cx, cz);
       if (d <= s.halfWidth + 0.15) {
         let y = elevationAlongEdge(s.edge, tt * s.len, nodes, vcByNode);
+        let ramp = false;
+        if (s.edge.drawbridge && s.edge.bridgeAngle > 0.01) {          // raised leaves: each is a ramp tilted about its hinge (at the edge's ends); between their tips there is no road
+          const hh = Math.min(tt * s.len, s.len - tt * s.len), ang = s.edge.bridgeAngle;
+          if (hh > (s.len / 2) * Math.cos(ang)) continue;
+          y += hh * Math.tan(ang); ramp = true;
+        }
         const bk = edgeBank(s.edge, tt * s.len, s.len, bankFor);
         if (bk) y += (((x - cx) * dz - (z - cz) * dx) / (s.len || 1)) * Math.sin(bk) + s.halfWidth * Math.abs(Math.sin(bk));    // same cross-section as roads.js buildRibbon
-        consider(d, y, 'road');
+        consider(d, y, 'road', ramp);
       }
     }
 
@@ -155,7 +171,13 @@ export function createGroundSampler(cityData) {
         const lateral = (x - best.px) * Math.sin(hd) + (z - best.pz) * -Math.cos(hd);
         y = yc + lateral * Math.sin(bank) + corner.halfWidth * Math.abs(Math.sin(bank));
       }
-      consider(best.d, y, 'road');
+      let ramp = false;
+      const hg = hinge.get(corner.nodeId);
+      if (hg && hg.e.bridgeAngle > 0.01) {          // the bend beside a hinge: the part on the span's side rises with the leaf
+        const hh = (x - hg.x) * hg.ux + (z - hg.z) * hg.uz;
+        if (hh > 0) { if (hh > hg.reach * Math.cos(hg.e.bridgeAngle)) continue; y += hh * Math.tan(hg.e.bridgeAngle); ramp = true; }
+      }
+      consider(best.d, y, 'road', ramp);
     }
 
     for (const w of walkAt(x, z)) {
@@ -165,7 +187,7 @@ export function createGroundSampler(cityData) {
       if (d <= SIDEWALK_WIDTH / 2) consider(d, w.elevation, 'curb');
     }
 
-    let bestY = 0;
+    let bestY = 0, picked = false;
     if (n) {
       let pick = 0;
       if (refY === undefined) {
@@ -174,20 +196,22 @@ export function createGroundSampler(cityData) {
         // the surface at (or nearest to) the caller's height; where several lie within ~a metre of it
         // (a ramp rising out of a street, a kerb beside the road) the top one is the one you're driving on
         // a deck well above you is a roof, never a floor: it is skipped (walls keep you from driving onto it)
-        let m = Infinity; for (let i = 0; i < n; i++) if (cy[i] <= refY + 0.6) m = Math.min(m, Math.abs(cy[i] - refY));
+        const up = i => (cramp[i] ? 2.6 : 0.6);             // a raised drawbridge leaf is a steep ramp: its surface may lie well above the wheel
+        let m = Infinity; for (let i = 0; i < n; i++) if (cy[i] <= refY + up(i)) m = Math.min(m, Math.abs(cy[i] - refY));
         let by = -Infinity, bd2 = Infinity;
         pick = -1;
         for (let i = 0; i < n; i++) {
-          if (cy[i] > refY + 0.6 || Math.abs(cy[i] - refY) > m + 1.0) continue;
+          if (cy[i] > refY + up(i) || Math.abs(cy[i] - refY) > m + (cramp[i] ? 3 : 1.0)) continue;
           if (ck[i] === 'curb' && cd[i] > SIDEWALK_WIDTH / 2) continue;
           if (cy[i] > by + 0.02 || (Math.abs(cy[i] - by) <= 0.02 && cd[i] < bd2)) { by = cy[i]; bd2 = cd[i]; pick = i; }
         }
       }
-      if (pick >= 0) { bestY = cy[pick]; kind = ck[pick]; }
+      if (pick >= 0) { bestY = cy[pick]; kind = ck[pick]; picked = true; }
     }
     if (kind === 'ground') {
       for (const p of pavedAt(x, z)) if (x >= p.x0 && x <= p.x1 && z >= p.z0 && z <= p.z1 && inPoly(x, z, p.f)) { kind = 'plaza'; break; }
     }
+    if (!picked && kind === 'ground') bestY = river.groundY(x, z);        // nothing built here: the ground, which dips into the river banks
     heightAt.kind = kind;
     return bestY;
   }
