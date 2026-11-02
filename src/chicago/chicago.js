@@ -312,8 +312,9 @@ export function buildChicago() {
   LAKES.forEach(l => parcels.push({ type: 'water', footprint: l.map(p => [r2(p[0]), r2(p[1])]) }));
   riverPolys.forEach(p => parcels.push({ type: 'water', river: true, footprint: p.map(q => [r2(q[0]), r2(q[1])]) }));
   // piers, causeways and the island platforms: plazas laid over the water, so cars and people can use them
-  const harbour = { slips: [], decks: [] };
-  DECKS.forEach(d => { const f = d.pts.map(p => [r2(p[0]), r2(p[1])]); parcels.push({ type: 'plaza', deck: true, color: d.color, footprint: f }); harbour.decks.push(f); });
+  const harbour = { slips: [], decks: [], named: {}, port: [] };
+  DECKS.forEach(d => { const f = d.pts.map(p => [r2(p[0]), r2(p[1])]); parcels.push({ type: 'plaza', deck: true, color: d.color, footprint: f }); harbour.decks.push(f); harbour.named[d.name] = f; });
+  ((MAP.port) || []).forEach(pt => { if (harbour.named[pt.deck]) harbour.port.push({ deck: pt.deck, footprint: harbour.named[pt.deck] }); });
   ((MAP.harbour && MAP.harbour.slips) || []).forEach((p, n) => { const q = T(p[0], p[1]); harbour.slips.push({ x: r2(q[0]), z: r2(q[1]), n }); });
   PARKS.forEach(p => parcels.push({ type: 'park', name: p.name, footprint: p.pts.map(q => [r2(q[0]), r2(q[1])]) }));
   // stadium
