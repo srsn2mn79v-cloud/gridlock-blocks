@@ -55,7 +55,7 @@ export function generateRoads() {
     });
     const sideAt = (x, z) => { for (const r of RIVERS) { const nn = nearestOnPoly(x, z, r.pts); if (nn.d < r.half + 170) return { id: r.id, side: nn.side, half: r.half }; } return null; };
     let spans = 0, cIdx = 0;
-    const RB_ALLOW = [0, 2, 5, 8];   // the crossings that came out clean in tools/check.mjs (the others leave a dead-end side street: see README)
+    const RB_ALLOW = [0, 2, 5];   // the crossings that came out clean in tools/check.mjs (the others leave a dead-end side street: see README)
     const allowed = idx => (globalThis.__RB_ONLY || RB_ALLOW).includes(idx);
     lines.slice().forEach(L => {
       if ((L.cls !== 'six' && L.cls !== 'four') || L.pts.length < 2) return;
