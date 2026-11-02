@@ -890,3 +890,12 @@ Still to come in this phase: storefronts, parks with seating, food stands, gyms.
 - **Inner city**: building street sides now reach out to 3.4 u from the road edge (`chicago.js`, lot growth) and about 4 in 10 low/mid-rise lots are **residential blocks** (`roof: 'resi'`: brick/pastel walls, balconies, hip roof, chimney, stoop).
 - **West bridge**: NOT added - candidate 8 (x about -190) failed the smooth and rules checks (steep grade, dead ends), so `RB_ALLOW` is unchanged. **Drawbridge paint** matches its street (double yellow, dashed lanes, solid edge lines).
 - **FPS**: the Low preset turns shadows off and renders at 60 %; an automatic governor lowers the resolution, then shadows, then glow/AO when the frame rate stays under 28 FPS for 3 s.
+
+## Round: San Francisco, bridges and tunnels, Golden Gate
+
+- **A second city.** `src/sf/mapdata_sf.js` is generated from the supplied map by `tools/sf/trace.py` + `tools/sf/build_map.py` (roads traced, dangling ends joined, water tiled out past the image edges, parks/landmarks from colour masks, districts and shop spots placed by hand). Pick the city in Menu > World > City (stored as `gridlock-city`, then the page reloads) or open `?city=sf`. For node checks use `CITY=sf node tools/check.mjs quick`. `map.js` now supports many lakes (`md.lakes`); `gen_network.js` / `chicago.js` work on a map with no interstate.
+- **Bridges and tunnels with height/depth.** A map can carry `structs`: `{at:[X,Y], len, h}` (nearest road) or `{line:'name', from, to, h}`; `h > 0` is a bridge that high, `h < 0` a tunnel that deep (units). `network.js` builds the deck/approach vertices from the road's grade limit, `chicago.js` marks the edges `bridge` or `tunnel`, and the existing portal/cut code does the rest. The studio editor does NOT have a tool for these yet.
+- **Golden Gate Bridge** (`src/goldengate.js`): orange towers with cross beams, main cables, suspender ropes, warm lamps at night and blinking red beacons.
+- **Marin gate** (`src/portal.js`): drive through the arch at the top of the Marin loop and the game reloads in Chicago.
+- Shop lamps now stand 6 u to the side of the garage mouth.
+- Known gaps: SF has no metro lines yet (the purple lines on the map are not used), only 4 tunnel/bridge spans (Golden Gate, Presidio tunnel, two SoMa/south ones that survive road pruning), a few near-duplicate junctions (`rules` check, 3 problems on SF), and SF has not been driven through for traffic/race checks. Chicago does not yet have a gate to SF (use the menu). Port, airport and west bridge are still to do.

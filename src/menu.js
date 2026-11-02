@@ -111,6 +111,8 @@ export function createMenu({ settings, limits, onChange, onOpenChange , ownedCar
       </div>
       <div class="toggles"><button class="toggle" data-t="swapSticks">🎮 Swap thumbsticks (on foot: camera left, move right)</button></div>
       <div class="row"><label>Volume</label><input type="range" data-k="volume" min="0" max="1" step="0.01"><output></output></div>
+      <div class="row" style="grid-template-columns:110px 1fr"><label>City</label>
+        <div class="seg" id="citySeg"><button data-city="chicago">Chicago</button><button data-city="sf">San Francisco</button></div></div>
       </div>
       <div class="tab" data-tab="gfx" hidden>
         <div class="row" style="grid-template-columns:110px 1fr"><label>Quality preset</label>
@@ -161,7 +163,7 @@ export function createMenu({ settings, limits, onChange, onOpenChange , ownedCar
     const cs = CAR_STYLES.find(c => c.key === settings.car) || CAR_STYLES[0];
     $('.carname').textContent = cs.name;
     $('.stats').innerHTML = `<b style="color:${CLASS_COLOR[cs.cls]}">Class ${cs.cls}</b> · Top ${Math.round(cs.maxSpeed * KMH_PER_U)} km/h · 0-100 ≈ ${zeroTo100(cs.accel, cs.maxSpeed, cs.mass).toFixed(1)} s · ${cs.mass} kg`;
-    root.querySelectorAll('.seg').forEach(seg => seg.querySelectorAll('button').forEach(b => b.classList.toggle('on', String(settings[seg.dataset.seg]) === b.dataset.v)));
+    root.querySelectorAll('.seg:not(#citySeg)').forEach(seg => seg.querySelectorAll('button').forEach(b => b.classList.toggle('on', String(settings[seg.dataset.seg]) === b.dataset.v)));
   }
   function set(k, v) {
     settings[k] = v;
@@ -181,12 +183,19 @@ export function createMenu({ settings, limits, onChange, onOpenChange , ownedCar
   });
   root.querySelectorAll('.presets button').forEach(b => b.addEventListener('click', () => set('hour', Number(b.dataset.h))));
   root.querySelectorAll('.toggle').forEach(b => b.addEventListener('click', () => set(b.dataset.t, !settings[b.dataset.t])));
-  root.querySelectorAll('.seg').forEach(seg => seg.querySelectorAll('button').forEach(b => b.addEventListener('click', () => {
+  root.querySelectorAll('.seg:not(#citySeg)').forEach(seg => seg.querySelectorAll('button').forEach(b => b.addEventListener('click', () => {
     const k = seg.dataset.seg;
     if (k === 'quality') { const P = PRESETS[b.dataset.v]; Object.keys(P).forEach(pk => set(pk, P[pk])); set('quality', b.dataset.v); return; }
     set(k, (k === 'tex' || k === 'res' || k === 'view' || k === 'shadow') ? Number(b.dataset.v) : b.dataset.v);
     if (k !== 'quality' && ['ao', 'tex', 'res', 'shadow'].includes(k)) set('quality', 'custom');
   })));
+  { // the city: stored, then the page reloads (the whole map is built at load)
+    let cur = 'chicago'; try { cur = localStorage.getItem('gridlock-city') || 'chicago'; if (new URLSearchParams(location.search).get('city')) cur = new URLSearchParams(location.search).get('city'); } catch (e) { /* ignore */ }
+    root.querySelectorAll('#citySeg button').forEach(b => {
+      b.classList.toggle('on', b.dataset.city === cur);
+      b.addEventListener('click', () => { try { localStorage.setItem('gridlock-city', b.dataset.city); } catch (e) { /* ignore */ } const u = new URL(location.href); u.searchParams.delete('city'); location.href = u.toString(); });
+    });
+  }
   root.querySelectorAll('.tabs button').forEach(b => b.addEventListener('click', () => {
     root.querySelectorAll('.tabs button').forEach(x => x.classList.toggle('on', x === b));
     root.querySelectorAll('.tab').forEach(t => { t.hidden = t.dataset.tab !== b.dataset.tab; });

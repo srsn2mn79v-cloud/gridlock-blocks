@@ -235,7 +235,7 @@ async function checkBridges() {
   });
   // every pillar of a street over the freeway sits in the median, between the carriageways
   const median = st.piers.filter(p => p.kind === 'median');
-  if (!median.length) bad.push('no median pillar found for the freeway crossings');
+  if (!median.length && (city.hasHW !== false && !process.env.CITY)) bad.push('no median pillar found for the freeway crossings');
   // low-deck sides are walled
   const unwalled = [];
   city.roadEdges.forEach(e => {
@@ -633,7 +633,7 @@ async function checkRiverBanks() {
     for (let i = 0; i < P.count; i++) { const x = P.getX(i), y = P.getY(i), z = P.getZ(i); if (y > 0.12) up++; if (y > 0.02 && field.edgeDist(x, z) > BANK_W + 3) far++; }
     if (up) bad.push(up + ' bank vertices stand above street level'); if (far) bad.push(far + ' bank vertices stand up well away from any river (spikes)'); });
   const water = (city.parcels || []).filter(p => p.type === 'water' && p.river);
-  if (!water.length) bad.push('no river water parcels'); 
+  if (!water.length && !process.env.CITY) bad.push('no river water parcels'); 
   return { name: 'riverbanks', count: holes.length + ' channel(s), ' + water.length + ' river water parcels (surface y=' + WATER_Y + ')', bad };
 }
 

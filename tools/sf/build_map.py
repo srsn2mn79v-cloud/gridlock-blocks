@@ -34,9 +34,58 @@ for ri, rd in enumerate(roads):
         if best and best[0] > 0.6:
             if idx == 0: rd['pts'].insert(0, [round(best[1][0], 2), round(best[1][1], 2)])
             else: rd['pts'].append([round(best[1][0], 2), round(best[1][1], 2)])
+# ---- make the road graph one piece: components are linked to the rest by their nearest endpoint, tiny strays are dropped ----
+def seg_int(a, b, c, d):
+    r = (b[0]-a[0], b[1]-a[1]); q = (d[0]-c[0], d[1]-c[1]); den = r[0]*q[1] - r[1]*q[0]
+    if abs(den) < 1e-9: return None
+    t = ((c[0]-a[0])*q[1] - (c[1]-a[1])*q[0]) / den; u = ((c[0]-a[0])*r[1] - (c[1]-a[1])*r[0]) / den
+    return (t, u) if -0.001 <= t <= 1.001 and -0.001 <= u <= 1.001 else None
+def touch(A, B):
+    for i in range(len(A) - 1):
+        for j in range(len(B) - 1):
+            if seg_int(A[i], A[i+1], B[j], B[j+1]): return True
+    for p in (A[0], A[-1]):
+        for j in range(len(B) - 1):
+            if dseg(p, B[j], B[j+1])[0] < 1.2: return True
+    for p in (B[0], B[-1]):
+        if any(dseg(p, A[k], A[k+1])[0] < 1.2 for k in range(len(A) - 1)): return True
+    return False
+roads = roads + [{'cls': c, 'pts': pts, 'w': 3, 'name': n} for c, pts, n in ADD]
+for rnd in range(30):
+    n = len(roads); par = list(range(n))
+    def f(x):
+        while par[x] != x: par[x] = par[par[x]]; x = par[x]
+        return x
+    for i in range(n):
+        for j in range(i + 1, n):
+            if f(i) != f(j) and touch(roads[i]['pts'], roads[j]['pts']): par[f(i)] = f(j)
+    comps = {}
+    for i in range(n): comps.setdefault(f(i), []).append(i)
+    if len(comps) == 1: break
+    main = max(comps.values(), key=lambda c: sum(plen(roads[i]['pts']) for i in c)); mset = set(main)
+    # link the component closest to the main body
+    best = None
+    for k, c in comps.items():
+        if c[0] in mset: continue
+        for i in c:
+            for pt in (roads[i]['pts'][0], roads[i]['pts'][-1]):
+                for j in main:
+                    for m in range(len(roads[j]['pts']) - 1):
+                        d, q = dseg(pt, roads[j]['pts'][m], roads[j]['pts'][m+1])
+                        if best is None or d < best[0]: best = (d, i, pt, j, m, q, c)
+    d, i, pt, j, m, q, c = best
+    L = sum(plen(roads[x]['pts']) for x in c)
+    if d > 45 and L < 220:
+        for x in sorted(c, reverse=True): roads.pop(x)
+    elif d > 45 and L < 600 and d > 90:
+        for x in sorted(c, reverse=True): roads.pop(x)
+    else:
+        roads.append({'cls': 'two', 'pts': [list(pt), [round(q[0], 2), round(q[1], 2)]], 'w': 2})
+print('road graph pieces left:', len(comps) if rnd == 29 else 1, 'roads', len(roads))
+ADD = []
 out_roads = []
-for rd in roads: out_roads.append({'cls': rd['cls'], 'pts': P(rd['pts'])})
-for cls, pts, name in ADD: out_roads.append({'cls': cls, 'pts': P(pts), 'name': name})
+for rd in roads: out_roads.append(dict({'cls': rd['cls'], 'pts': P(rd['pts'])}, **({'name': rd['name']} if rd.get('name') else {})))
+
 
 # ---------------- water: tiles of the cyan mask, padded out past the image edges (the south edge stays land) ----------------
 water = ((r < 140) & (g > 185) & (b > 185)).astype(np.uint8)
@@ -124,6 +173,10 @@ data = {
     'version': 1, 'scale': SC, 'image': {'w': W, 'h': H}, 'origin': [round(210 * SC, 1), round(440 * SC, 1)],
     'city': 'sf', 'lake': P(lakes[0]), 'lakes': [P(l) for l in lakes], 'rivers': [], 'highway': [], 'interchanges': [],
     'streets': out_roads, 'parks': parks, 'landmarks': lms, 'decks': [{'name': 'Alcatraz', 'color': 0x6f8f5a, 'pts': P(island)}],
+    'structs': [
+        {'line': 'Golden Gate Bridge', 'from': 330, 'to': -330, 'h': 16},
+        {'line': 'Presidio Parkway', 'from': 130, 'to': -130, 'h': -4.5}, {'at': [179 * SC, 538 * SC], 'len': 70, 'h': -5}, {'at': [265 * SC, 612 * SC], 'len': 80, 'h': -5}, {'at': [377.75 * SC, 487 * SC], 'len': 70, 'h': 5},
+    ],
     'stadium': {'cx': 330 * SC, 'cy': 575 * SC, 'rx': 6, 'ry': 6}, 'districts': districts, 'shops': shops, 'stations': stations, 'gas': gas, 'harbour': {'slips': []},
 }
 open('src/sf/mapdata_sf.js', 'w').write('// San Francisco, traced from tools/sf/ref.png by tools/sf/build_map.py (map px = reference px x 2.3).\nexport default ' + json.dumps(data) + ';\n')

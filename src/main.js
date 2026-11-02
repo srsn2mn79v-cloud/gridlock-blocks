@@ -50,6 +50,8 @@ import { createRadio } from './radio.js';
 import { createAudio } from './audio.js';
 import { createDrawbridge } from './drawbridge.js';
 import { createBoats } from './boats.js';
+import { createGoldenGate } from './goldengate.js';
+import { createPortal } from './portal.js';
 import { createDrivetrain } from './drivetrain.js';
 import { isCovered } from './covered.js';
 import { createSkidMarks } from './skidmarks.js';
@@ -716,6 +718,8 @@ const puffs = createPuffs({ scene, heightAt: world.heightAt, renderer });
 const audio = createAudio({ camera });
 const drawbridge = createDrawbridge({ city, scene, collisionWorld, audio, heightAt });
 const boats = createBoats({ city, scene, drawbridge });
+const goldenGate = createGoldenGate({ city, scene });
+const portal = createPortal({ city, scene, car, toast: msg => world.toast(msg) });
 const radio = createRadio({ audio, weather, settings });
 const unlockAudio = () => audio.unlock();
 ['pointerdown', 'keydown', 'touchstart'].forEach(ev => addEventListener(ev, unlockAudio, { passive: true }));
@@ -908,6 +912,8 @@ function animate() {
     }
     drawbridge.update(dt, camera);
     boats.update(dt, world.focus());
+    goldenGate.update(dt, nightK);
+    portal.update();
     traffic.setGrip(env.grip);
     traffic.update(dt, hail.following() ? hail.proxy : car, world.onFoot && world.mode === 'city' ? world.focus() : null);
     if (traffic.walkerHit.on) world.shoveFoot(traffic.walkerHit.vx, traffic.walkerHit.vz);

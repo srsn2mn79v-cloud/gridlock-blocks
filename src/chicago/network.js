@@ -46,7 +46,15 @@ export function buildNetwork(lines, barriers, opts = {}) {
         else warn('drawbridge has no room for its approaches: ' + L.id);
       }
     } else
+    {
+      (L.structs || []).forEach(st => {
+        const g = 0.95 * (CLASSES[L.cls] ? CLASSES[L.cls].maxGrade : 0.06), d1 = (st.s1 - st.s0) / 2, sc = (st.s0 + st.s1) / 2, h = st.h;
+        events.push({ sc, B: { kind: h < 0 ? 'tunnel' : 'span', half: d1 }, prof: { d1, d2: d1 + Math.abs(h) / g, h }, custom: true });
+      });
+    }
+    if (!L.drawbridge && !L.lowBridge)
     barriers.forEach(B => {
+      if (L.structs && L.structs.length) return;
       if (B.kind === 'highway' && (L.cls === 'hw' || L.cls === 'hwEnd')) return;
       if (B.line === L) return;
       if (L.noBridge === B.kind) return;

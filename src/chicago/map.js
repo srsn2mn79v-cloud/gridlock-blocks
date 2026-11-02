@@ -3,6 +3,7 @@
 // x is flipped (the game's minimap draws east on the right = -x) and z points north.
 // The exports are live bindings: setMapData() swaps the whole map (the studio does this to preview an edit).
 import DEFAULT_MAP from './mapdata.js';
+import SF_MAP from '../sf/mapdata_sf.js';
 import { spline, offsetPoly, ribbonPoly, nearestOnPoly, pointInPoly, distToSeg, dist, polyLen, atLen } from './geom.js';
 
 export const S = 2.5;
@@ -19,7 +20,7 @@ export let SPOTS = { shops: [], stations: [], gas: [] };
 export function setMapData(md) {
   MAP = md;
   X0 = md.origin[0]; Y0 = md.origin[1];
-  LAKES = [TP(md.lake)];
+  LAKES = md.lakes ? md.lakes.map(TP) : [TP(md.lake)];
   RIVERS = md.rivers.map(r => ({ id: r.id, half: r.half * S, pts: spline(TP(r.pts), 40) }));
   PARKS = md.parks.map(p => ({ name: p.name, pts: TP(p.pts) }));
   LANDMARKS = md.landmarks;
@@ -32,7 +33,15 @@ export function setMapData(md) {
   SPOTS = { shops: md.shops, stations: md.stations, gas: md.gas };
 }
 // a saved edit from the studio (same origin) replaces the built-in map
+export function citySel() {
+  try {
+    if (typeof location !== 'undefined') { const q = new URLSearchParams(location.search).get('city'); if (q) { try { localStorage.setItem('gridlock-city', q); } catch (e) {} return q; } }
+    if (typeof localStorage !== 'undefined') return localStorage.getItem('gridlock-city') || 'chicago';
+  } catch (e) { /* ignore */ }
+  return (typeof process !== 'undefined' && process.env && process.env.CITY) || 'chicago';
+}
 export function loadMapData() {
+  if (citySel() === 'sf') return SF_MAP;
   try {
     const raw = typeof localStorage !== 'undefined' && localStorage.getItem(CUSTOM_KEY);
     if (raw) { const c = JSON.parse(raw); if (c && c.map && c.map.streets && c.map.lake) return c.map; }

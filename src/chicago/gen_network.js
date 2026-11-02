@@ -3,15 +3,16 @@
 // Lays out every road of the map (the traced streets, the interstate and its interchanges) and returns the road graph.
 // The streets come from the map data (mapdata.json / the studio); see map.js.
 import { buildNetwork, CLASSES } from './network.js';
-import { T, TP, RIVERS, HIGHWAY_PX, STREETS, IXS, X0, Y0, fromWorld } from './map.js';
+import { MAP, T, TP, RIVERS, HIGHWAY_PX, STREETS, IXS, X0, Y0, fromWorld } from './map.js';
 import { spline, nearestOnPoly, pointInPoly, distToSeg, dist, polyLen, atLen, segInter } from './geom.js';
 
 export function generateRoads() {
   const warnings = [];
   // ---- the interstate --------------------------------------------------------------------------------------------
-  let H = spline(TP(HIGHWAY_PX), 75);
+  const hasHW = HIGHWAY_PX.length >= 2;
+  let H = hasHW ? spline(TP(HIGHWAY_PX), 75) : [];
   const cityPt = T(X0, Y0);
-  const citySide = nearestOnPoly(cityPt[0], cityPt[1], H).side;
+  const citySide = hasHW ? nearestOnPoly(cityPt[0], cityPt[1], H).side : 1;
   const CAR_OFF = 11.5;      // each carriageway (3 lanes) is centred this far from the median line
   const hwBarrier = { kind: 'highway', half: 19, pts: H };
 
@@ -22,6 +23,19 @@ export function generateRoads() {
     const pts = TP(s.pts);
     lines.push({ id: 'L' + i, cls: CLASSES[s.cls] ? s.cls : 'two', pts: pts.map(p => [p[0], p[1]]), bridge: true, noBridge: 'highway', name: s.name });
   });
+  // ---- bridges and tunnels marked on the map: map.structs = [{at:[X,Y], len, h}] (h > 0 a bridge that high, h < 0 a tunnel that deep, in units)
+  //      or {line:'name', from, to, h} to span part of a named road (to < 0 counts back from its end) ----
+  {
+    const plen = pts => pts.reduce((t, q, i) => i ? t + Math.hypot(q[0] - pts[i - 1][0], q[1] - pts[i - 1][1]) : 0, 0);
+    (MAP.structs || []).forEach(st => {
+      if (st.line) { const L = lines.find(l => l.name === st.line); if (!L) { warnings.push('structure road not found: ' + st.line); return; } const tot = plen(L.pts); (L.structs ||= []).push({ s0: st.from, s1: st.to < 0 ? tot + st.to : st.to, h: st.h }); return; }
+      const [x, z] = T(st.at[0], st.at[1]); let best = null;
+      lines.forEach(L => { let acc = 0; for (let i = 1; i < L.pts.length; i++) { const l = Math.hypot(L.pts[i][0] - L.pts[i - 1][0], L.pts[i][1] - L.pts[i - 1][1]), r = distToSeg(x, z, L.pts[i - 1][0], L.pts[i - 1][1], L.pts[i][0], L.pts[i][1]); if (!best || r.d < best.d) best = { d: r.d, L, s: acc + r.t * l, tot: 0 }; acc += l; } });
+      if (!best || best.d > 40) { warnings.push('no road at the structure at ' + st.at); return; }
+      const tot = plen(best.L.pts), s0 = Math.max(0, best.s - st.len / 2), s1 = Math.min(tot, best.s + st.len / 2);
+      (best.L.structs ||= []).push({ s0, s1, h: st.h });
+    });
+  }
   // ---- river bridges: arterials that stop on one bank and line up with another arterial on the far bank get joined ---------------------------
   {
     // 1. arterials that already span the river but are too short for approach ramps: borrow road from the streets at both ends
@@ -125,7 +139,7 @@ export function generateRoads() {
     const L = lines.find(l => l.pts.length === 2 && Math.hypot(l.pts[0][0] - 651, l.pts[0][1] - 557.75) < 3 && Math.hypot(l.pts[1][0] - 565.75, l.pts[1][1] - 642.25) < 3);
     if (L) { L.drawbridge = true; L.name = 'Drawbridge'; } else warnings.push('drawbridge street not found');
   }
-  { // the interstate runs from one end of the lake-shore drive to the other
+  if (hasHW) { // the interstate runs from one end of the lake-shore drive to the other
     const s0 = hook(H[0], 45), s1 = hook(H[H.length - 1], 45);
     if (s0) H[0] = s0.slice(); else warnings.push('the interstate does not reach the street map at its first end');
     if (s1) H[H.length - 1] = s1.slice(); else warnings.push('the interstate does not reach the street map at its last end');
@@ -191,7 +205,7 @@ export function generateRoads() {
   hwBarrier.pts = H;
   // the freeway: two one-way carriageways either side of a median (a pillar-wide gap), joined into one point at each end
   const hwPoint = s => { const p = atLen(H, Math.max(0, Math.min(polyLen(H), s))); return { x: p.x, z: p.z, rx: -p.dz, rz: p.dx }; };   // (rx, rz) = right of the path direction
-  {
+  if (hasHW) {
     const total = polyLen(H), sv = new Set([0, total]);
     let acc = 0; for (let i = 1; i < H.length; i++) { acc += dist(H[i - 1], H[i]); sv.add(acc); }
     [12, 36, 60, 90, 120].forEach(d => { sv.add(d); sv.add(total - d); });
@@ -247,7 +261,7 @@ export function generateRoads() {
   ramps.forEach((r, i) => lines.push({ id: 'RP' + i, cls: 'ramp', pts: r.pts, noJoin: true, ramp: r }));
 
   // ---- barriers for the bridge builder -----------------------------------------------------------------------------------------------------
-  const barriers = RIVERS.map(r => ({ kind: 'river', half: r.half, pts: r.pts })).concat([hwBarrier]);
-  const net = buildNetwork(lines, barriers, { warn: m => warnings.push(m), minEdge: 13, stubLen: 90 });
+  const barriers = RIVERS.map(r => ({ kind: 'river', half: r.half, pts: r.pts })).concat(hasHW ? [hwBarrier] : []);
+  const net = buildNetwork(lines, barriers, { warn: m => warnings.push(m), minEdge: 13, stubLen: hasHW ? 90 : 450 });
   return { net, lines, H, warnings, IX, ramps, CAR_OFF, ENTRY_END };
 }

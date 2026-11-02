@@ -48,8 +48,9 @@ export function buildChicago() {
   const deckCount = new Map(); R.net.edges.forEach(e => { if (e.deckEdge) deckCount.set(e.line, (deckCount.get(e.line) || 0) + 1); });
   const edges = R.net.edges.map((e, i) => {
     const c = CL[e.line.cls];
-    const o = { id: 'e' + i, from: idOf[e.from], to: idOf[e.to], width: c.width, type: c.type, structure: e.deckEdge ? 'bridge' : 'surface' };
+    const o = { id: 'e' + i, from: idOf[e.from], to: idOf[e.to], width: c.width, type: c.type, structure: e.deckEdge ? ((R.net.nodes[e.from].elev + R.net.nodes[e.to].elev) / 2 < -0.5 ? 'tunnel' : 'bridge') : 'surface' };
     if (e.deckEdge && (e.line.drawbridge || e.line.lowBridge) && deckCount.get(e.line) === 1) { o.drawbridge = true; o.sidewalks = false; }
+    if (e.deckEdge && e.line.name === 'Golden Gate Bridge') o.landmark = 'goldengate';
     if (c.lanes) o.lanes = c.lanes;
     o.speedLimit = c.speedLimit;
     if (e.line.cls === 'hw' || e.line.cls === 'ramp') o.sidewalks = false;
@@ -79,7 +80,7 @@ export function buildChicago() {
 
   // "next exits" boards for each carriageway: after every interchange and near each end
   const hwSigns = [];
-  {
+  if (R.H.length >= 2) {
     const total = polyLen(R.H), miles = ['2 MILES', '4 MILES'];
     [1, -1].forEach(f => {
       const ahead = sPos => ixs.filter(x => (f > 0 ? x.hs > sPos + 40 : x.hs < sPos - 40)).sort((a, b) => f > 0 ? a.hs - b.hs : b.hs - a.hs)
@@ -125,8 +126,9 @@ export function buildChicago() {
     return false;
   };
   const parkAt = (x, z) => PARKS.find(p => pointInPoly(x, z, p.pts));
-  const hwSide = (() => { const c = T(X0, Y0); return nearestOnPoly(c[0], c[1], R.H).side; })();
-  const outsideHW = (x, z, m = 0) => { const h = nearestOnPoly(x, z, R.H); return h.side !== hwSide || h.d < 24 + m; };
+  const hasHW = R.H.length >= 2;
+  const hwSide = hasHW ? (() => { const c = T(X0, Y0); return nearestOnPoly(c[0], c[1], R.H).side; })() : 1;
+  const outsideHW = (x, z, m = 0) => { if (!hasHW) return false; const h = nearestOnPoly(x, z, R.H); return h.side !== hwSide || h.d < 24 + m; };
 
   // ---------------------------------------------------------------- signals
   const signals = [], props = [];
@@ -322,7 +324,7 @@ export function buildChicago() {
   LANDMARKS.forEach(([name, X0_, Y0_, X1_, Y1_, h, onDeck]) => {
     const a = T(X0_, Y0_), b = T(X1_, Y1_);
     let x0 = Math.min(a[0], b[0]), x1 = Math.max(a[0], b[0]), z0 = Math.min(a[1], b[1]), z1 = Math.max(a[1], b[1]);
-    if (nearestOnPoly((x0 + x1) / 2, (z0 + z1) / 2, R.H).side !== hwSide) return;
+    if (hasHW && nearestOnPoly((x0 + x1) / 2, (z0 + z1) / 2, R.H).side !== hwSide) return;
     // trim the footprint back from any road it would cover (the landmark rectangles are
     // drawn on the map, the road net is generated separately)
     for (let guard = 0; guard < 60; guard++) {
@@ -552,7 +554,7 @@ export function buildChicago() {
   const propOK = (x, z, minGap, list) => !list.some(p => Math.abs(p.x - x) < minGap && Math.abs(p.z - z) < minGap && dist([p.x, p.z], [x, z]) < minGap);
   const lampList = [];
   edges.forEach(e => {
-    if (e.cls === 'hw' || e.cls === 'hwEnd' || e.cls === 'ramp' || e.structure === 'bridge') return;
+    if (e.cls === 'hw' || e.cls === 'hwEnd' || e.cls === 'ramp' || e.structure === 'bridge' || e.structure === 'tunnel') return;
     const spacing = e.cls === 'six' ? 26 : e.cls === 'four' ? 28 : e.cls === 'two' ? 30 : 0;   // a regular pattern: a lamp every ~32-38 m, alternating sides, so the whole street is lit
     if (!spacing) return;
     const a = nodes[e.from], b = nodes[e.to], len = Math.hypot(b.x - a.x, b.z - a.z);
@@ -616,7 +618,7 @@ export function buildChicago() {
     }
   });
   edges.forEach(e => {
-    if (e.cls !== 'two' || e.structure === 'bridge') return;
+    if (e.cls !== 'two' || e.structure === 'bridge' || e.structure === 'tunnel') return;
     const a = nodes[e.from], b = nodes[e.to], len = Math.hypot(b.x - a.x, b.z - a.z);
     const mid = fromWorld((a.x + b.x) / 2, (a.z + b.z) / 2), dis = districtAt(mid[0], mid[1]);
     if (!dis || !['Gold Coast', 'Old Town', 'Chinatown', 'Loop Edge'].includes(dis.name)) return;
@@ -655,7 +657,7 @@ export function buildChicago() {
   // street furniture: fire hydrants and mailboxes along the kerb of the streets, café sets (a table and chairs) outside the busy districts' buildings
   const CAFE_DISTRICTS = ['Gold Coast', 'Old Town', 'Chinatown', 'Loop Edge', 'Downtown', 'River North'];
   edges.forEach(e => {
-    if ((e.cls !== 'two' && e.cls !== 'four') || e.structure === 'bridge' || nodes[e.from].elevation > 0.5 || nodes[e.to].elevation > 0.5) return;
+    if ((e.cls !== 'two' && e.cls !== 'four') || e.structure === 'bridge' || e.structure === 'tunnel' || nodes[e.from].elevation > 0.5 || nodes[e.to].elevation > 0.5) return;
     const a = nodes[e.from], b = nodes[e.to], len = Math.hypot(b.x - a.x, b.z - a.z);
     const mid = fromWorld((a.x + b.x) / 2, (a.z + b.z) / 2), dis = districtAt(mid[0], mid[1]);
     const c1 = intersectionClearance(e.from, e, byNode) + 7, c2 = intersectionClearance(e.to, e, byNode) + 7;
@@ -663,7 +665,7 @@ export function buildChicago() {
       && propOK(p.x, p.z, 5, treeList) && propOK(p.x, p.z, 3.5, lampList) && !driveways.some(d => Math.hypot(d.x - p.x, d.z - p.z) < d.hw + 4);
     for (let t = c1 + rand() * 20; t < len - c2; t += 48 + rand() * 30) {
       const side = rand() < 0.5 ? 1 : -1, p = sidePoint(e, t, side, e.width / 2 + 2.1);
-      if (!okAt(p, 0.5, 1.4)) continue;
+      if (!okAt(p, 0.5, 2.5)) continue;
       treeList.push({ type: rand() < 0.6 ? 'hydrant' : 'mailbox', x: r2(p.x), z: r2(p.z), rotation: Math.round(Math.atan2(p.ux, p.uz) * 180 / Math.PI) });
     }
     if (dis && CAFE_DISTRICTS.includes(dis.name)) for (let t = c1 + 6 + rand() * 25; t < len - c2; t += 60 + rand() * 40) {
@@ -713,7 +715,7 @@ export function buildChicago() {
   const PARK_COLORS = [0xc0392b, 0x2e86c1, 0x27ae60, 0xf1c40f, 0xecf0f1, 0x2c3e50, 0x7f8c8d, 0xd35400, 0x8e44ad, 0x1abc9c, 0xbdc3c7, 0x34495e];
   edges.forEach(e => {
     if (e.cls !== 'two' && e.cls !== 'four') return;
-    if (e.structure === 'bridge' || nodes[e.from].elevation > 0.5 || nodes[e.to].elevation > 0.5) return;
+    if (e.structure === 'bridge' || e.structure === 'tunnel' || nodes[e.from].elevation > 0.5 || nodes[e.to].elevation > 0.5) return;
     const a = nodes[e.from], b = nodes[e.to], len = Math.hypot(b.x - a.x, b.z - a.z);
     const c1 = intersectionClearance(e.from, e, byNode) + ((byNode[e.from] || []).length >= 3 ? 30 : 16), c2 = intersectionClearance(e.to, e, byNode) + ((byNode[e.to] || []).length >= 3 ? 30 : 16);   // corners swing wide: no parked car within 16 u of a junction or a bend
     const dens = e.cls === 'two' ? 0.5 : 0.28;
