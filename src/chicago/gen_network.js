@@ -262,6 +262,6 @@ export function generateRoads() {
 
   // ---- barriers for the bridge builder -----------------------------------------------------------------------------------------------------
   const barriers = RIVERS.map(r => ({ kind: 'river', half: r.half, pts: r.pts })).concat(hasHW ? [hwBarrier] : []);
-  const net = buildNetwork(lines, barriers, { warn: m => warnings.push(m), minEdge: 13, stubLen: hasHW ? 90 : 450 });
+  const net = buildNetwork(lines, barriers, { warn: m => warnings.push(m), minEdge: 13, stubLen: hasHW ? 90 : (+process.env.STUB || 320) });
   return { net, lines, H, warnings, IX, ramps, CAR_OFF, ENTRY_END };
 }

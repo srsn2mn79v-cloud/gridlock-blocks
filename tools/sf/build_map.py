@@ -17,8 +17,11 @@ roads = [{'cls': 'four' if e['w'] >= 3.4 else 'two', 'pts': e['pts'], 'w': e['w'
 # the Golden Gate Bridge and the Presidio's roads (the thin white lines the tracer misses)
 GG = [[143.4, 272], [143.4, 150], [143.4, 52]]
 OVAL = [[143.4, 52], [148, 40], [150, 26], [143.4, 10], [137, 26], [139, 40], [143.4, 52]]
-ADD = [('four', [[143.4, 272], [141, 300], [135, 330], [132, 350], [131, 372]], 'Presidio Parkway'),
-       ('two', [[143.4, 272], [128, 277], [112, 287], [104, 305], [108, 325], [122, 345], [133, 362]], 'Presidio Loop'),
+ADD = [('four', [[143.4, 272], [145, 285], [137, 297], [131, 315], [130, 335], [131, 360], [137, 378], [142, 392], [142.3, 400], [142, 408]], 'Presidio Parkway'),
+       ('two', [[145, 284], [153, 290], [165, 305], [172, 322], [178, 337]], 'Presidio Diagonal'),
+       ('two', [[145, 284], [133, 272], [125, 263], [108, 264], [103, 278], [110, 293], [122, 305], [123, 318], [119, 332], [126, 345], [143, 351], [153, 363], [158, 378], [162, 392]], 'Presidio Loop'),
+       ('two', [[148, 350], [155, 341], [166, 337], [186, 337]], 'Presidio Link'),
+       ('two', [[145, 284], [156, 277], [165, 279], [168, 286]], 'Presidio East'),
        ('four', GG, 'Golden Gate Bridge'), ('two', OVAL, 'Marin Loop')]
 # join dangling ends: an end within 10 px of another road is extended onto it
 def ends(rd): return [(0, rd['pts'][0]), (len(rd['pts']) - 1, rd['pts'][-1])]
@@ -29,11 +32,21 @@ for ri, rd in enumerate(roads):
             if rj == ri: continue
             for k in range(len(o['pts']) - 1):
                 d, q = dseg(pt, o['pts'][k], o['pts'][k + 1])
-                if d < 10 and (best is None or d < best[0]): best = (d, q)
+                if d < 22 and (best is None or d < best[0]): best = (d, q)
         near_own = min(math.dist(pt, p) for p in rd['pts'][(1 if idx == 0 else 0):][:0] or [(1e9, 1e9)])
         if best and best[0] > 0.6:
             if idx == 0: rd['pts'].insert(0, [round(best[1][0], 2), round(best[1][1], 2)])
             else: rd['pts'].append([round(best[1][0], 2), round(best[1][1], 2)])
+# ---- endpoints of different roads that nearly coincide are merged (two junctions 50 m apart are one real junction)
+for _ in range(3):
+    ep = [(ri, k) for ri, rd in enumerate(roads) for k in (0, -1)]
+    for a in range(len(ep)):
+        for b in range(a + 1, len(ep)):
+            (ra, ka), (rb, kb) = ep[a], ep[b]
+            if ra == rb: continue
+            pa, pb = roads[ra]['pts'][ka], roads[rb]['pts'][kb]
+            if 0.01 < math.dist(pa, pb) < 9:
+                m = [round((pa[0] + pb[0]) / 2, 2), round((pa[1] + pb[1]) / 2, 2)]; roads[ra]['pts'][ka] = m[:]; roads[rb]['pts'][kb] = m[:]
 # ---- make the road graph one piece: components are linked to the rest by their nearest endpoint, tiny strays are dropped ----
 def seg_int(a, b, c, d):
     r = (b[0]-a[0], b[1]-a[1]); q = (d[0]-c[0], d[1]-c[1]); den = r[0]*q[1] - r[1]*q[0]
@@ -175,7 +188,7 @@ data = {
     'streets': out_roads, 'parks': parks, 'landmarks': lms, 'decks': [{'name': 'Alcatraz', 'color': 0x6f8f5a, 'pts': P(island)}],
     'structs': [
         {'line': 'Golden Gate Bridge', 'from': 330, 'to': -330, 'h': 16},
-        {'line': 'Presidio Parkway', 'from': 130, 'to': -130, 'h': -4.5}, {'at': [179 * SC, 538 * SC], 'len': 70, 'h': -5}, {'at': [265 * SC, 612 * SC], 'len': 80, 'h': -5}, {'at': [377.75 * SC, 487 * SC], 'len': 70, 'h': 5},
+        {'line': 'Presidio Parkway', 'from': 160, 'to': -160, 'h': -3.5}, {'at': [179 * SC, 538 * SC], 'len': 70, 'h': -5}, {'at': [265 * SC, 612 * SC], 'len': 80, 'h': -5}, {'at': [377.75 * SC, 487 * SC], 'len': 70, 'h': 5},
     ],
     'stadium': {'cx': 330 * SC, 'cy': 575 * SC, 'rx': 6, 'ry': 6}, 'districts': districts, 'shops': shops, 'stations': stations, 'gas': gas, 'harbour': {'slips': []},
 }

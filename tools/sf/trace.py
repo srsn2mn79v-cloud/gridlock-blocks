@@ -43,7 +43,7 @@ for ci, c in enumerate(clusters):
             edges.append((ci, lab.get(path[-1], -1), path))
 out = []
 for ci, cj, path in edges:
-    if len(path) < 14: continue
+    if len(path) < 6: continue
     pl = [cen[ci]] + [tuple(p) for p in path[1:-1]] + ([cen[cj]] if cj >= 0 else [path[-1]])
     a = np.array([[p[1], p[0]] for p in pl], np.float32).reshape(-1, 1, 2)
     ap = cv2.approxPolyDP(a, 2.6, False).reshape(-1, 2)

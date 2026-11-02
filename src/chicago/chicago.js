@@ -199,8 +199,10 @@ export function buildChicago() {
     const c = T(spec.at[0], spec.at[1]), cands = [];
     edges.forEach(e => {
       if (e.cls !== 'two' && e.cls !== 'four') return;
+      if (e.structure && e.structure !== 'surface') return;
       const a = nodes[e.from], b = nodes[e.to], len = Math.hypot(b.x - a.x, b.z - a.z);
       if (len < 70) return;
+      if (Math.abs(a.elevation || 0) > 0.3 || Math.abs(b.elevation || 0) > 0.3) return;
       const ux = (b.x - a.x) / len, uz = (b.z - a.z) / len;
       for (let t = 32; t < len - 32; t += 14) for (const side of [1, -1]) {
         const px = a.x + ux * t, pz = a.z + uz * t, nx = -uz * side, nz = ux * side;
