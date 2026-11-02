@@ -19,7 +19,7 @@ export const DEFAULT_SETTINGS = {
 };
 
 const PRESETS = {
-  low:    { ao: 'off', bloom: false, fx: false, tex: 0, res: 0.75, shadow: 1024 },
+  low:    { ao: 'off', bloom: false, fx: false, tex: 0, res: 0.6, shadow: 0 },
   medium: { ao: 'off', bloom: true, fx: true, tex: 1, res: 1, shadow: 2048 },
   high:   { ao: 'low', bloom: true, fx: true, tex: 2, res: 1, shadow: 2048 },
   ultra:  { ao: 'high', bloom: true, fx: true, tex: 2, res: 1, shadow: 4096 }
@@ -116,7 +116,7 @@ export function createMenu({ settings, limits, onChange, onOpenChange , ownedCar
         <div class="row" style="grid-template-columns:110px 1fr"><label>Quality preset</label>
           <div class="seg" data-seg="quality"><button data-v="low">Low</button><button data-v="medium">Medium</button><button data-v="high">High</button><button data-v="ultra">Ultra</button></div></div>
         <div class="row" style="grid-template-columns:110px 1fr"><label>Shadow detail</label>
-          <div class="seg" data-seg="shadow"><button data-v="1024">Low</button><button data-v="2048">Medium</button><button data-v="4096">High</button></div></div>
+          <div class="seg" data-seg="shadow"><button data-v="0">Off</button><button data-v="1024">Low</button><button data-v="2048">Medium</button><button data-v="4096">High</button></div></div>
         <div class="row" style="grid-template-columns:110px 1fr"><label>Ambient occlusion</label>
           <div class="seg" data-seg="ao"><button data-v="off">Off</button><button data-v="low">Low</button><button data-v="high">High</button></div></div>
         <div class="row" style="grid-template-columns:110px 1fr"><label>Texture quality</label>

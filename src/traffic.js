@@ -420,6 +420,8 @@ export function createTrafficSystem(cityData, scene, heightAt, count = 6, maxCou
   }
   function clearRivals() { rivalPool.forEach(c => { c.rival = null; c.active = false; c.mesh.visible = false; c.knock = null; c.colliders.forEach(k => { k.blocksCar = false; k.x = 1e6; k.z = 1e6; }); }); }
   const px = o => (o.isPlayer ? o.x : o.mesh.position.x), pz = o => (o.isPlayer ? o.z : o.mesh.position.z);
+  // weather: wet or icy roads make every AI car (and the race rivals) slower, gentler on the brakes and gap-keeping longer
+  let gripNow = 1; const wxSpeed = () => 0.45 + 0.55 * Math.min(1, gripNow), wxBrake = () => 0.4 + 0.6 * Math.min(1, gripNow);
   function rivalStep(car, dt, now, nbC) {
     const R = car.rival, m = car.mesh;
     if (car.knock) {
@@ -434,7 +436,7 @@ export function createTrafficSystem(cityData, scene, heightAt, count = 6, maxCou
     }
     R.t += dt;
     const p = R.sample(R.s), fx = p.dx, fz = p.dz, rx = -p.dz, rz = p.dx;
-    let vt = R.vmax * (1 - Math.exp(-Math.max(0, R.t) / R.tau));
+    let vt = R.vmax * (0.7 + 0.3 * wxSpeed() / 1) * (1 - Math.exp(-Math.max(0, R.t) / R.tau));
     const p2 = R.sample(R.s + 14), dTh = Math.abs(Math.atan2(fx * p2.dz - fz * p2.dx, fx * p2.dx + fz * p2.dz));
     vt *= 1 - Math.min(0.55, dTh * 0.9);
     if (R.recov > 0) { R.recov -= dt; vt = Math.min(vt, 9 * SPEED_SCALE); }
@@ -817,7 +819,7 @@ export function createTrafficSystem(cityData, scene, heightAt, count = 6, maxCou
       const off0 = offsetVec(heading, conn ? 0 : car.lat);
       const curX = here.x + off0.x, curZ = here.z + off0.z;
 
-      let desiredSpeed = car.targetSpeed, cause = '';      // `cause` = which rule is holding the car below its target (read by tools/brake_audit.mjs and the traffic check)
+      let desiredSpeed = car.targetSpeed * wxSpeed(), cause = '';      // `cause` = which rule is holding the car below its target (read by tools/brake_audit.mjs and the traffic check)
       car.why = '';
       const distToNode = conn ? 0 : len - car.s;
       const isJunction = (edgesByNode[car.to] || []).length >= 3;
@@ -994,6 +996,8 @@ export function createTrafficSystem(cityData, scene, heightAt, count = 6, maxCou
         if ((!o.isPlayer && !o.active) || ahead < -4 || o.speed > 2.0) { car.avoidObs = null; car.avoidOff = 0; }
         else desiredSpeed = Math.min(desiredSpeed, 3.0);
       } else if (obs && nearest < 12 && car.speed < 1.5 && car.waitT > 1.5 && distToNode > 18 &&
+                 !(distToNode < 130 && (sig || (car.edge && stopSet.has(stopKey(car.to, car.edge.id))))) &&          // a queue at a signal or stop sign: wait in line, never pull out and pass
+                 !(car.edge && car.edge.type !== 'highway' && car.lanes <= 1 && distToNode < 130 && isJunction) &&
                  (obs.isPlayer ? obs.speed < 0.6 : (obs.crashTimer > 0 && obs.speed < 0.6)) && !car.why.match(/sig|stop|box/)) {
         const laneLat = laneLateral(car.width, car.lanes, car.laneIndex, car.oneWay);
         const halfW = car.width / 2 - 0.9;
@@ -1046,7 +1050,7 @@ export function createTrafficSystem(cityData, scene, heightAt, count = 6, maxCou
       } else {
         // ease toward the wanted speed, but never faster than this vehicle can accelerate or brake
         const dv = (desiredSpeed - car.speed) * Math.min(1, dt * 2.2);
-        car.speed += Math.max(-car.veh.brake * dt, Math.min(car.veh.accel * dt, dv));
+        car.speed += Math.max(-car.veh.brake * wxBrake() * dt, Math.min(car.veh.accel * wxBrake() * dt, dv));
       }
       if (car.speed < 0.05) car.speed = 0;
       car.braking = car.crashTimer > 0 || car.speed - desiredSpeed > 0.4 || car.speed < 0.2;
@@ -1277,5 +1281,5 @@ export function createTrafficSystem(cityData, scene, heightAt, count = 6, maxCou
   function release(car, speed = 4) {
     car.active = true; car.mesh.visible = true; car.speed = speed; car.colliders.forEach(k => { k.blocksCar = true; });
   }
-  return { reserveLane, release, adopt, update, walkerHit, events, setClearZone, addRival, clearRivals, rivalPool, colliders: colliderList, cars, svcCars, setPlows, setCount, activeCount, maxCount, setSink(arr) { sink = arr; } };
+  return { setGrip(g) { gripNow = g; }, reserveLane, release, adopt, update, walkerHit, events, setClearZone, addRival, clearRivals, rivalPool, colliders: colliderList, cars, svcCars, setPlows, setCount, activeCount, maxCount, setSink(arr) { sink = arr; } };
 }

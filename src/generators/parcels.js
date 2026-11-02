@@ -83,6 +83,25 @@ function buildingGeos(p) {
     if (alongX) g.rotateY(Math.PI / 2);
     g.translate(cx, h, cz);
     out.push(colored(g, 0x7a4a3a));
+  } else if (p.roof === 'resi' && w > 5 && d > 5) {
+    // residential block: brick/pastel walls, a cornice, a floor of balconies per storey on the long sides, a hipped roof with a chimney and a front stoop
+    out.push(colored(prism(fp, 0, h), col));
+    out.push(colored(prism(scaled(fp, cx, cz, 1.03), h - 0.5, 0.5), col, 0.82));                                                      // cornice
+    const alongX = w >= d, L = alongX ? w : d, S = alongX ? d : w, floors = Math.max(2, Math.round(h / 3.2));
+    for (let f = 1; f < floors; f++) {
+      const y = f * (h / floors);
+      [1, -1].forEach(sd => {
+        const bw = L * 0.64, bx = alongX ? cx : cx + sd * (S / 2 + 0.45), bz = alongX ? cz + sd * (S / 2 + 0.45) : cz;
+        const slab = new THREE.BoxGeometry(alongX ? bw : 0.9, 0.18, alongX ? 0.9 : bw).translate(bx, y, bz);
+        out.push(colored(slab, 0xb8b2a6));
+        const rail = new THREE.BoxGeometry(alongX ? bw : 0.06, 0.55, alongX ? 0.06 : bw).translate(alongX ? bx : bx + sd * 0.42, y + 0.36, alongX ? bz + sd * 0.42 : bz);
+        out.push(colored(rail, 0x2a2d33));
+      });
+    }
+    const hipH = Math.min(w, d) * 0.28, cone = new THREE.ConeGeometry(Math.SQRT1_2, hipH, 4); cone.rotateY(Math.PI / 4); cone.scale(w * 1.04, 1, d * 1.04); cone.translate(cx, h + hipH / 2, cz);      // a four-sided pyramid over the whole footprint
+    out.push(colored(cone, 0x6a4a3e));
+    out.push(colored(new THREE.BoxGeometry(0.9, 2.2, 0.9).translate(cx + w * 0.22, h + hipH * 0.55, cz - d * 0.12), 0x8a5a48));      // chimney
+    out.push(colored(new THREE.BoxGeometry(alongX ? 3 : 1.6, 0.35, alongX ? 1.6 : 3).translate(cx, 0.18, alongX ? cz - S / 2 - 0.6 : cz), 0xa8a39a));  // stoop
   } else if (p.roof === 'pagoda' && w > 5 && d > 5) {
     const bodyH = h * 0.55;
     out.push(colored(prism(fp, 0, bodyH), col));

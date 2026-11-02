@@ -47,10 +47,30 @@ export function createRadio({ audio, weather, settings, onChange }) {
   const duck = on => { if (!bus) return; bus.gain.setTargetAtTime(on ? 0.22 : 1, ctx.currentTime, on ? 0.15 : 0.6); };
 
   // ---------------- a small step sequencer for the built-in stations -------------------------------------------
+  // Each built-in station plays a rotation of songs. Every song is a chord loop, a tempo, a swing and a lead voice (flute, lute, harp or synth)
+  // that wanders through a scale over the chords; after SONG_BARS bars the next song starts and the radio pill shows its title.
+  const SONG_BARS = 24;
+  const SONGS = {
+    neon: [
+      { name: 'Midnight Interchange', bpm: 108, chords: [[57, 'm'], [53, 'M'], [48, 'M'], [55, 'M']], swing: 0, lead: { v: 'synth', scale: [0, 2, 3, 5, 7, 8, 10], dens: 0.35, oct: 24 } },
+      { name: 'Gridlock Sunrise', bpm: 124, chords: [[52, 'm'], [48, 'M'], [55, 'M'], [50, 'M']], swing: 0, lead: { v: 'synth', scale: [0, 2, 4, 7, 9], dens: 0.5, oct: 24 } },
+      { name: 'Lakeshore Run', bpm: 100, chords: [[50, 'm'], [46, 'M'], [53, 'M'], [48, 'M']], swing: 0.04, lead: { v: 'synth', scale: [0, 3, 5, 7, 10], dens: 0.3, oct: 12 } },
+      { name: 'Varrock After Dark', bpm: 112, chords: [[50, 'm'], [55, 'M'], [48, 'M'], [50, 'm']], swing: 0, lead: { v: 'flute', scale: [0, 2, 3, 5, 7, 9, 10], dens: 0.38, oct: 24 } },       // D dorian: the old tavern-and-castle sound over a drum machine
+      { name: 'Wilderness Overdrive', bpm: 132, chords: [[45, 'm'], [41, 'M'], [43, 'M'], [45, 'm']], swing: 0, lead: { v: 'synth', scale: [0, 1, 3, 5, 7, 8, 10], dens: 0.55, oct: 24 } }
+    ],
+    lowkey: [
+      { name: 'Soft Lights', bpm: 78, chords: [[53, 'M7'], [52, 'm7'], [50, 'm9'], [48, 'M7']], swing: 0.12, lead: { v: 'epiano', scale: [0, 2, 4, 7, 9], dens: 0.16, oct: 24 } },
+      { name: 'Lamplit Lullaby', bpm: 70, chords: [[48, 'M7'], [45, 'm7'], [50, 'm7'], [55, 'M7']], swing: 0.1, lead: { v: 'lute', scale: [0, 2, 4, 7, 9], dens: 0.3, oct: 24 } },       // pentatonic lute, a nod to a village green
+      { name: 'Tavern After Rain', bpm: 84, chords: [[50, 'm7'], [55, 'M7'], [48, 'M7'], [45, 'm7']], swing: 0.18, lead: { v: 'flute', scale: [0, 2, 3, 5, 7, 9, 10], dens: 0.22, oct: 24 } },
+      { name: 'Harp for Falador', bpm: 66, chords: [[53, 'M7'], [48, 'M7'], [50, 'm7'], [55, 'M7']], swing: 0.06, lead: { v: 'harp', scale: [0, 2, 4, 5, 7, 9, 11], dens: 0.5, oct: 24 } },
+      { name: 'Slow Boat to Port', bpm: 74, chords: [[46, 'M7'], [43, 'm7'], [48, 'm7'], [53, 'M7']], swing: 0.14, lead: { v: 'epiano', scale: [0, 3, 5, 7, 10], dens: 0.2, oct: 12 } }
+    ]
+  };
   function mkSeq(kind) {
-    const out = musicGain(), P = kind === 'neon'
-      ? { bpm: 108, chords: [[57, 'm'], [53, 'M'], [48, 'M'], [55, 'M']], swing: 0 }
-      : { bpm: 78, chords: [[53, 'M7'], [52, 'm7'], [50, 'm9'], [48, 'M7']], swing: 0.12 };
+    const out = musicGain(), songs = SONGS[kind] || SONGS.neon;
+    let si = Math.floor(Math.random() * songs.length), P = songs[si], songBars = 0, lastNote = null, rs = 1234;
+    const rnd = () => { rs = (rs * 1664525 + 1013904223) >>> 0; return rs / 4294967296; };
+    trackTitle = P.name; refresh();
     const tri = { m: [0, 3, 7], M: [0, 4, 7], M7: [0, 4, 7, 11], m7: [0, 3, 7, 10], m9: [0, 3, 7, 14] };
     let step = 0, t = ctx.currentTime + 0.1;
     const env = (g, t0, a, peak, d) => { g.gain.setValueAtTime(0.0001, t0); g.gain.linearRampToValueAtTime(peak, t0 + a); g.gain.exponentialRampToValueAtTime(0.0005, t0 + a + d); };
@@ -58,7 +78,22 @@ export function createRadio({ audio, weather, settings, onChange }) {
     const nz = (t0, dur, vol, ftype, f, q = 1) => { const s = ctx.createBufferSource(); s.buffer = noise; s.loop = true; const b = ctx.createBiquadFilter(); b.type = ftype; b.frequency.value = f; b.Q.value = q; const g = ctx.createGain(); env(g, t0, 0.002, vol, dur); s.connect(b); b.connect(g); g.connect(out); s.start(t0, Math.random()); s.stop(t0 + dur + 0.05); };
     const kick = (t0, v = 0.9) => { const o = ctx.createOscillator(), g = ctx.createGain(); o.frequency.setValueAtTime(140, t0); o.frequency.exponentialRampToValueAtTime(42, t0 + 0.13); env(g, t0, 0.002, v, 0.28); o.connect(g); g.connect(out); o.start(t0); o.stop(t0 + 0.35); };
     const lpf = (f) => { const b = ctx.createBiquadFilter(); b.type = 'lowpass'; b.frequency.value = f; return b; };
-    const sixteenth = 60 / P.bpm / 4;
+    let sixteenth = 60 / P.bpm / 4;
+    // the lead voice: a small random walk through the song's scale, leaning on chord tones on the strong beats
+    function lead(tt, s16, root, notes) {
+      const L = P.lead; if (!L) return;
+      const strong = s16 % 4 === 0;
+      if (rnd() > (strong ? L.dens * 1.6 : L.dens) * (s16 % 2 ? 0.5 : 1)) return;
+      const pool = strong ? notes.concat(notes.map(n => n + 12)).map(n => n % 12) : L.scale;
+      let n = pool[Math.floor(rnd() * pool.length)]; if (lastNote != null && rnd() < 0.6) { const near = pool.filter(x => Math.abs(x - lastNote) <= 4); if (near.length) n = near[Math.floor(rnd() * near.length)]; }
+      lastNote = n; const f = midi(root + L.oct + n), dur = sixteenth * (strong ? 3.2 : 1.6) * (L.v === 'harp' ? 1.4 : 1);
+      const send = o => { const pg = ctx.createGain(); pg.gain.value = 0.35; o.connect(pg); pg.connect(delay); };
+      if (L.v === 'flute') { const o = osc('sine', f, tt, dur * 1.4, 0.09, 0.05); osc('triangle', f * 2, tt, dur * 0.6, 0.012, 0.05); send(o); nz(tt, dur * 0.4, 0.012, 'bandpass', f * 2, 3); }
+      else if (L.v === 'lute') { const o = osc('triangle', f, tt, dur * 0.9, 0.11, 0.002); osc('square', f * 2, tt, dur * 0.25, 0.012, 0.001, out, lpf(2200)); send(o); }
+      else if (L.v === 'harp') { const o = osc('sine', f, tt, dur * 1.8, 0.08, 0.002); osc('sine', f * 3, tt, dur * 0.5, 0.015, 0.001); send(o); }
+      else if (L.v === 'epiano') { const o = osc('sine', f, tt, dur * 1.5, 0.07, 0.004); osc('sine', f * 2, tt, dur * 0.6, 0.025, 0.002); send(o); }
+      else { const o = osc('square', f, tt, dur * 0.8, 0.045, 0.004, out, lpf(1800 + 900 * Math.sin(step * 0.04))); send(o); }
+    }
     function schedule() {
       while (t < ctx.currentTime + 0.4) {
         const bar = Math.floor(step / 16) % P.chords.length, s16 = step % 16, [root, q] = P.chords[bar], notes = tri[q];
@@ -83,7 +118,9 @@ export function createRadio({ audio, weather, settings, onChange }) {
           });
           if (s16 === 0) nz(tt, 0.9, 0.012, 'highpass', 3000);        // a breath of vinyl
         }
+        lead(tt, s16, root, notes);
         step++; t += sixteenth;
+        if (step % 16 === 0 && ++songBars >= SONG_BARS) { songBars = 0; si = (si + 1) % songs.length; P = songs[si]; sixteenth = 60 / P.bpm / 4; step = 0; lastNote = null; trackTitle = P.name; refresh(); }
       }
     }
     return { start() { schedule(); this.iv = setInterval(schedule, 120); }, stop() { clearInterval(this.iv); } };
@@ -115,11 +152,26 @@ export function createRadio({ audio, weather, settings, onChange }) {
   const spoken = n => (n < 0 ? 'minus ' + Math.abs(Math.round(n)) : String(Math.round(n))) + ' degrees';
   const timeWords = h => { const hh = Math.floor(h) % 24, mm = Math.floor((h % 1) * 60), ap = hh >= 12 ? 'PM' : 'AM', h12 = hh % 12 || 12; return mm === 0 ? `${h12} o'clock ${ap}` : `${h12}:${String(mm).padStart(2, '0')} ${ap}`; };
   const condWords = k => ({ clear: 'clear skies', cloudy: 'cloudy skies', fog: 'fog around', rain: 'rain falling', snow: 'snow falling' })[k] || 'quiet weather';
+  // what's new in the city: the DJs read these out between songs (newest first; add a line whenever the game changes)
+  const NEWS = [
+    'City hall says the supermarkets now run two ways: the big ones stay open round the clock, and the Quick Seven-Eleven stores go dark and empty after closing time.',
+    'Shoppers are now pulling into the car parks all day, and leaving through a stop sign instead of vanishing into thin air.',
+    'The bridges have new railings, so nobody is driving off the side, and traffic now crashes into walls and lamp posts like everyone else.',
+    'Road crews finished the river banks and the pavements, so the gaps at the corners are gone.',
+    'The ring road interchange has had its loops fixed, and the exit signs finally point the right way.',
+    'Street racers take note: tuck in behind a rival in a drag race and you will be towed along, up to thirty kilometres an hour faster.',
+    'Drivers will notice every car is more careful in the wet and on snow. Slower, and leaving more room.',
+    'The bus depot is now marked on the city map, and the metro runs two lines across town.',
+    'Local legend says there is a new cockpit view in every car, with a proper dashboard, doors and mirrors.',
+    'The radio is bringing in new songs this season. Stay tuned for something with a bit of a village green feel.'
+  ];
+  let newsIx = Math.floor(Math.random() * NEWS.length);
   function script(st, kind) {
     const dj = st.dj, now = weather.now, o = weather.outlook(), greet = dj.greet[Math.floor(Math.random() * dj.greet.length)];
     const time = `It's ${timeWords(settings.hour)}.`, cur = `Right now it's ${spoken(now.temp)} in Chicago with ${condWords(now.kind)}.`;
     const id = `You're listening to ${st.name}, ${st.tag || 'on the air'}.`;
     if (kind === 'ident') return `${greet} ${id}`;
+    if (kind === 'news') { const n = NEWS[newsIx++ % NEWS.length]; return `${greet} Here's what's new in the city. ${n}`; }
     if (kind === 'forecast') return `${greet} ${time} ${cur} ${o.text}`;
     return `${greet} ${time} ${cur}${now.kind === 'snow' ? ' Watch the roads, the ploughs are out.' : now.kind === 'rain' ? ' Slow down on the wet stuff.' : ''}`;
   }
@@ -138,7 +190,7 @@ export function createRadio({ audio, weather, settings, onChange }) {
     try { speechSynthesis.cancel(); speechSynthesis.speak(u); } catch (e) { end(); }
   }
   function djBreak(st, done) {
-    const r = Math.random(), kind = r < 0.4 ? 'time' : r < 0.75 ? 'forecast' : 'ident';
+    const r = Math.random(), kind = r < 0.3 ? 'time' : r < 0.55 ? 'forecast' : r < 0.8 ? 'news' : 'ident';
     say(st, script(st, kind), done);
   }
 
@@ -154,7 +206,7 @@ export function createRadio({ audio, weather, settings, onChange }) {
     if (idx < 0) { refresh(); return; }
     const s = stations[idx]; queue = [];
     if (mg) mg.gain.value = 0.9;
-    if (s.type === 'synth') { seq = mkSeq(s.synth); seq.start(); trackTitle = 'built-in'; nextBreak = performance.now() + 70000 + Math.random() * 60000; }
+    if (s.type === 'synth') { seq = mkSeq(s.synth); seq.start(); nextBreak = performance.now() + 70000 + Math.random() * 60000; }
     else playNext();
     refresh();
     if (s.dj && djOK()) setTimeout(() => { if (idx === i && !djBusy) say(s, script(s, 'ident')); }, 1800);

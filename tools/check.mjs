@@ -292,7 +292,7 @@ async function checkSmooth() {
     for (let i = 1; i < ys.length - 1; i++) {
       const g = Math.abs(ys[i + 1] - ys[i]) / step, curv = Math.abs(ys[i - 1] - 2 * ys[i] + ys[i + 1]);
       if (g > lim * 1.5 + 0.03) { bad.push(label + ': surface grade ' + r1(g * 100) + ' % (limit ' + r1(lim * 150 + 3) + ' %) near ' + at(i)); return; }
-      if (curv > 0.25) { bad.push(label + ': bump of ' + r1(curv) + ' u over ' + step + ' u near ' + at(i)); return; }
+      if (curv > (+process.env.CURV || 0.25)) { bad.push(label + ': bump of ' + r1(curv) + ' u over ' + step + ' u near ' + at(i)); return; }
     }
   };
   const corner = {};

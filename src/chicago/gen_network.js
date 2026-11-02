@@ -55,7 +55,7 @@ export function generateRoads() {
     });
     const sideAt = (x, z) => { for (const r of RIVERS) { const nn = nearestOnPoly(x, z, r.pts); if (nn.d < r.half + 170) return { id: r.id, side: nn.side, half: r.half }; } return null; };
     let spans = 0, cIdx = 0;
-    const RB_ALLOW = [0, 2, 5];   // the crossings that came out clean in tools/check.mjs (the others leave a dead-end side street: see README)
+    const RB_ALLOW = [0, 2, 5, 8];   // the crossings that came out clean in tools/check.mjs (the others leave a dead-end side street: see README)
     const allowed = idx => (globalThis.__RB_ONLY || RB_ALLOW).includes(idx);
     lines.slice().forEach(L => {
       if ((L.cls !== 'six' && L.cls !== 'four') || L.pts.length < 2) return;
@@ -65,6 +65,7 @@ export function generateRoads() {
         .sort((x, y) => pathLen(y.pts) - pathLen(x.pts))[0];
       const na = nb(p0), nbb = nb(p1);
       if (!na || !nbb || pathLen(na.pts) < PAD + 30 || pathLen(nbb.pts) < PAD + 30) return;
+      if (process.env.DBGRB) console.error('ARTERIAL', cIdx, L.cls, Math.round(p0[0]), Math.round(p0[1]), '->', Math.round(p1[0]), Math.round(p1[1]));
       if (!allowed(cIdx++)) return;
       const ea = Math.hypot(na.pts[0][0] - p0[0], na.pts[0][1] - p0[1]) < 1.5, eb = Math.hypot(nbb.pts[0][0] - p1[0], nbb.pts[0][1] - p1[1]) < 1.5;
       const ta = take(na, ea), tb = take(nbb, eb);
@@ -97,6 +98,7 @@ export function generateRoads() {
     cand.forEach(({ A, B }) => {
       if (used.has(A) || used.has(B)) return;
       if (pathLen(A.L.pts) < PAD + 30 || pathLen(B.L.pts) < PAD + 30) return;
+      if (process.env.DBGRB) console.error('CAND', cIdx, A.L.cls, Math.round(A.x), Math.round(A.z), '->', Math.round(B.x), Math.round(B.z));
       if (!allowed(cIdx++)) return;
       eps.forEach(e => { if (e.L === A.L && e.a === A.a || e.L === B.L && e.a === B.a) used.add(e); });
       const ta = take(A.L, A.a === 0), tb = take(B.L, B.a === 0);

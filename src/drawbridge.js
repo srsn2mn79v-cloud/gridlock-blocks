@@ -55,8 +55,15 @@ function makeBridge({ city, scene, collisionWorld, audio, heightAt }, e, offset)
     const pivot = new THREE.Group(); root.add(pivot);
     const L = len / 2;
     box(L, 0.9, e.width, asphalt, L / 2, -0.47, 0, pivot);                                     // slab (its top is the road surface)
-    box(L - 1, 0.02, 0.28, yellow, L / 2, 0.0, 0, pivot);                                      // centre line
-    for (let x = 1; x < L - 1; x += 3) box(1.2, 0.02, 0.1, white, x, 0.0, hw - 0.5, pivot), box(1.2, 0.02, 0.1, white, x, 0.0, -hw + 0.5, pivot);
+    // lane paint exactly like the street the bridge belongs to (roads.js addLaneMarkings): a double yellow centre line, dashed white lane
+    // dividers on each side when the street has several lanes, solid white edge lines
+    const nl = Math.max(1, e.lanes || 1), line = (z, mat, dashed) => {
+      if (!dashed) box(L - 0.6, 0.02, 0.14, mat, L / 2, 0.0, z, pivot);
+      else for (let x = 1; x < L - 1.5; x += 4) box(1.5, 0.02, 0.14, mat, x + 0.75, 0.0, z, pivot);
+    };
+    if (e.oneWay) { for (let li = 1; li < nl; li++) line(-hw + li * (e.width / nl), white, true); }
+    else { line(0.2, yellow, false); line(-0.2, yellow, false); for (let li = 1; li < nl; li++) [1, -1].forEach(sd => line(sd * li * (hw / nl), white, true)); }
+    [1, -1].forEach(sd => line(sd * (hw - 0.35), white, false));
     [1, -1].forEach(s => { box(L, 0.7, 0.3, concrete, L / 2, 0.35, s * (hw + 0.15), pivot); box(L, 0.1, 0.4, white, L / 2, 0.75, s * (hw + 0.15), pivot); });   // parapets
     box(5, 3.0, e.width, concrete, -2.4, -2.6, 0, pivot);                                      // counterweight tail: swings down below the roadway as the leaf rises
     box(1.2, 1.1, e.width + 0.4, steel, 0.2, -0.3, 0, pivot);                                  // the hinge beam

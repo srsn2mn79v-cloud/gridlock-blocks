@@ -191,7 +191,7 @@ export class Car {
 
     // ---- longitudinal -------------------------------------------------------------------------------
     const air = this.airborne;
-    const vMax = this.maxSpeed * (this.fuelPower || 1);
+    const vMax = this.maxSpeed * (this.fuelPower || 1) + (this.draftBonus || 0);   // draftBonus: slipstream behind a rival in a drag race (races.js)
     const k = Math.min(1, speedAbs / vMax);
     if (!air) {
       if (accelInput > 0) {
@@ -205,6 +205,7 @@ export class Car {
       else this.speed *= Math.exp(-(accelInput > 0 ? 0.03 : 0.4) * dt);
       if (grass > 0.5 && this.speed > 0) { const cap = vMax * 0.94 * (1 - 0.2 * grass); if (this.speed > cap) this.speed += (cap - this.speed) * (1 - Math.exp(-12 * dt)); }   // grass costs about 20 % of the top speed
     }
+    if (!air && this.draftBonus > 0 && accelInput > 0) this.speed += this.draftBonus * 1.2 * dt;       // the tow: a gentle push that grows with the bonus
     this.speed = Math.max(this.maxReverse, Math.min(vMax, this.speed));
     if (Math.abs(this.speed) < 0.02) this.speed = 0;
 
@@ -272,13 +273,13 @@ export class Car {
       this.gTarget = gT; this.gRate = gRate;
       // spring toward the ground height with feed-forward of the ground's own motion (so a steady slope
       // is tracked exactly, and only steps / bumps set the body bouncing)
-      const K = 260, C = 2 * 0.52 * Math.sqrt(K);
+      const K = 380, C = 2 * 0.7 * Math.sqrt(K);      // a stiffer, better damped ride: the body stays on the road surface instead of bobbing under it
       let vy = this.vy;
       vy += (-K * (this.y - gT) - C * (vy - gRate)) * dt;
       this.y += vy * dt;
       this.vy = vy;
       // bump stops: the body can't sink through the contact points
-      if (this.y < gT - 0.09) { this.y = gT - 0.09; if (this.vy < gRate) this.vy = gRate; }
+      if (this.y < gT - 0.03) { this.y = gT - 0.03; if (this.vy < gRate) this.vy = gRate; }
       const frontY = (gy[0] + gy[1]) / 2, rearY = (gy[2] + gy[3]) / 2;
       const leftY = (gy[0] + gy[2]) / 2, rightY = (gy[1] + gy[3]) / 2;
       const lim = (v, m) => Math.max(-m, Math.min(m, v));

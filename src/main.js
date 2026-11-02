@@ -470,7 +470,7 @@ function updateWrongWay() {
 const clock = new THREE.Clock();
 // --- Environment, settings menu, minimap -----------------------------------------------
 const settings = loadSettings();
-sun.shadow.mapSize.set(Number(settings.shadow) || 2048, Number(settings.shadow) || 2048);
+sun.shadow.mapSize.set(Number(settings.shadow) || 1024, Number(settings.shadow) || 1024); sun.castShadow = Number(settings.shadow) !== 0;
 gfx = createGraphics({ renderer, scene, camera, parcelInstances, ground, initial: { ao: settings.ao, bloom: settings.bloom, tone: settings.tone, tex: settings.tex, fx: settings.fx !== false, quality: settings.quality } });
 if (settings.rain && settings.snow) settings.snow = false;
 await tick('Setting up the world...', 0.94);
@@ -541,7 +541,7 @@ const transitScene = createTransitScene({ scene, transit, heightAt });
 const transitMarkers = all => {
   const out = [];
   if (world.mode !== 'city') return out;
-  if (transit.depot) out.push({ x: transit.depot.x, z: transit.depot.z, color: '#2f6fb5', label: 'B' });
+  if (transit.depot) out.push({ x: transit.depot.x, z: transit.depot.z, color: '#ffffff', label: '🚌', big: true });   // the bus depot (a white pin with a bus, so it is not mistaken for a bus stop)
   ((transit.metro && transit.metro.lines) || []).forEach(l => l.stations.forEach(s => out.push({ x: s.x, z: s.z, color: '#' + l.color.toString(16).padStart(6, '0'), label: 'M' })));
   transit.stands.forEach(s => { if (all || Math.hypot(s.x - car.x, s.z - car.z) < 500) out.push({ x: s.x, z: s.z, color: '#f2c200', label: 'T' }); });
   if (!all) transit.stops.forEach(s => { if (Math.hypot(s.x - car.x, s.z - car.z) < 260) out.push({ x: s.x, z: s.z, color: '#4aa3ff', label: 'b' }); });
@@ -574,7 +574,7 @@ function applySetting(k, v) {
   else if (k === 'fps') fpsEl.style.display = v ? '' : 'none';
   else if (k === 'ao' || k === 'bloom' || k === 'tone' || k === 'tex' || k === 'fx') gfx.set(k, v);
   else if (k === 'quality') gfx.set('quality', v);
-  else if (k === 'shadow') { const n = Number(v) || 2048; if (sun.shadow.mapSize.x !== n) { sun.shadow.mapSize.set(n, n); if (sun.shadow.map) { sun.shadow.map.dispose(); sun.shadow.map = null; } } }
+  else if (k === 'shadow') { sun.castShadow = Number(v) !== 0; const n = Number(v) || 1024; if (sun.shadow.mapSize.x !== n) { sun.shadow.mapSize.set(n, n); if (sun.shadow.map) { sun.shadow.map.dispose(); sun.shadow.map = null; } } }
   if (k === 'hour') dayBtn.textContent = env.nightK > 0.5 ? '🌙' : '☀️';
 }
 let paused = false;
@@ -812,11 +812,25 @@ function audioFrame(dt) {
 
 let fpsFrames = 0, fpsT = 0, plowT = 0, audioT = 0;
 const audioCtx = { density: 0, crowd: 0, sirens: [] };
+let perfAcc = 0, perfN = 0, perfBloomOff = false;
 function animate() {
   const rawDt = clock.getDelta();
   input.poll(world.onFoot);
   const dt = Math.min(0.1, rawDt);   // slow frames no longer run the game in slow motion
   fpsFrames++; fpsT += rawDt;
+  // auto resolution: if the game runs below ~28 FPS for 3 s the render resolution steps down (to 50 %), then shadows go off - so a weak GPU
+  // still gets a playable game. Settings -> Graphics -> "Auto-lower quality" turns it off.
+  if (settings.autoPerf !== false && !paused && rawDt < 1) {
+    perfAcc += rawDt; perfN++;
+    if (perfAcc >= 3) {
+      const fps = perfN / perfAcc; perfAcc = 0; perfN = 0;
+      if (fps < 28) {
+        if (resScale > 0.55) { resScale = Math.max(0.5, resScale - 0.12); applyRatio(); renderer.setSize(innerWidth, innerHeight); gfx.resize(innerWidth, innerHeight); world.toast('Slow frame rate: lowered the render resolution to ' + Math.round(resScale * 100) + ' %'); }
+        else if (sun.castShadow) { sun.castShadow = false; world.toast('Slow frame rate: shadows switched off'); }
+        else if (gfx && settings.bloom !== false && !perfBloomOff) { perfBloomOff = true; gfx.set('bloom', false); gfx.set('ao', 'off'); world.toast('Slow frame rate: glow and occlusion effects off'); }
+      }
+    }
+  }
   if (fpsT >= 0.5) { fpsEl.textContent = Math.round(fpsFrames / fpsT) + ' FPS'; fpsFrames = 0; fpsT = 0; }
   env.update(dt, camera.position);
   waterTime.value += dt;
@@ -894,6 +908,7 @@ function animate() {
     }
     drawbridge.update(dt, camera);
     boats.update(dt, world.focus());
+    traffic.setGrip(env.grip);
     traffic.update(dt, hail.following() ? hail.proxy : car, world.onFoot && world.mode === 'city' ? world.focus() : null);
     if (traffic.walkerHit.on) world.shoveFoot(traffic.walkerHit.vx, traffic.walkerHit.vz);
     parkedCars.update(dt, car.x, car.z);

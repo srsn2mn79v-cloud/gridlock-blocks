@@ -497,6 +497,7 @@ export function createRaces({ city, scene, heightAt, car, world, districtName, t
     gl.stop();
     if (tune && tune.rivals) tune.rivals.clear();
     if (tune) { if (tune.clearZone) tune.clearZone(null); if (restore) { tune.set('traffic', restore.traffic); tune.set('peds', restore.peds); restore = null; } }
+    car.draftBonus = 0;
     run = null; hud.style.display = 'none'; countEl.style.display = 'none'; quitBtn.style.display = 'none';
     rings.forEach(m => { m.visible = false; }); beacon.visible = false; guide.visible = false; zoneRing.visible = false; ghostMeshes.forEach(m => { m.visible = false; });
     if (reason) world.toast(reason);
@@ -600,7 +601,17 @@ export function createRaces({ city, scene, heightAt, car, world, districtName, t
     run.progress = progressOf(r, run.progress);
     let posN = 1; run.ghosts.forEach((gh, i) => { if ((run.rivals ? rivalS(run, i) : gs(gh, t)) > run.lapIdx * r.length + run.progress) posN++; });
     if (r.kind === 'drag') {
-      hud.innerHTML = `<div class="big">${fmt(t)}</div><small>POS ${posN}/4 &middot; ${Math.max(0, Math.round((r.length - run.progress) * 1.25))} m to go</small>`;
+      // slipstream: within 100 m (80 u) behind a rival in your lane you are towed along, up to +30 km/h the closer you get
+      let want = 0;
+      if (run.rivals && t > 0) run.rivals.forEach(rv => {
+        const R = rv && rv.rival, m = rv && rv.mesh; if (!R || !m) return;
+        const gap = R.s - run.progress, side = Math.abs((car.x - m.position.x) * Math.cos(car.heading) - (car.z - m.position.z) * Math.sin(car.heading));
+        if (gap > 1.5 && gap < 80 && side < 3.2) want = Math.max(want, 30 * Math.pow(1 - gap / 80, 1.2));
+      });
+      run.draft = (run.draft || 0) + (want - (run.draft || 0)) * Math.min(1, 0.12 * 60 * (1 / 60) * 3);
+      car.draftBonus = run.draft / 6.2;
+      const dr = run.draft >= 1 ? `<div style="color:#7dffb0;font-weight:700">SLIPSTREAM +${Math.round(run.draft)} km/h</div>` : '';
+      hud.innerHTML = `<div class="big">${fmt(t)}</div><small>POS ${posN}/4 &middot; ${Math.max(0, Math.round((r.length - run.progress) * 1.25))} m to go</small>${dr}`;
       if (run.progress >= r.length - 0.5 && t > 1) finish(t);
       else if (t > 120) end('Too slow - race over');
       const fin = ptAt(r.pts, r.length); rings[0].visible = true; rings[0].position.set(fin.x, heightAt(fin.x, fin.z) + 3.2, fin.z); rings[0].rotation.set(0, Math.atan2(fin.dx, fin.dz), 0); rings[0].scale.setScalar(Math.min(1.9, r.width / 8)); rings[1].visible = false;

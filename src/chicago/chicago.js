@@ -349,7 +349,7 @@ export function buildChicago() {
     let ok = true;
     for (const [ox, oz] of [[0, 0], [-3.4, -3.4], [3.4, -3.4], [-3.4, 3.4], [3.4, 3.4]]) {
       const x = cx + ox, z = cz + oz;
-      if (roadClear(x, z) < 5.2 || inWater(x, z, 3) || parkAt(x, z) || outsideHW(x, z, 14)) { ok = false; break; }
+      if (roadClear(x, z) < 4.0 || inWater(x, z, 3) || parkAt(x, z) || outsideHW(x, z, 14)) { ok = false; break; }
     }
     if (ok && roadClear(cx, cz) > 75) ok = false;
     if (ok && (blockedRects.some(r => inRect(cx, cz, r)) || lmRects.some(r => inRect(cx, cz, r)))) ok = false;
@@ -361,7 +361,8 @@ export function buildChicago() {
     mid: [0xb9a58a, 0xa8b0a8, 0x8f8a80, 0xc2b59b, 0x9aa2b0, 0xaf9a86],
     low: [0x9b5a45, 0xa8654b, 0x8c4f3d, 0xb07a5a, 0x7e5a4a, 0xa3694e],
     warehouse: [0x7d7468, 0x8a8f8c, 0x6c7279, 0x93826e, 0x777f7b],
-    china: [0xb23b34, 0xc9a24b, 0x8a3f3a, 0xd0b27a, 0x9c4a3e]
+    china: [0xb23b34, 0xc9a24b, 0x8a3f3a, 0xd0b27a, 0x9c4a3e],
+    resi: [0xb5654a, 0xc98b5d, 0xd8c3a0, 0x9fb7a6, 0xc7a58f, 0xa89cb5, 0xe0cfa8, 0x9b5a45]
   };
   const pick = a => a[Math.floor(rand() * a.length)];
   const lots = [];
@@ -376,15 +377,52 @@ export function buildChicago() {
     for (let a = 0; a < w; a++) for (let b = 0; b < h; b++) taken[(i + a) * NZ + j + b] = 1;
     lots.push({ x0: gx0 + i * C, x1: gx0 + (i + w) * C, z0: gz0 + j * C, z1: gz0 + (j + h) * C, dis });
   }
-  lots.forEach(l => {
-    const gap = 1.3;
-    const x0 = l.x0 + gap, x1 = l.x1 - gap, z0 = l.z0 + gap, z1 = l.z1 - gap;
+  // the street side of every lot reaches out to just behind the pavement (3.4 u from the road edge) instead of stopping a whole grid cell short:
+  // the inner city has no wide strips of bare ground between the buildings and the pavement
+  const lotR = lots.map(l => ({ x0: l.x0 + 1.3, x1: l.x1 - 1.3, z0: l.z0 + 1.3, z1: l.z1 - 1.3 }));
+  const FACADE = 3.4, GROW_MAX = 7, LB = 48, lotBuckets = new Map();
+  lotR.forEach((o, i) => { for (let bx = Math.floor((o.x0 - 9) / LB); bx <= Math.floor((o.x1 + 9) / LB); bx++) for (let bz = Math.floor((o.z0 - 9) / LB); bz <= Math.floor((o.z1 + 9) / LB); bz++) { const k = bx + ',' + bz; (lotBuckets.get(k) || lotBuckets.set(k, []).get(k)).push(o); } });
+  const edgeOK = (a, b, c, d, self, side) => {          // the rectangle [a,c] x [b,d] stands clear of roads, water, parks, landmarks and the other lots
+    const seenL = new Set();
+    for (let bx = Math.floor(a / LB); bx <= Math.floor(c / LB); bx++) for (let bz = Math.floor(b / LB); bz <= Math.floor(d / LB); bz++) for (const o of lotBuckets.get(bx + ',' + bz) || []) {
+      if (o === self || seenL.has(o)) continue; seenL.add(o);
+      if (a < o.x1 + 1.6 && c > o.x0 - 1.6 && b < o.z1 + 1.6 && d > o.z0 - 1.6) return false;
+    }
+    const pt = (x, z) => roadClear(x, z) >= FACADE && !inWater(x, z, 3) && !parkAt(x, z) && !outsideHW(x, z, 14) && !blockedRects.some(r => inRect(x, z, r)) && !lmRects.some(r => inRect(x, z, r));
+    const n = Math.max(2, Math.ceil(Math.max(c - a, d - b) / 3));
+    for (let k = 0; k <= n; k++) {                // only the edge that just moved has to be clear (the others were placed already)
+      const x = a + (c - a) * k / n, z = b + (d - b) * k / n;
+      if (side === 'x0' ? !pt(a, z) : side === 'x1' ? !pt(c, z) : side === 'z0' ? !pt(x, b) : !pt(x, d)) return false;
+    }
+    return true;
+  };
+  lots.forEach((l, li) => {
+    const R = lotR[li]; if (R.x1 - R.x0 < 6 || R.z1 - R.z0 < 6) return;
+    if (l.dis && l.dis.style !== 'warehouse') {
+      for (let it = 0; it < 4; it++) {
+        let grew = false;
+        for (const side of ['x0', 'x1', 'z0', 'z1']) {
+          const orig = side === 'x0' ? l.x0 + 1.3 : side === 'x1' ? l.x1 - 1.3 : side === 'z0' ? l.z0 + 1.3 : l.z1 - 1.3;
+          const dir = side === 'x0' || side === 'z0' ? -1 : 1;
+          if (Math.abs(R[side] - orig) >= GROW_MAX) continue;
+          const t = { ...R }; t[side] += dir * 0.5;
+          if (edgeOK(t.x0, t.z0, t.x1, t.z1, R, side)) { R[side] = t[side]; grew = true; }
+        }
+        if (!grew) break;
+      }
+    }
+  });
+  lots.forEach((l, li) => {
+    const R = lotR[li], x0 = R.x0, x1 = R.x1, z0 = R.z0, z1 = R.z1;
     if (x1 - x0 < 6 || z1 - z0 < 6) return;
     const dis = l.dis || { style: 'mid', h: [14, 34], name: 'Edge' };
     const k = Math.pow(rand(), dis.style === 'tower' ? 0.8 : 1.6);
     let hgt = Math.round(dis.h[0] + (dis.h[1] - dis.h[0]) * k);
     const roof = dis.style === 'low' ? (rand() < 0.55 ? 'gable' : 'flat') : dis.style === 'china' ? 'pagoda' : dis.style === 'warehouse' ? (rand() < 0.5 ? 'tank' : 'flat') : hgt > 55 ? 'tiers' : 'flat';
-    parcels.push({ type: 'building', district: dis.name, height: hgt, color: pick(PAL[dis.style] || PAL.mid), roof, footprint: rectFp(r2(x0), r2(z0), r2(x1), r2(z1)) });
+    // residential blocks (brick / pastel, balconies, hipped roof) fill about 4 in 10 of the low and mid-rise lots
+    const resi = (dis.style === 'low' || dis.style === 'mid') && hgt <= 30 && x1 - x0 >= 8 && z1 - z0 >= 8 && rand() < 0.42;
+    if (resi) hgt = Math.max(9, Math.min(24, hgt));
+    parcels.push({ type: 'building', district: dis.name, height: hgt, color: pick(resi ? PAL.resi : (PAL[dis.style] || PAL.mid)), roof: resi ? 'resi' : roof, ...(resi ? { residential: true } : {}), footprint: rectFp(r2(x0), r2(z0), r2(x1), r2(z1)) });
   });
 
   // ---- shop buildings (small, colour-coded) at the end of each alley

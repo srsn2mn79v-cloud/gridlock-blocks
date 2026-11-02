@@ -283,7 +283,8 @@ export function buildTrafficBody(type, color, dimsOverride) {
     case 'truck': {
       // cab + chassis + a tall box body
       part(profileGeo('truck_cab', [[L - 2.2, 0.6], [L, 0.6], [L, 1.5], [L - 0.5, 2.6], [L - 2.2, 2.6]], d.wid), m.paint, 0, 0, 0, g, true);
-      part(boxGeo('truck_ws', d.wid - 0.3, 0.9, 0.05, 0.01), m.glass, 0, 2.0, L - 0.24, g).rotation.x = -0.28;
+      part(boxGeo('truck_ws2', d.wid - 0.3, 0.95, 0.06, 0.01), m.glass, 0, 2.05, L - 0.17, g).rotation.x = -0.43;      // lies on the slope of the cab front (it used to sink inside the body)
+      [-1, 1].forEach(sd => part(boxGeo('truck_sidewin', 0.04, 0.7, 1.0, 0.005), m.glass, sd * (d.wid / 2 + 0.01), 2.0, L - 1.3, g));
       part(boxGeo('truck_chassis', 1.5, 0.3, d.len - 0.4, 0.04), m.dark, 0, 0.55, 0, g);
       part(boxGeo('truck_box', d.wid, 2.5, d.len - 2.7, 0.05), m.white, 0, 1.95, -L + (d.len - 2.7) / 2 + 0.05, g, true);
       part(boxGeo('truck_stripe', d.wid + 0.02, 0.35, d.len - 2.7, 0.01), m.paint, 0, 1.2, -L + (d.len - 2.7) / 2 + 0.05, g);
@@ -298,7 +299,7 @@ export function buildTrafficBody(type, color, dimsOverride) {
       const H = 3.15;
       part(profileGeo('bus_body2', [[-L, 0.62], [L, 0.62], [L, 1.5], [L - 0.28, H - 0.18], [L - 0.4, H], [-L, H], [-L, 0.9]], d.wid), m.paint, 0, 0, 0, g, true);
       part(boxGeo('bus_under', d.wid - 0.5, 0.55, d.len - 0.4, 0.05), m.dark, 0, 0.42, 0, g);
-      const ws = part(boxGeo('bus_ws2', d.wid - 0.34, 1.35, 0.06, 0.012), m.glass, 0, 2.3, L - 0.17, g);
+      const ws = part(boxGeo('bus_ws3', d.wid - 0.34, 1.35, 0.07, 0.012), m.glass, 0, 2.3, L - 0.06, g);      // proud of the nose so the glass shows
       ws.rotation.x = -0.2;
       [-1, 1].forEach(s => {
         part(boxGeo('bus_win2', 0.04, 0.9, d.len - 3.4, 0.005), m.glass, s * (d.wid / 2 + 0.012), 2.35, -0.9, g);

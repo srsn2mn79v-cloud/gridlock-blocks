@@ -880,3 +880,13 @@ Still to come in this phase: storefronts, parks with seating, food stands, gyms.
 - **Car parks** (`src/lotGeo.js`, `src/lots.js`): more frequent arrivals, smooth Bezier in/out paths, a STOP sign on the way out; supermarkets are either **24/7** (always busy, lit) or a **Quick 7-11** (dark and empty out of hours). Market signs glow at night and always stand square to the road.
 - **Driver cam** has a full cabin (dash, vents, doors, seats, pillars, roof, rear-view and wing mirrors) with a different look per car (`PROFILES` in `src/interior.js`). **Bumper cam** is 1 m above the road.
 - New permanent checks: `pavementgaps`, `riverbanks`, `bridgewalls`, `obstacles`, `lotgeo` (groups: `placement`, `roads`, `sim`). Run `node tools/check.mjs all` after changing maps.
+
+## Round: slipstream, weather AI, radio, residential blocks, west bridge
+- **Drag slipstream** (`src/races.js`, `src/car.js` `draftBonus`): within 100 m behind a rival in your lane you are towed, up to **+30 km/h** the closer you get; the race HUD shows `SLIPSTREAM +N km/h`.
+- **AI waits in line at red lights / stop signs** (it no longer swings out to pass a queued player). **Weather**: `traffic.setGrip(env.grip)` - wet/icy roads make AI cars and race rivals slower, gentler on the brakes and more careful.
+- **Suspension** is stiffer and better damped (the body no longer dips under the road after crests / bridge ramps).
+- **Bus depot** is a white bus pin on the map; the **metro** exists (2 lines, 11 stations, `M` pins). Bus and truck windshields were sunk inside the body - now glazed.
+- **Radio**: each built-in station plays a rotation of 5 songs (flute / lute / harp / e-piano / synth leads over modal chord loops, `SONGS` in `src/radio.js`), the pill shows the title, and the DJ reads "what's new in the city" (`NEWS`) between songs - add a line there whenever the game changes.
+- **Inner city**: building street sides now reach out to 3.4 u from the road edge (`chicago.js`, lot growth) and about 4 in 10 low/mid-rise lots are **residential blocks** (`roof: 'resi'`: brick/pastel walls, balconies, hip roof, chimney, stoop).
+- **West bridge**: crossing candidate 8 (x about -190) enabled (`RB_ALLOW`). **Drawbridge paint** matches its street (double yellow, dashed lanes, solid edge lines).
+- **FPS**: the Low preset turns shadows off and renders at 60 %; an automatic governor lowers the resolution, then shadows, then glow/AO when the frame rate stays under 28 FPS for 3 s.
