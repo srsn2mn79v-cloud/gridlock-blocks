@@ -432,7 +432,9 @@ export function buildChicago() {
     const along = Math.abs(s.nx) > Math.abs(s.nz) ? 'x' : 'z';
     const x0 = along === 'x' ? s.x - hd : s.x - hw, x1 = along === 'x' ? s.x + hd : s.x + hw, z0 = along === 'x' ? s.z - hw : s.z - hd, z1 = along === 'x' ? s.z + hw : s.z + hd;
     parcels.push({ type: 'building', shop: s.id, height: 7, color: kind.hex, roof: 'flat', footprint: rectFp(r2(x0), r2(z0), r2(x1), r2(z1)) });
-    props.push({ type: 'shoplamp', shop: s.kind, x: s.mouth.x, z: s.mouth.z, rotation: Math.round(Math.atan2(-s.nx, -s.nz) * 180 / Math.PI) });   // faces the street
+    // the shop lamp stands beside the alley mouth, not in the middle of it (the car is put back out there when you leave)
+    { const tx = -s.nz, tz = s.nx, sd = ((s.id || '').length + Math.round(s.x)) % 2 ? 1 : -1, off = 6.2;
+      props.push({ type: 'shoplamp', shop: s.kind, x: r2(s.mouth.x + tx * off * sd), z: r2(s.mouth.z + tz * off * sd), rotation: Math.round(Math.atan2(-s.nx, -s.nz) * 180 / Math.PI) }); }   // faces the street
     props.push({ type: 'shopsign', shop: s.kind, x: s.door.x, z: s.door.z, rotation: s.door.rotation });
   });
 
