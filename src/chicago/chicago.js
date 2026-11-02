@@ -189,6 +189,10 @@ export function buildChicago() {
 
   // ---------------------------------------------------------------- shop sites (reserved before buildings fill in)
   const blockedRects = [];        // [x0,z0,x1,z1] kept free of buildings (alleys)
+  if (MAP.airport) {                // the runway and its apron: no buildings (a string of squares along the runway)
+    const A = MAP.airport, a = T(A.rwy[0][0], A.rwy[0][1]), b = T(A.rwy[1][0], A.rwy[1][1]), L = Math.hypot(b[0] - a[0], b[1] - a[1]), R = (A.width || 26) / 2 + 70;
+    for (let d = -40; d <= L + 40; d += 30) { const x = a[0] + (b[0] - a[0]) / L * d, z = a[1] + (b[1] - a[1]) / L * d; blockedRects.push([x - R, z - R, x + R, z + R]); }
+  }
   const driveways = [];           // {x,z,hw}: where a forecourt / car park meets the street - no kerb, no parked cars, no props across it
   const shops = [];
   const SHOP_SPECS = SPOTS.shops;

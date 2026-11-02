@@ -53,6 +53,7 @@ import { createBoats } from './boats.js';
 import { createGoldenGate } from './goldengate.js';
 import { createPortal } from './portal.js';
 import { createPort } from './port.js';
+import { createAirport } from './airport.js';
 import { createDrivetrain } from './drivetrain.js';
 import { isCovered } from './covered.js';
 import { createSkidMarks } from './skidmarks.js';
@@ -721,6 +722,7 @@ const drawbridge = createDrawbridge({ city, scene, collisionWorld, audio, height
 const boats = createBoats({ city, scene, drawbridge });
 const goldenGate = createGoldenGate({ city, scene });
 const port = createPort({ city, scene, collisionWorld });
+const airport = createAirport({ city, scene, car, toast: msg => world.toast(msg), collisionWorld });
 const portal = createPortal({ city, scene, car, toast: msg => world.toast(msg) });
 const radio = createRadio({ audio, weather, settings });
 const unlockAudio = () => audio.unlock();
@@ -917,6 +919,7 @@ function animate() {
     goldenGate.update(dt, nightK);
     portal.update();
     port.update(dt, nightK);
+    airport.update(dt, nightK);
     traffic.setGrip(env.grip);
     traffic.update(dt, hail.following() ? hail.proxy : car, world.onFoot && world.mode === 'city' ? world.focus() : null);
     if (traffic.walkerHit.on) world.shoveFoot(traffic.walkerHit.vx, traffic.walkerHit.vz);
@@ -979,6 +982,6 @@ function animate() {
   gfx.render();
   requestAnimationFrame(animate);
 }
-window.__game = { shopLots, drawbridge, boats, hail, camRig, interior, fuel, radio, weather, plowFx, puffs, gfx, transit, parkedCars, skids, audio, races, structures, world, renderer, taxi, input, destruction, collisionWorld, lampDefs, signs, propInstances, env, settings, menu, minimap, scene, camera, car, city, traffic, pedestrians, lampPool, reflectors, heightAt, offences: { get wrongWay() { return wrongWayOffences; } } };
+window.__game = { airport, port, goldenGate, shopLots, drawbridge, boats, hail, camRig, interior, fuel, radio, weather, plowFx, puffs, gfx, transit, parkedCars, skids, audio, races, structures, world, renderer, taxi, input, destruction, collisionWorld, lampDefs, signs, propInstances, env, settings, menu, minimap, scene, camera, car, city, traffic, pedestrians, lampPool, reflectors, heightAt, offences: { get wrongWay() { return wrongWayOffences; } } };
 loadingDone();
 animate();

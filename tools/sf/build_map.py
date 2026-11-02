@@ -190,6 +190,7 @@ data = {
         {'line': 'Golden Gate Bridge', 'from': 330, 'to': -330, 'h': 16},
         {'line': 'Presidio Parkway', 'from': 160, 'to': -160, 'h': -3.5}, {'at': [179 * SC, 538 * SC], 'len': 70, 'h': -5}, {'at': [265 * SC, 612 * SC], 'len': 80, 'h': -5}, {'at': [377.75 * SC, 487 * SC], 'len': 70, 'h': 5},
     ],
+    'airport': {'name': 'SFO', 'dest': 'chicago', 'at': [round(335 * SC, 1), round(570 * SC, 1)], 'rwy': [[round(335 * SC, 1), round(625 * SC, 1)], [round(450 * SC, 1), round(552 * SC, 1)]], 'width': 26, 'y': 0.17, 'apronSide': -1, 'num0': '28', 'num1': '10'},
     'stadium': {'cx': 330 * SC, 'cy': 575 * SC, 'rx': 6, 'ry': 6}, 'districts': districts, 'shops': shops, 'stations': stations, 'gas': gas, 'harbour': {'slips': []},
 }
 open('src/sf/mapdata_sf.js', 'w').write('// San Francisco, traced from tools/sf/ref.png by tools/sf/build_map.py (map px = reference px x 2.3).\nexport default ' + json.dumps(data) + ';\n')
