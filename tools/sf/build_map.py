@@ -191,6 +191,10 @@ data = {
         {'line': 'Presidio Parkway', 'from': 160, 'to': -160, 'h': -3.5}, {'at': [179 * SC, 538 * SC], 'len': 70, 'h': -5}, {'at': [265 * SC, 612 * SC], 'len': 80, 'h': -5}, {'at': [377.75 * SC, 487 * SC], 'len': 70, 'h': 5},
     ],
     'airport': {'name': 'SFO', 'dest': 'chicago', 'at': [round(335 * SC, 1), round(570 * SC, 1)], 'rwy': [[round(335 * SC, 1), round(625 * SC, 1)], [round(450 * SC, 1), round(552 * SC, 1)]], 'width': 26, 'y': 0.17, 'apronSide': -1, 'num0': '28', 'num1': '10'},
+    'metro': [
+        {'name': 'Muni Violet Line', 'color': 0x9b59b6, 'stations': [{'name': 'North Beach', 'at': [round(280 * SC, 1), round(372 * SC, 1)]}, {'name': 'Chinatown', 'at': [round(280 * SC, 1), round(402 * SC, 1)]}, {'name': 'Union Square', 'at': [round(280 * SC, 1), round(432 * SC, 1)]}, {'name': 'Civic Center', 'at': [round(280 * SC, 1), round(462 * SC, 1)]}, {'name': 'Mission', 'at': [round(280 * SC, 1), round(488 * SC, 1)]}]},
+        {'name': 'Muni Lilac Line', 'color': 0xc39bd3, 'stations': [{'name': 'Haight', 'at': [round(222 * SC, 1), round(427 * SC, 1)]}, {'name': 'Hayes Valley', 'at': [round(250 * SC, 1), round(427 * SC, 1)]}, {'name': 'Van Ness', 'at': [round(312 * SC, 1), round(427 * SC, 1)]}, {'name': 'Montgomery', 'at': [round(335 * SC, 1), round(427 * SC, 1)]}, {'name': 'Embarcadero', 'at': [round(352 * SC, 1), round(427 * SC, 1)]}]},
+    ],
     'stadium': {'cx': 330 * SC, 'cy': 575 * SC, 'rx': 6, 'ry': 6}, 'districts': districts, 'shops': shops, 'stations': stations, 'gas': gas, 'harbour': {'slips': []},
 }
 open('src/sf/mapdata_sf.js', 'w').write('// San Francisco, traced from tools/sf/ref.png by tools/sf/build_map.py (map px = reference px x 2.3).\nexport default ' + json.dumps(data) + ';\n')

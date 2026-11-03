@@ -1,6 +1,7 @@
 // Public transport layout: bus lines (closed loops over the avenues), their stops, a bus depot and taxi cab stands.
 // Pure data, no THREE - so the node checks can run it. transitScene.js builds the meshes.
 import { pointInPolygon } from './collision.js';
+import { MAP, T as mapT } from './chicago/map.js';
 
 const LINE_COLORS = [0xd9a21b, 0x2f6fb5, 0xc8362f, 0x2f9a5a];
 const LINE_NAMES = ['Lakeshore Line', 'Loop Line', 'Crosstown Line', 'Riverside Line'];
@@ -195,14 +196,17 @@ export function buildTransit(city, custom) {
     }
     if (!be) return null;
     const { e, a, b } = be, h = Math.atan2(b.z - a.z, b.x - a.x), w = e.width || 20;
-    for (const dt of [0, 0.12, -0.12, 0.24, -0.24]) for (const off of [w / 2 + 11, w / 2 + 16, w / 2 + 22]) for (const side of [1, -1]) {
-      const t = Math.max(0.12, Math.min(0.88, be.t + dt)), px = a.x + (b.x - a.x) * t - Math.sin(h) * off * side, pz = a.z + (b.z - a.z) * t + Math.cos(h) * off * side;
+    for (const dt of [0, 0.12, -0.12, 0.24, -0.24, 0.36, -0.36, 0.5, -0.5]) for (const off of [w / 2 + 11, w / 2 + 16, w / 2 + 22, w / 2 + 8, w / 2 + 28]) for (const side of [1, -1]) {
+      const t = Math.max(0.08, Math.min(0.92, be.t + dt)), px = a.x + (b.x - a.x) * t - Math.sin(h) * off * side, pz = a.z + (b.z - a.z) * t + Math.cos(h) * off * side;
       if (metroSpots.some(q => Math.hypot(q.x - px, q.z - pz) < 40)) continue;
       if (free(px, pz, h, 5, 4) && roadClear(px, pz, 7)) { const sp = { x: px, z: pz, h: h - (side > 0 ? Math.PI / 2 : -Math.PI / 2), edge: e }; metroSpots.push(sp); return sp; }
     }
     return null;
   }
   let metroDefs = custom && Array.isArray(custom.metro) ? custom.metro.filter(l => l && Array.isArray(l.stations) && l.stations.length >= 2) : [];
+  if (!metroDefs.length && MAP.metro && MAP.metro.length) {       // lines drawn on the map itself (map.metro: stations in map px)
+    metroDefs = MAP.metro.map(l => ({ name: l.name, color: l.color, stations: l.stations.map(q => ({ name: q.name, at: mapT(q.at[0], q.at[1]) })) }));
+  }
   if (!metroDefs.length) {       // default: two lines along the generated bus routes (every other stop)
     metroDefs = [0, 2].filter(k => lines[k] && (lines[k].stops || []).length >= 4).map((k, i) => {
       const st = lines[k].stops, pick = [0, 1, 2, 3, 4, 5, 6, 7].map(j => st[Math.floor(j * st.length / 8)]).filter((q, j, arr) => q && arr.indexOf(q) === j).slice(0, 6);
