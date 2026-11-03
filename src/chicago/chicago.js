@@ -655,10 +655,10 @@ export function buildChicago() {
     if (e.type !== 'highway' || (e.structure && e.structure !== 'surface') || Math.max(nodes[e.from].elevation, nodes[e.to].elevation) > 0.25) return;
     const a = nodes[e.from], b = nodes[e.to], len = Math.hypot(b.x - a.x, b.z - a.z);
     for (let t = 12; t < len - 12; t += 28) {
-      const side = (bbN++ % 2) ? 1 : -1, p = sidePoint(e, t, side, e.width / 2 + 11);
-      if (roadClear(p.x, p.z) < 7 || inWater(p.x, p.z, 4) || parcelsHit(p.x, p.z, 7) || outsideHW(p.x, p.z, 0) || inDrive(p.x, p.z, 4)) continue;
+      const side = (bbN++ % 2) ? 1 : -1, p = sidePoint(e, t, side, e.width / 2 + 19);
+      if (roadClear(p.x, p.z) < 9 || inWater(p.x, p.z, 4) || parcelsHit(p.x, p.z, 7) || outsideHW(p.x, p.z, 0) || inDrive(p.x, p.z, 4)) continue;
       if (!propOK(p.x, p.z, 8, treeList) || billboards.some(q => Math.hypot(q.x - p.x, q.z - p.z) < 120)) continue;
-      billboards.push({ x: r2(p.x), z: r2(p.z), face: Math.atan2(p.uz * side, -p.ux * side), ad: bbN % 8 });
+      billboards.push({ x: r2(p.x), z: r2(p.z), face: Math.atan2(b.x - a.x, b.z - a.z), ad: bbN % 8 });
     }
   });
   // street furniture: fire hydrants and mailboxes along the kerb of the streets, café sets (a table and chairs) outside the busy districts' buildings

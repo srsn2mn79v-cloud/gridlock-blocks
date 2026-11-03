@@ -7,11 +7,21 @@
 const midi = n => 440 * Math.pow(2, (n - 69) / 12);
 
 const SYNTH = [
-  { id: 'neon', name: 'Neon Drive', synth: 'neon', tag: 'all night, all neon', dj: { name: 'DJ Vega', pitch: 0.9, rate: 1.04, greet: ['Hey night owls.', 'Good to have you out there.', 'Keep it between the lines, drivers.', 'Neon Drive, still rolling.'] } },
-  { id: 'lowkey', name: 'Low Key', synth: 'lowkey', tag: 'slow roads and soft lights', dj: { name: 'Maya', pitch: 1.12, rate: 0.93, greet: ['Easy does it.', 'Take your time out there.', 'Nowhere to be, nothing to prove.', 'Low Key, keeping it mellow.'] } }
+  { id: 'neon', name: 'Neon Drive', synth: 'neon', tag: 'all night, all neon', dj: { name: 'DJ Vega', pitch: 0.9, rate: 1.04,
+    greet: ['Hey night owls.', 'Good to have you out there.', 'Keep it between the lines, drivers.', 'Neon Drive, still rolling.', 'Hello night owls, DJ Vega here.', 'Stay safe out there.', 'Good to see you on the road tonight.',
+      "Don't do anything I wouldn't do. Which, admittedly, leaves you plenty of room.", 'Headlights on, volume up.', 'Eyes on the road, ears on me.', 'Another song down, another block to go.', 'If you can hear me, you are doing it right.'],
+    quips: ['Red means stop, green means go, and yellow means please do not floor it.', 'The city never sleeps, but you could at least blink between songs.', 'Remember, the horn is not a musical instrument. Mostly.', 'Somebody out there is doing ninety in a thirty. Not naming names. Okay, it is probably you.',
+      'The lights are on, the streets are wet with neon, and you have got the best seat in the city.', 'If you are lost, congratulations, you are exploring.', 'Buckle up, hydrate, and keep your hands at ten and two. Or one hand on the wheel, if you are cool. Do not be cool.',
+      'This one goes out to everyone stuck at a red light with nowhere to be.', 'Stay in your lane, drivers. Unless you are drifting. Then stay in the car park.'] } },
+  { id: 'lowkey', name: 'Low Key', synth: 'lowkey', tag: 'slow roads and soft lights', dj: { name: 'Maya', pitch: 1.12, rate: 0.93,
+    greet: ['Easy does it.', 'Take your time out there.', 'Nowhere to be, nothing to prove.', 'Low Key, keeping it mellow.', 'Hello again, lovely drivers.', 'Stay safe out there, okay?', 'So good to see you on the road tonight.', 'Keep it gentle on the pedals.', 'Windows down if you like.'],
+    quips: ['Breathe in, breathe out, indicate.', 'Drive as if the road were made of glass, and the glass were made of something very soft.', 'The best parking spot is the one you do not have to fight for.', 'Sip your coffee, watch the lights go by.',
+      'If the person in front of you is slow, they are probably enjoying the song too.', 'Keep a little space between you and the car ahead. Space is a kindness.', 'There is no rush hour in this studio.', 'Remember to look up once in a while. The sky is free.',
+      'Whatever today was, the road is quiet now.'] } }
 ];
 const PERSONAS = [{ pitch: 1.0, rate: 1.0 }, { pitch: 0.85, rate: 0.98 }, { pitch: 1.2, rate: 1.05 }, { pitch: 0.95, rate: 0.92 }];
 
+import { MAP } from './chicago/map.js';
 export function createRadio({ audio, weather, settings, onChange }) {
   let ctx = null, bus = null, noise = null, delay = null;
   const stations = SYNTH.map(s => ({ ...s, type: 'synth' }));
@@ -66,7 +76,7 @@ export function createRadio({ audio, weather, settings, onChange }) {
       { name: 'Slow Boat to Port', bpm: 74, chords: [[46, 'M7'], [43, 'm7'], [48, 'm7'], [53, 'M7']], swing: 0.14, lead: { v: 'epiano', scale: [0, 3, 5, 7, 10], dens: 0.2, oct: 12 } }
     ]
   };
-  function mkSeq(kind) {
+  function mkSeq(kind, onSong) {
     const out = musicGain(), songs = SONGS[kind] || SONGS.neon;
     let si = Math.floor(Math.random() * songs.length), P = songs[si], songBars = 0, lastNote = null, rs = 1234;
     const rnd = () => { rs = (rs * 1664525 + 1013904223) >>> 0; return rs / 4294967296; };
@@ -120,7 +130,7 @@ export function createRadio({ audio, weather, settings, onChange }) {
         }
         lead(tt, s16, root, notes);
         step++; t += sixteenth;
-        if (step % 16 === 0 && ++songBars >= SONG_BARS) { songBars = 0; si = (si + 1) % songs.length; P = songs[si]; sixteenth = 60 / P.bpm / 4; step = 0; lastNote = null; trackTitle = P.name; refresh(); }
+        if (step % 16 === 0 && ++songBars >= SONG_BARS) { songBars = 0; si = (si + 1) % songs.length; P = songs[si]; sixteenth = 60 / P.bpm / 4; step = 0; lastNote = null; trackTitle = P.name; refresh(); if (onSong) onSong(); }
       }
     }
     return { start() { schedule(); this.iv = setInterval(schedule, 120); }, stop() { clearInterval(this.iv); } };
@@ -152,28 +162,30 @@ export function createRadio({ audio, weather, settings, onChange }) {
   const spoken = n => (n < 0 ? 'minus ' + Math.abs(Math.round(n)) : String(Math.round(n))) + ' degrees';
   const timeWords = h => { const hh = Math.floor(h) % 24, mm = Math.floor((h % 1) * 60), ap = hh >= 12 ? 'PM' : 'AM', h12 = hh % 12 || 12; return mm === 0 ? `${h12} o'clock ${ap}` : `${h12}:${String(mm).padStart(2, '0')} ${ap}`; };
   const condWords = k => ({ clear: 'clear skies', cloudy: 'cloudy skies', fog: 'fog around', rain: 'rain falling', snow: 'snow falling' })[k] || 'quiet weather';
-  // what's new in the city: the DJs read these out between songs (newest first; add a line whenever the game changes)
+  // what's new in the city: the DJs read the latest big changes out between songs. NEWS is newest first and holds only the last five;
+  // each item is read at most once an hour (remembered across reloads), so add a new item at the top and drop the oldest whenever the game changes.
   const NEWS = [
-    'City hall says the supermarkets now run two ways: the big ones stay open round the clock, and the Quick Seven-Eleven stores go dark and empty after closing time.',
-    'Shoppers are now pulling into the car parks all day, and leaving through a stop sign instead of vanishing into thin air.',
-    'The bridges have new railings, so nobody is driving off the side, and traffic now crashes into walls and lamp posts like everyone else.',
-    'Road crews finished the river banks and the pavements, so the gaps at the corners are gone.',
-    'The ring road interchange has had its loops fixed, and the exit signs finally point the right way.',
-    'Street racers take note: tuck in behind a rival in a drag race and you will be towed along, up to thirty kilometres an hour faster.',
-    'Drivers will notice every car is more careful in the wet and on snow. Slower, and leaving more room.',
-    'The bus depot is now marked on the city map, and the metro runs two lines across town.',
-    'Local legend says there is a new cockpit view in every car, with a proper dashboard, doors and mirrors.',
-    'The radio is bringing in new songs this season. Stay tuned for something with a bit of a village green feel.'
+    { id: 'airport', text: () => cityName() === 'San Francisco' ? 'The new airport is open. Drive to the departures gate south east of SoMa, hold still for a moment, and you are on a flight to Chicago.' : 'The new airport has opened on the Meigs Field lakefront. Drive to the departures gate, hold still for a moment, and you are on a flight to San Francisco.' },
+    { id: 'sf', text: () => 'San Francisco is now on the map. Take the Golden Gate Bridge north to Marin, and follow the arch that says Chicago. Or pick your city from the menu.' },
+    { id: 'port', text: () => 'A big container terminal is open out on the lake, with working cranes unloading a container ship and a tanker all day long. Mind the forklifts.' },
+    { id: 'signs', text: () => 'Highway crews have put lamps over every overhead sign, so you can read your exit even in the middle of the night.' },
+    { id: 'metro', text: () => 'San Francisco has a two line metro now, and there are more boats moored along Navy Pier.' }
   ];
-  let newsIx = Math.floor(Math.random() * NEWS.length);
+  const HOUR = 3600 * 1000, HEARD_KEY = 'gridlock-radio-heard';
+  const heard = () => { try { return JSON.parse(localStorage.getItem(HEARD_KEY) || '{}'); } catch (e) { return {}; } };
+  const nextNews = () => { const h = heard(), now = Date.now(); return NEWS.find(n => !(now - (h[n.id] || 0) < HOUR)) || null; };      // the newest item not heard in the last hour
+  const markHeard = id => { try { const h = heard(); h[id] = Date.now(); localStorage.setItem(HEARD_KEY, JSON.stringify(h)); } catch (e) { /* ignore */ } };
+  const cityName = () => (MAP && MAP.city === 'sf') ? 'San Francisco' : 'Chicago';
+  const pick = a => a[Math.floor(Math.random() * a.length)];
   function script(st, kind) {
-    const dj = st.dj, now = weather.now, o = weather.outlook(), greet = dj.greet[Math.floor(Math.random() * dj.greet.length)];
-    const time = `It's ${timeWords(settings.hour)}.`, cur = `Right now it's ${spoken(now.temp)} in Chicago with ${condWords(now.kind)}.`;
+    const dj = st.dj, now = weather.now, o = weather.outlook(), greet = pick(dj.greet), quip = dj.quips && Math.random() < 0.55 ? ' ' + pick(dj.quips) : '';
+    const time = `It's ${timeWords(settings.hour)}.`, cur = `Right now it's ${spoken(now.temp)} in ${cityName()} with ${condWords(now.kind)}.`;
     const id = `You're listening to ${st.name}, ${st.tag || 'on the air'}.`;
-    if (kind === 'ident') return `${greet} ${id}`;
-    if (kind === 'news') { const n = NEWS[newsIx++ % NEWS.length]; return `${greet} Here's what's new in the city. ${n}`; }
-    if (kind === 'forecast') return `${greet} ${time} ${cur} ${o.text}`;
-    return `${greet} ${time} ${cur}${now.kind === 'snow' ? ' Watch the roads, the ploughs are out.' : now.kind === 'rain' ? ' Slow down on the wet stuff.' : ''}`;
+    if (kind === 'ident') return `${greet} ${id}${quip}`;
+    if (kind === 'quip') return `${greet} ${dj.quips ? pick(dj.quips) : id}`;
+    if (kind === 'news') { const n = nextNews(); if (!n) return script(st, 'time'); markHeard(n.id); return `${greet} Here's what's new in the city. ${n.text()}${quip}`; }
+    if (kind === 'forecast') return `${greet} ${time} ${cur} ${o.text}${quip}`;
+    return `${greet} ${time} ${cur}${now.kind === 'snow' ? ' Watch the roads, the ploughs are out.' : now.kind === 'rain' ? ' Slow down on the wet stuff.' : ''}${quip}`;
   }
   function pickVoice(dj) {
     const vs = speechSynthesis.getVoices().filter(v => /^en/i.test(v.lang)); if (!vs.length) return null;
@@ -190,7 +202,7 @@ export function createRadio({ audio, weather, settings, onChange }) {
     try { speechSynthesis.cancel(); speechSynthesis.speak(u); } catch (e) { end(); }
   }
   function djBreak(st, done) {
-    const r = Math.random(), kind = r < 0.3 ? 'time' : r < 0.55 ? 'forecast' : r < 0.8 ? 'news' : 'ident';
+    const r = Math.random(), kind = r < 0.22 ? 'time' : r < 0.42 ? 'forecast' : r < 0.62 ? (nextNews() ? 'news' : 'quip') : r < 0.82 ? 'quip' : 'ident';
     say(st, script(st, kind), done);
   }
 
@@ -206,7 +218,7 @@ export function createRadio({ audio, weather, settings, onChange }) {
     if (idx < 0) { refresh(); return; }
     const s = stations[idx]; queue = [];
     if (mg) mg.gain.value = 0.9;
-    if (s.type === 'synth') { seq = mkSeq(s.synth); seq.start(); nextBreak = performance.now() + 70000 + Math.random() * 60000; }
+    if (s.type === 'synth') { seq = mkSeq(s.synth, () => { const st = stations[idx]; if (st && st.dj && djOK() && !djBusy && Math.random() < 0.9) setTimeout(() => { if (stations[idx] === st && !djBusy) djBreak(st); }, 700); }); seq.start(); nextBreak = performance.now() + 70000 + Math.random() * 60000; }
     else playNext();
     refresh();
     if (s.dj && djOK()) setTimeout(() => { if (idx === i && !djBusy) say(s, script(s, 'ident')); }, 1800);
@@ -223,7 +235,7 @@ export function createRadio({ audio, weather, settings, onChange }) {
     update(dt, st) {
       // synth stations: a DJ break every minute or two
       if (idx >= 0 && stations[idx].type === 'synth' && stations[idx].dj && !djBusy && performance.now() > nextBreak && djOK()) {
-        nextBreak = performance.now() + 100000 + Math.random() * 100000; djBreak(stations[idx]);
+        nextBreak = performance.now() + 240000 + Math.random() * 120000; djBreak(stations[idx]);
       }
       // distance / place: on foot the car radio fades with distance; in a flat it plays quietly like a stereo in the next room
       if (bus && audio.radioFilter && st) {

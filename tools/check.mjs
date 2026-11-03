@@ -1,6 +1,6 @@
 // Gridlock Blocks checks. Run on request:
 //   node tools/check.mjs signs      road signs sit beside the road, not on it
-//   node tools/check.mjs signfacing highway gantries face straight along the road and have lamps over their boards
+//   node tools/check.mjs signfacing gantries, street signs and roadside boards are square to their road; gantries have lamps
 //   node tools/check.mjs lamps      lamp posts / props sit beside the road, near it, not in buildings
 //   node tools/check.mjs buildings  no building footprint overlaps a road surface
 //   node tools/check.mjs traffic [cars=40] [minutes=5]   AI traffic simulation: nothing gets stuck
@@ -71,22 +71,35 @@ async function checkSignFacing() {
   await world();
   const { buildSigns } = await imp('src/generators/signs.js');
   const signs = buildSigns(city, heightAt, roads.userData.mapPaths), bad = [], seen = new Set();
-  const hw = (city.roadEdges || []).filter(e => e.type === 'highway' && !e.ramp);
-  let n = 0;
+  const edges = (city.roadEdges || []).map(e => { const a = city.roadNodes[e.from], b = city.roadNodes[e.to], dx = b.x - a.x, dz = b.z - a.z, l = Math.hypot(dx, dz) || 1; return { e, a, dx, dz, l, ux: dx / l, uz: dz / l }; });
+  const hw = edges.filter(q => q.e.type === 'highway' && !q.e.ramp);
+  const nearest = (list, x, z, within = 1e9) => { let best = null; list.forEach(q => { const t = Math.max(0, Math.min(1, ((x - q.a.x) * q.dx + (z - q.a.z) * q.dz) / (q.l * q.l))), d = Math.hypot(q.a.x + q.dx * t - x, q.a.z + q.dz * t - z); if (d < within && (!best || d < best.d)) best = { d, q }; }); return best; };
+  const ang = (fx, fz, ux, uz) => Math.acos(Math.min(1, Math.abs(fx * ux + fz * uz))) * 180 / Math.PI;     // 0 = parallel (either way)
+  let nG = 0, nP = 0, nB = 0;
+  // 1. overhead highway gantries: the board faces straight along the nearest carriageway, and has lamps over it
   signs.instances.filter(i => i.type === 'gantry').forEach(i => {
-    const m = i.mesh; if (seen.has(m)) return; seen.add(m); n++;
-    const fx = Math.sin(m.rotation.y), fz = Math.cos(m.rotation.y), cx = m.position.x, cz = m.position.z;
-    let best = null;
-    hw.forEach(e => { const a = city.roadNodes[e.from], b = city.roadNodes[e.to], dx = b.x - a.x, dz = b.z - a.z, l2 = dx * dx + dz * dz || 1, t = Math.max(0, Math.min(1, ((cx - a.x) * dx + (cz - a.z) * dz) / l2)), d = Math.hypot(a.x + dx * t - cx, a.z + dz * t - cz); if (!best || d < best.d) best = { d, ux: dx / Math.sqrt(l2), uz: dz / Math.sqrt(l2), id: e.id }; });
-    const at = 'gantry@' + r1(cx) + ',' + r1(cz);
-    if (!best) { bad.push(at + ' has no highway near it'); return; }
-    const ang = Math.acos(Math.min(1, Math.abs(fx * best.ux + fz * best.uz))) * 180 / Math.PI;
-    if (ang > 4) bad.push(at + ' is turned ' + r1(ang) + ' degrees off the road direction (edge ' + best.id + ')');
-    const lamps = m.children.filter(c => c.material && c.material.emissive && c.material.emissive.getHex() === 0xffe2a0).length;
-    if (!lamps) bad.push(at + ' has no lamps over its board');
+    const m = i.mesh; if (seen.has(m)) return; seen.add(m); nG++;
+    const fx = Math.sin(m.rotation.y), fz = Math.cos(m.rotation.y), at = 'gantry@' + r1(m.position.x) + ',' + r1(m.position.z), b = nearest(hw, m.position.x, m.position.z);
+    if (!b) { bad.push(at + ' has no highway near it'); return; }
+    const a = ang(fx, fz, b.q.ux, b.q.uz); if (a > 4) bad.push(at + ' is turned ' + r1(a) + ' degrees off the road direction (edge ' + b.q.e.id + ')');
+    if (!m.children.some(c => c.material && c.material.emissive && c.material.emissive.getHex() === 0xffe2a0)) bad.push(at + ' has no lamps over its board');
   });
-  if (!n && hw.length) bad.push('no gantries found');
-  return { name: 'signfacing', count: n + ' gantries', bad };
+  // 2. street signs (stop, speed limit): square to the road they speak to - along a nearby street, or along a shop alley (square to the street)
+  signs.instances.filter(i => i.type === 'signpost').forEach(i => {
+    const m = i.mesh; nP++;
+    const fx = Math.sin(m.rotation.y), fz = Math.cos(m.rotation.y), at = 'signpost@' + r1(i.x) + ',' + r1(i.z);
+    let best = 1e9; edges.forEach(q => { const t = Math.max(0, Math.min(1, ((i.x - q.a.x) * q.dx + (i.z - q.a.z) * q.dz) / (q.l * q.l))); if (Math.hypot(q.a.x + q.dx * t - i.x, q.a.z + q.dz * t - i.z) > 24) return; best = Math.min(best, ang(fx, fz, q.ux, q.uz), 90 - ang(fx, fz, q.ux, q.uz)); });
+    if (best === 1e9) bad.push(at + ' has no road within 24 u');
+    else if (best > 4) bad.push(at + ' is ' + r1(best) + ' degrees off every nearby road direction');
+  });
+  // 3. roadside advertising boards (the lit LED-style panels): turned square to the freeway, so drivers see them head on
+  (city.billboards || []).forEach(b => {
+    nB++; const fx = Math.sin(b.face), fz = Math.cos(b.face), at = 'billboard@' + r1(b.x) + ',' + r1(b.z), n = nearest(hw, b.x, b.z);
+    if (!n) { bad.push(at + ' has no highway near it'); return; }
+    const a = ang(fx, fz, n.q.ux, n.q.uz); if (a > 4) bad.push(at + ' is turned ' + r1(a) + ' degrees off the road direction');
+  });
+  if (!nG && hw.length) bad.push('no gantries found');
+  return { name: 'signfacing', count: nG + ' gantries, ' + nP + ' street signs, ' + nB + ' billboards', bad };
 }
 
 async function checkLamps() {

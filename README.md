@@ -913,3 +913,9 @@ Still to come in this phase: storefronts, parks with seating, food stands, gyms.
 - SF has a metro: two lines (Muni Violet, N-S, and Muni Lilac, E-W) drawn from the purple lines of the map (`map.metro`, stations in map px, read by `transit.js`). The station finder now searches a wider area, so Chicago got a few more stations too (6+6).
 - More moored boats: the north side of Navy Pier and the south causeway quay (harbour slips, `tools/add_port.py`).
 - West-side bridge still NOT added. With `RB_ONLY='[0,2,5,k]'` (env, see gen_network.js) candidates 1 and 6 each build cleanly except for one dead-end street the rules check flags; 3, 4 and 7 are worse.
+
+## Round: radio host back, sign check for every kind of sign
+
+- **Radio:** the DJs talk again between songs. A break after almost every song change (90%), plus a slow fallback timer; kinds: time + weather, forecast, "what's new", a quip, or the station ident, often with a closing quip. Many more host lines per DJ (`greet` and `quips` in `SYNTH`, radio.js). The weather report names the current city. `NEWS` holds only the last five big changes (newest first); each item is read at most once an hour, remembered in localStorage (`gridlock-radio-heard`). When the game changes, add a new item at the top of `NEWS` and drop the oldest.
+- **`signfacing` check** now covers highway gantries (4 degrees off the road = fail, lamps required), every stop / speed-limit sign (square to a nearby road or shop alley) and the roadside ad boards (LED-style panels). The ad boards now stand square to the freeway (they used to be parallel to it), set 19 u back, so there are fewer of them.
+- Not covered: neon signs on building fronts (they follow the building, not the road).
