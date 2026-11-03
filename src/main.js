@@ -7,7 +7,7 @@ import { buildRoads } from './generators/roads.js';
 import { buildStructures } from './structures.js';
 import { buildCuts, groundGeometry } from './generators/cuts.js';
 import { buildShopBays } from './shopBays.js';
-import { buildSigns } from './generators/signs.js';
+import { buildSigns, signLampMat } from './generators/signs.js';
 import { buildParcels, waterTime } from './generators/parcels.js';
 import { buildDoors } from './generators/doors.js';
 import { buildProps } from './generators/props.js';
@@ -143,6 +143,7 @@ let nightK = 1;
 const lampLights = [];   // filled once props exist (see below)
 function onNight(k) {
   nightK = k;
+  signLampMat.emissiveIntensity = 0.1 + 2.2 * k;
   if (gfx) gfx.setNight(k);
   lampLights.forEach(l => {
     if (l.dead) return;

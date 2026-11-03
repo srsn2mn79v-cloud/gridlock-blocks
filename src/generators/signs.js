@@ -110,6 +110,15 @@ function gantryTexture(exitNo, label, dist, rightExit) {
   return t;
 }
 const gantryMat = new THREE.MeshStandardMaterial({ color: 0x8d949c, roughness: 0.5, metalness: 0.6 });
+// the lamps that light each sign panel from above: a short arm leaning out over the panel and a lamp head, glowing at night (main.js sets the intensity)
+export const signLampMat = new THREE.MeshStandardMaterial({ color: 0xfff4d6, emissive: 0xffe2a0, emissiveIntensity: 0.1, roughness: 0.4 });
+const lampArmGeo = new THREE.BoxGeometry(0.12, 0.12, 1.1), lampHeadGeo = new THREE.BoxGeometry(0.5, 0.18, 0.4);
+function addPanelLamps(mesh, px) {
+  [-2.4, 0, 2.4].forEach(dx => {
+    const arm = new THREE.Mesh(lampArmGeo, gantryMat); arm.position.set(px + dx, 8.15, 0.9); mesh.add(arm);
+    const head = new THREE.Mesh(lampHeadGeo, signLampMat); head.position.set(px + dx, 8.0, 1.4); head.rotation.x = 0.5; mesh.add(head);
+  });
+}
 function gantryMesh(tex, rightSide, W = 9) {
   const g = new THREE.Group();
   [-W, W].forEach(x => {
@@ -128,7 +137,7 @@ function gantryMesh(tex, rightSide, W = 9) {
     new THREE.MeshStandardMaterial({ color: 0x6f767e, roughness: 0.6, metalness: 0.4 })
   ]);
   panel.position.set(px, 6.3, 0.4); panel.castShadow = true;
-  g.add(panel);
+  g.add(panel); addPanelLamps(g, px);
   // hanger bars
   [-3, 3].forEach(dx => { const h = new THREE.Mesh(new THREE.BoxGeometry(0.2, 0.9, 0.2), gantryMat); h.position.set(px + dx, 7.9, 0.2); g.add(h); });
   return g;
@@ -160,6 +169,7 @@ function panelMesh(tex, px) {
     new THREE.MeshStandardMaterial({ color: 0x6f767e, roughness: 0.6, metalness: 0.4 })
   ]);
   panel.position.set(px, 6.3, 0.4); panel.castShadow = true;
+  panel.userData.lampX = px;
   return panel;
 }
 function addGantries(city, heightAt, group, instances, distToRoad) {
@@ -221,7 +231,7 @@ function addGantries(city, heightAt, group, instances, distToRoad) {
       if ([-9, 9].some(lx => (city.parcels || []).some(q => (q.type === 'building' || q.type === 'water') && pointInPolygon(p.x + right.x * lx, p.z + right.z * lx, q.footprint)))) return;
       if ([-9, 9].some(lx => distToRoad(p.x + right.x * lx, p.z + right.z * lx) < 0.5)) return;      // a leg must not stand on the slip road
       const mesh = gantryMesh(gantryTexture(ramp.exit.no, ramp.exit.label, dist, rightExit), true);
-      if (withNext && ramp.exit.next) mesh.add(panelMesh(nextTexture(ramp.exit.next), -4.9));
+      if (withNext && ramp.exit.next) { const pn = panelMesh(nextTexture(ramp.exit.next), -4.9); mesh.add(pn); addPanelLamps(mesh, -4.9); }
       mesh.position.set(p.x, heightAt(p.x, p.z), p.z);
       mesh.rotation.y = Math.atan2(-d.x, -d.z);
       group.add(mesh);
@@ -236,7 +246,7 @@ function addGantries(city, heightAt, group, instances, distToRoad) {
     if ([-9, 9].some(lx => (city.parcels || []).some(q => (q.type === 'building' || q.type === 'water') && pointInPolygon(h.x + right.x * lx, h.z + right.z * lx, q.footprint)))) return;
     if ([-9, 9].some(lx => distToRoad(h.x + right.x * lx, h.z + right.z * lx) < 0.5)) return;
     const mesh = gantryMesh(null, true);
-    mesh.add(panelMesh(nextTexture(h.next), 0));
+    mesh.add(panelMesh(nextTexture(h.next), 0)); addPanelLamps(mesh, 0);
     [-3, 3].forEach(dx => { const hb = new THREE.Mesh(new THREE.BoxGeometry(0.2, 0.9, 0.2), gantryMat); hb.position.set(dx, 7.9, 0.2); mesh.add(hb); });
     mesh.position.set(h.x, heightAt(h.x, h.z), h.z);
     mesh.rotation.y = Math.atan2(-h.d.x, -h.d.z);

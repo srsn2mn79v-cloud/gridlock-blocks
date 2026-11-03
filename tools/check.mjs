@@ -1,5 +1,6 @@
 // Gridlock Blocks checks. Run on request:
 //   node tools/check.mjs signs      road signs sit beside the road, not on it
+//   node tools/check.mjs signfacing highway gantries face straight along the road and have lamps over their boards
 //   node tools/check.mjs lamps      lamp posts / props sit beside the road, near it, not in buildings
 //   node tools/check.mjs buildings  no building footprint overlaps a road surface
 //   node tools/check.mjs traffic [cars=40] [minutes=5]   AI traffic simulation: nothing gets stuck
@@ -63,6 +64,29 @@ async function checkSigns() {
     if (inBuilding(i.x, i.z)) bad.push(what + ' is inside a building');
   });
   return { name: 'signs', count: signs.instances.length, bad };
+}
+
+// every highway gantry stands square to the road: its board faces straight along the nearest carriageway (within 4 degrees), and its three lamps exist
+async function checkSignFacing() {
+  await world();
+  const { buildSigns } = await imp('src/generators/signs.js');
+  const signs = buildSigns(city, heightAt, roads.userData.mapPaths), bad = [], seen = new Set();
+  const hw = (city.roadEdges || []).filter(e => e.type === 'highway' && !e.ramp);
+  let n = 0;
+  signs.instances.filter(i => i.type === 'gantry').forEach(i => {
+    const m = i.mesh; if (seen.has(m)) return; seen.add(m); n++;
+    const fx = Math.sin(m.rotation.y), fz = Math.cos(m.rotation.y), cx = m.position.x, cz = m.position.z;
+    let best = null;
+    hw.forEach(e => { const a = city.roadNodes[e.from], b = city.roadNodes[e.to], dx = b.x - a.x, dz = b.z - a.z, l2 = dx * dx + dz * dz || 1, t = Math.max(0, Math.min(1, ((cx - a.x) * dx + (cz - a.z) * dz) / l2)), d = Math.hypot(a.x + dx * t - cx, a.z + dz * t - cz); if (!best || d < best.d) best = { d, ux: dx / Math.sqrt(l2), uz: dz / Math.sqrt(l2), id: e.id }; });
+    const at = 'gantry@' + r1(cx) + ',' + r1(cz);
+    if (!best) { bad.push(at + ' has no highway near it'); return; }
+    const ang = Math.acos(Math.min(1, Math.abs(fx * best.ux + fz * best.uz))) * 180 / Math.PI;
+    if (ang > 4) bad.push(at + ' is turned ' + r1(ang) + ' degrees off the road direction (edge ' + best.id + ')');
+    const lamps = m.children.filter(c => c.material && c.material.emissive && c.material.emissive.getHex() === 0xffe2a0).length;
+    if (!lamps) bad.push(at + ' has no lamps over its board');
+  });
+  if (!n && hw.length) bad.push('no gantries found');
+  return { name: 'signfacing', count: n + ' gantries', bad };
 }
 
 async function checkLamps() {
@@ -770,10 +794,10 @@ async function checkTransit() {
   if (!t2.metro.lines.length) bad.push('a custom metro line did not build');
   return { name: 'transit', count: t.lines.length + ' bus lines, ' + t.stops.length + ' stops, ' + t.metro.lines.map(l => l.stations.length).join('+') + ' metro stations', bad };
 }
-const CHECKS = { transit: checkTransit, rivals: checkRivals, sidewalks: checkSidewalks, gas: checkGas, races: checkRaces, drift: checkDrift, covered: checkCovered,  signs: checkSigns, lamps: checkLamps, buildings: checkBuildings, traffic: () => checkTraffic(+process.argv[3] || 40, +process.argv[4] || 5), markings: checkMarkings, bridges: checkBridges, solid: checkSolid, water: checkWater, rules: checkRules, driveways: checkDriveways, smooth: checkSmooth, mesh: checkMesh, pavement: checkPavement, connected: checkConnected, lots: checkLots, doors: checkDoors, pavementgaps: checkPavementGaps, riverbanks: checkRiverBanks, bridgewalls: checkBridgeWalls, obstacles: checkObstacles, lotgeo: checkLotGeo };
+const CHECKS = { transit: checkTransit, rivals: checkRivals, sidewalks: checkSidewalks, gas: checkGas, races: checkRaces, drift: checkDrift, covered: checkCovered,  signs: checkSigns, signfacing: checkSignFacing, lamps: checkLamps, buildings: checkBuildings, traffic: () => checkTraffic(+process.argv[3] || 40, +process.argv[4] || 5), markings: checkMarkings, bridges: checkBridges, solid: checkSolid, water: checkWater, rules: checkRules, driveways: checkDriveways, smooth: checkSmooth, mesh: checkMesh, pavement: checkPavement, connected: checkConnected, lots: checkLots, doors: checkDoors, pavementgaps: checkPavementGaps, riverbanks: checkRiverBanks, bridgewalls: checkBridgeWalls, obstacles: checkObstacles, lotgeo: checkLotGeo };
 // groups: run several related checks at once
 const GROUPS = {
-  placement: ['signs', 'lamps', 'driveways', 'buildings', 'pavement', 'sidewalks', 'pavementgaps', 'lotgeo'],   // nothing stands where it shouldn't
+  placement: ['signs', 'signfacing', 'lamps', 'driveways', 'buildings', 'pavement', 'sidewalks', 'pavementgaps', 'lotgeo'],   // nothing stands where it shouldn't
   roads: ['markings', 'bridges', 'bridgewalls', 'riverbanks', 'water', 'smooth', 'mesh', 'connected', 'rules'],    // road geometry and connections
   quick: ['placement', 'roads', 'gas', 'transit', 'drift', 'covered'],                           // all static checks, seconds
   sim: ['traffic', 'solid', 'obstacles', 'rivals', 'races', 'lots', 'doors'],                                       // simulations, minutes
