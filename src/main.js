@@ -599,15 +599,29 @@ function applySetting(k, v) {
   else if (k === 'shadow') { sun.castShadow = Number(v) !== 0; const n = Number(v) || 1024; if (sun.shadow.mapSize.x !== n) { sun.shadow.mapSize.set(n, n); if (sun.shadow.map) { sun.shadow.map.dispose(); sun.shadow.map = null; } } }
   if (k === 'hour') dayBtn.textContent = env.nightK > 0.5 ? '🌙' : '☀️';
 }
-let paused = false;
+let paused = false, menuOpenNow = false, screenOff = false;
 const menu = createMenu({
   settings,
   limits: { traffic: traffic.maxCount, peds: pedestrians.maxCount },
   onChange: applySetting,
-  onOpenChange: open => { paused = open; },
+  onOpenChange: open => { menuOpenNow = open; paused = menuOpenNow || screenOff; },
   ownedCars: () => world.ownedCars(),
   canOpen: () => !world.modal && !races.menuOpen() && !minimap.isFullOpen() && performance.now() - minimap.escAt() > 80 && performance.now() - world.escAt() > 80
 });
+// Phone locked / app switched / tab hidden: pause the game, silence audio and the radio host; pick up again when the page is visible.
+// (The game never asks the phone to stay awake, so the screen locks on its own timer as usual.)
+function screenState(off) {
+  if (off === screenOff) return;
+  screenOff = off; paused = menuOpenNow || screenOff;
+  try {
+    if (off) { if (audio.ctx && audio.ctx.state === 'running') audio.ctx.suspend(); if (typeof speechSynthesis !== 'undefined') speechSynthesis.cancel(); }
+    else if (audio.ctx && audio.ctx.state === 'suspended') audio.ctx.resume();
+  } catch (e) { /* ignore */ }
+}
+document.addEventListener('visibilitychange', () => screenState(document.hidden));
+window.addEventListener('pagehide', () => screenState(true));
+window.addEventListener('pageshow', () => screenState(document.hidden));
+
 
 // quick day/night toggle (button or N): sweeps between noon and night
 const dayBtn = document.getElementById('daynight');
