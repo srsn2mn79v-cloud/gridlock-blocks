@@ -267,7 +267,10 @@ export function computeVerticalCurve(nodeId, nodes, edgesByNode) {
   const g1 = ((n.elevation || 0) - (o1.elevation || 0)) / d1; // grade arriving at n from o1
   const g2 = ((o2.elevation || 0) - (n.elevation || 0)) / d2; // grade leaving n toward o2
   const Adiff = g2 - g1;
-  if (Math.abs(Adiff) < 0.001) return null; // no meaningful grade break
+  // No grade break AND level: nothing to do. No grade break but on a slope: still return a (degenerate, straight) curve, so that
+  // curveElevationAt() carries the slope through a rounded corner; without it a corner on a steady slope came out level, and a
+  // sloped bend (a cloverleaf loop) turned into a staircase of level corners joined by short steep pieces.
+  if (Math.abs(Adiff) < 0.001 && Math.abs(g1) < 0.001 && Math.abs(g2) < 0.001) return null;
 
   const type = connected[0].type;
   const Lvc = Math.max(4, Math.min((vcK[type] || 5) * Math.abs(Adiff) * 100, 0.9 * Math.min(d1, d2)));

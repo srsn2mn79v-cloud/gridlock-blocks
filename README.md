@@ -4,6 +4,18 @@ This is the real Vite + Three.js project version of the game, built from the sam
 road/parcel/prop/gameplay schema the Gridlock City Editor exports. It's organized into
 modules instead of one HTML file, so it's the base to keep building on.
 
+## Two cities and the interstate between them
+
+The game has two cities, Chicago and San Francisco (pick one in the menu). Each has a road out of town, Interstate 80:
+in Chicago it leaves over a full cloverleaf on the city interstate and sweeps south-west across open country; in San Francisco it
+runs north from the top of the Marin loop, beyond the Golden Gate. Each ends in a tunnel. Drive into the tunnel and you come out of
+the other city's tunnel, at the same speed and time of day, with the same radio station on. About 9.5 km of open road in all.
+
+For the drive: **C** is cruise control, the **Cruise** camera (V) sits low behind the car, and **Night Cruise FM** is on the radio (R).
+
+Only one city is loaded at a time, so the tunnel is where the game swaps cities (it restarts in the other city behind an animated
+tunnel). See RULES.md, "Cities, the interstate between them and travel", for how it is built and how to add a city.
+
 ## Running it
 
 ```

@@ -100,10 +100,11 @@ export function buildCuts(city, heightAt) {
 }
 
 // A big ground plane with rectangular holes punched out (x/z world coords).
+// size: the side of a square centred on the origin, or [x0, z0, x1, z1] (world) for any rectangle
 export function groundGeometry(size, holes) {
-  const h = size / 2;
+  const h = size / 2, R = Array.isArray(size) ? size : [-h, -h, h, h];
   const shape = new THREE.Shape();
-  shape.moveTo(-h, -h); shape.lineTo(h, -h); shape.lineTo(h, h); shape.lineTo(-h, h); shape.closePath();
+  shape.moveTo(R[0], -R[3]); shape.lineTo(R[2], -R[3]); shape.lineTo(R[2], -R[1]); shape.lineTo(R[0], -R[1]); shape.closePath();
   holes.forEach(r => {
     // rotation.x = -PI/2 maps shape y -> world -z
     const p = new THREE.Path();

@@ -17,7 +17,11 @@ const SYNTH = [
     greet: ['Easy does it.', 'Take your time out there.', 'Nowhere to be, nothing to prove.', 'Low Key, keeping it mellow.', 'Hello again, lovely drivers.', 'Stay safe out there, okay?', 'So good to see you on the road tonight.', 'Keep it gentle on the pedals.', 'Windows down if you like.'],
     quips: ['Breathe in, breathe out, indicate.', 'Drive as if the road were made of glass, and the glass were made of something very soft.', 'The best parking spot is the one you do not have to fight for.', 'Sip your coffee, watch the lights go by.',
       'If the person in front of you is slow, they are probably enjoying the song too.', 'Keep a little space between you and the car ahead. Space is a kindness.', 'There is no rush hour in this studio.', 'Remember to look up once in a while. The sky is free.',
-      'Whatever today was, the road is quiet now.'] } }
+      'Whatever today was, the road is quiet now.'] } },
+  { id: 'cruise', name: 'Night Cruise FM', synth: 'cruise', tag: 'long roads, low lights', dj: { name: 'Cass', pitch: 0.82, rate: 0.9,
+    greet: ['Night Cruise FM.', 'Still with you out on the interstate.', 'Lean back. We have got a long way to go.', 'This is Cass, riding along.', 'Nothing but road ahead.', 'Set the cruise and stay a while.'],
+    quips: ['Count the lamps if you like. I lost track around four hundred.', 'Somewhere up ahead there is a tunnel, and a different city on the other side of it.', 'Tail lights ahead, headlights behind, and you in the middle of it.',
+      'If you see a rest stop, wave at it for me.', 'Keep it steady. The road is doing most of the work tonight.', 'Next exit: wherever you like.'] } }
 ];
 const PERSONAS = [{ pitch: 1.0, rate: 1.0 }, { pitch: 0.85, rate: 0.98 }, { pitch: 1.2, rate: 1.05 }, { pitch: 0.95, rate: 0.92 }];
 
@@ -68,6 +72,13 @@ export function createRadio({ audio, weather, settings, onChange }) {
       { name: 'Varrock After Dark', bpm: 112, chords: [[50, 'm'], [55, 'M'], [48, 'M'], [50, 'm']], swing: 0, lead: { v: 'flute', scale: [0, 2, 3, 5, 7, 9, 10], dens: 0.38, oct: 24 } },       // D dorian: the old tavern-and-castle sound over a drum machine
       { name: 'Wilderness Overdrive', bpm: 132, chords: [[45, 'm'], [41, 'M'], [43, 'M'], [45, 'm']], swing: 0, lead: { v: 'synth', scale: [0, 1, 3, 5, 7, 8, 10], dens: 0.55, oct: 24 } }
     ],
+    cruise: [       // slow synthwave for the interstate: a soft four-on-the-floor, a steady bass and wide slow pads
+      { name: 'Mile Marker 80', bpm: 88, chords: [[45, 'm7'], [41, 'M7'], [48, 'M7'], [43, 'M']], swing: 0, lead: { v: 'synth', scale: [0, 3, 5, 7, 10], dens: 0.14, oct: 24 } },
+      { name: 'Sodium Lights', bpm: 84, chords: [[50, 'm7'], [46, 'M7'], [41, 'M7'], [48, 'M']], swing: 0, lead: { v: 'epiano', scale: [0, 2, 3, 7, 10], dens: 0.16, oct: 24 } },
+      { name: 'Tail Lights West', bpm: 92, chords: [[52, 'm7'], [48, 'M7'], [43, 'M'], [50, 'M']], swing: 0, lead: { v: 'synth', scale: [0, 2, 4, 7, 9], dens: 0.12, oct: 24 } },
+      { name: 'Tunnel Under the Hills', bpm: 80, chords: [[47, 'm7'], [43, 'M7'], [50, 'M'], [45, 'M']], swing: 0, lead: { v: 'flute', scale: [0, 3, 5, 7, 10], dens: 0.13, oct: 24 } },
+      { name: 'Last Exit Before Dawn', bpm: 86, chords: [[48, 'M7'], [45, 'm7'], [41, 'M7'], [43, 'M']], swing: 0, lead: { v: 'epiano', scale: [0, 2, 4, 7, 9], dens: 0.15, oct: 24 } }
+    ],
     lowkey: [
       { name: 'Soft Lights', bpm: 78, chords: [[53, 'M7'], [52, 'm7'], [50, 'm9'], [48, 'M7']], swing: 0.12, lead: { v: 'epiano', scale: [0, 2, 4, 7, 9], dens: 0.16, oct: 24 } },
       { name: 'Lamplit Lullaby', bpm: 70, chords: [[48, 'M7'], [45, 'm7'], [50, 'm7'], [55, 'M7']], swing: 0.1, lead: { v: 'lute', scale: [0, 2, 4, 7, 9], dens: 0.3, oct: 24 } },       // pentatonic lute, a nod to a village green
@@ -117,6 +128,17 @@ export function createRadio({ audio, weather, settings, onChange }) {
           const pf = lpf(1600 + 1400 * Math.abs(Math.sin(step * 0.03)));
           const o = osc('sawtooth', midi(root + 12 + ni), tt, sixteenth * 1.4, 0.07, 0.003, out, pf); const pg = ctx.createGain(); pg.gain.value = 0.3; o.connect(pg); pg.connect(delay);
           if (s16 === 0) notes.forEach(n => { osc('triangle', midi(root + 12 + n), tt, sixteenth * 15, 0.06, 0.5); osc('sine', midi(root + n), tt, sixteenth * 15, 0.05, 0.4); });
+        } else if (kind === 'cruise') {
+          if (s16 % 4 === 0) kick(tt, 0.6);
+          if (s16 === 4 || s16 === 12) { nz(tt, 0.34, 0.2, 'bandpass', 1500, 0.5); osc('triangle', 180, tt, 0.12, 0.1); }      // a long gated snare
+          if (s16 % 4 === 2) nz(tt, 0.05, 0.06, 'highpass', 8000);
+          if (s16 % 2 === 0) osc('sawtooth', midi(root - 12), tt, sixteenth * 1.7, 0.2, 0.006, out, lpf(360 + 160 * Math.sin(step * 0.02)));   // the steady eighth-note bass
+          if (s16 === 0) notes.forEach((n, i) => {                                                                              // wide pads, a slow filter opening and closing
+            const pf = lpf(700 + 900 * Math.abs(Math.sin(step * 0.012)));
+            const o = osc('sawtooth', midi(root + 12 + n) * (1 + (i - 1) * 0.003), tt, sixteenth * 15.5, 0.035, 0.7, out, pf); osc('triangle', midi(root + n), tt, sixteenth * 15.5, 0.05, 0.6);
+            const pg = ctx.createGain(); pg.gain.value = 0.3; o.connect(pg); pg.connect(delay);
+          });
+          if (s16 === 6 || s16 === 14) { const o = osc('sine', midi(root + 24 + notes[(step >> 3) % notes.length]), tt, sixteenth * 3, 0.03, 0.01); const pg = ctx.createGain(); pg.gain.value = 0.5; o.connect(pg); pg.connect(delay); }   // a far-off bell
         } else {
           if (s16 === 0 || s16 === 10) kick(tt, 0.55);
           if (s16 === 4 || s16 === 12) { nz(tt, 0.2, 0.18, 'bandpass', 1400, 0.6); osc('triangle', 170, tt, 0.12, 0.12); }
@@ -244,6 +266,8 @@ export function createRadio({ audio, weather, settings, onChange }) {
         audio.radioFilter.frequency.setTargetAtTime(st.place === 'flat' ? 1400 : st.onFoot && (st.dFoot || 0) > 6 ? 2400 : 18000, ctx.currentTime, 0.3);
       }
     },
-    next, tune, off: () => tune(-1), get names() { return stations.map(s => s.name); }
+    next, tune, off: () => tune(-1), get names() { return stations.map(s => s.name); },
+    // by id (travel.js restores the station on the far side of the tunnel); false if there is no such station (yet)
+    tuneId(id) { const i = stations.findIndex(s => s.id === id); if (i < 0) return false; if (i !== idx) audio.whenReady(() => tune(i)); return true; }
   };
 }

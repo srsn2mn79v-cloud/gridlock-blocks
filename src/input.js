@@ -2,6 +2,7 @@ export function createInput() {
   const state = {
     forward: false, back: false, left: false, right: false, brake: false, boost: false,
     steerAxis: null, throttle: 1,   // analog (touch): steerAxis -1..1 (+ = left), throttle 0..1
+    cruise: 0,                      // cruise control's gas, 0..1 (cruise.js); only used while `forward` is off
     lightsOn: false, blinkerLeft: false, blinkerRight: false, runLock: false,
     // on foot: analog move (x + = right, y + = forward) and look (x + = right, y + = up) vectors, fed by WASD / arrow keys,
     // the two touch thumbsticks and a gamepad's sticks. `swapSticks` puts the camera stick on the left instead.

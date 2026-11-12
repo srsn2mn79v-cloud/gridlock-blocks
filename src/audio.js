@@ -221,7 +221,7 @@ export function createAudio({ camera }) {
     const kind = ENGINE_FOR[car.styleKey] || 'i4', E0 = ENGINES[kind];
     setPlayer(kind);
     const speed = Math.abs(car.speed || 0), vmax = Math.max(10, car.maxSpeed || 30);
-    const thr = onFoot ? 0 : (input.forward ? 1 : (input.back && car.speed <= 0.3 ? 0.6 : 0)) * (input.throttle == null ? 1 : Math.max(0.3, input.throttle));
+    const thr = onFoot ? 0 : (!input.forward && input.cruise > 0) ? Math.max(0.3, input.cruise) : (input.forward ? 1 : (input.back && car.speed <= 0.3 ? 0.6 : 0)) * (input.throttle == null ? 1 : Math.max(0.3, input.throttle));
     // a burnout: throttle held against the brakes / handbrake (or a standing start with the pedal floored) - the engine screams on the limiter
     const burnout = !onFoot && !car.airborne && thr > 0.7 && ((input.brake || input.handbrake) && speed < 16 || (speed < 2.5 && thr > 0.95 && car.speed >= 0 && !input.back));
     let r = E0.idle + (E0.red - E0.idle) * Math.max(0, (S.rev ? S.rev.r : 0.14) - 0.14) / 0.86;

@@ -55,7 +55,29 @@
       box-shadow: 0 0 20px rgba(220,30,30,0.7);
       pointer-events: none;
     }
+    /* The tunnel between two cities (travel.js): drawn over everything while one city is swapped for the other. All of it moves by CSS
+       transform/opacity animation, which the browser runs off the main thread, so it keeps moving while the next city is being built. */
+    #tunnel { position: fixed; inset: 0; z-index: 60; display: none; overflow: hidden; pointer-events: none;
+      background: radial-gradient(ellipse at 50% 46%, #1a120b 0%, #07080a 46%, #020203 100%); }
+    html.travel #tunnel { display: block; animation: tunIn .75s ease-out both; }
+    html.travel-out #tunnel { animation: tunOut 1.3s ease-in both; }
+    html.travel #loading { display: none; }
+    #tunnel i { position: absolute; left: 50%; top: 46%; width: 150vmax; height: 84vmax; margin: -42vmax 0 0 -75vmax;
+      border-radius: 46% 46% 4% 4% / 70% 70% 4% 4%; opacity: 0; will-change: transform, opacity;
+      box-shadow: inset 0 1.1vmax 0 -0.2vmax rgba(255, 170, 80, .85), inset 0 0 0 .35vmax rgba(120, 90, 60, .35), inset 0 3vmax 6vmax rgba(255, 140, 50, .22);
+      animation: tunRib 1.5s cubic-bezier(.6, .02, .95, .45) infinite; }
+    #tunnel i:nth-child(2) { animation-delay: -.1875s; } #tunnel i:nth-child(3) { animation-delay: -.375s; } #tunnel i:nth-child(4) { animation-delay: -.5625s; }
+    #tunnel i:nth-child(5) { animation-delay: -.75s; } #tunnel i:nth-child(6) { animation-delay: -.9375s; } #tunnel i:nth-child(7) { animation-delay: -1.125s; } #tunnel i:nth-child(8) { animation-delay: -1.3125s; }
+    #tunnel b { position: absolute; left: 50%; top: 46%; width: .6vmax; height: 60vmax; margin-left: -.3vmax; opacity: 0; transform-origin: 50% 0;
+      background: linear-gradient(rgba(255,255,255,0), rgba(235,235,225,.5)); animation: tunLine .5s linear infinite; }
+    #tunnelText { position: absolute; left: 0; right: 0; bottom: max(26px, env(safe-area-inset-bottom)); text-align: center; color: #ffc27a;
+      font: 700 13px ui-monospace, monospace; letter-spacing: .32em; text-transform: uppercase; text-shadow: 0 0 12px rgba(255, 150, 60, .7); }
+    @keyframes tunIn { from { opacity: 0; } to { opacity: 1; } }
+    @keyframes tunOut { from { opacity: 1; } to { opacity: 0; } }
+    @keyframes tunRib { 0% { transform: scale(.02); opacity: 0; } 12% { opacity: .95; } 100% { transform: scale(1.5); opacity: .25; } }
+    @keyframes tunLine { 0% { transform: translateY(1vmax) scaleY(.05); opacity: 0; } 30% { opacity: .7; } 100% { transform: translateY(26vmax) scaleY(1); opacity: 0; } }
   </style>
+  <script>try { if (sessionStorage.getItem('gridlock-travel')) document.documentElement.classList.add('travel'); } catch (e) {}</script>
   <link rel="manifest" href="manifest.webmanifest">
   <link rel="apple-touch-icon" href="icon-180.png">
   <meta name="theme-color" content="#1e222c">
@@ -64,11 +86,12 @@
 </head>
 <body>
   <div id="hud">Speed <span id="speed">0</span><br>
-    <small>WASD/arrows drive &middot; Space/Down brake &middot; L lights &middot; O/P indicators &middot; N day/night &middot; M city map &middot; Esc menu</small>
+    <small>WASD/arrows drive &middot; Space/Down brake &middot; L lights &middot; O/P indicators &middot; N day/night &middot; C cruise &middot; M city map &middot; Esc menu</small>
   </div>
   <div id="fps" style="position:fixed;top:8px;left:50%;transform:translateX(-50%);font:12px monospace;color:#fff;background:rgba(0,0,0,.45);padding:2px 8px;border-radius:6px;z-index:5;pointer-events:none"></div>
   <button id="daynight" tabindex="-1" aria-label="Toggle day and night">🌙</button>
   <div id="loading"><h1>GRIDLOCK BLOCKS</h1><div id="loadingTrack"><div id="loadingBar"></div><div id="loadingShine"></div></div><div id="loadingInfo"><span id="loadingLabel">Starting...</span><span id="loadingPct">0%</span></div></div>
+  <div id="tunnel" aria-hidden="true"><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><b></b><div id="tunnelText">Interstate 80</div></div>
   <div id="splash"></div>
   <div id="wrongway">WRONG WAY</div>
   <script type="module" src="/src/main.js"></script>

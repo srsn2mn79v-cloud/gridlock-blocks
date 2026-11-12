@@ -17,7 +17,7 @@ import { createRaces } from './races.js';
 import { createFuel } from './fuel.js';
 import { createHarbour } from './harbour.js';
 import { createHail } from './hail.js';
-import { districtAt, fromWorld } from './chicago/map.js';
+import { districtAt, fromWorld, MAP } from './chicago/map.js';
 import { Car } from './car.js';
 import { createInput } from './input.js';
 import { updateFollowCamera, createCameraRig, CAM_MODES } from './camera.js';
@@ -52,7 +52,9 @@ import { createAudio } from './audio.js';
 import { createDrawbridge } from './drawbridge.js';
 import { createBoats } from './boats.js';
 import { createGoldenGate } from './goldengate.js';
-import { createPortal } from './portal.js';
+import { createInterstate } from './interstate.js';
+import { createCruise } from './cruise.js';
+import { beginTravel, takeArrival, endTravel } from './travel.js';
 import { createPort } from './port.js';
 import { createAirport } from './airport.js';
 import { createDrivetrain } from './drivetrain.js';
@@ -346,12 +348,15 @@ const destruction = createDestruction(scene);
 const riverbanks = buildRiverBanks(city);
 scene.add(riverbanks.group);
 riverbanks.holes.forEach(poly => cuts.holes.push({ poly }));        // the ground is cut open where the rivers run
+// The ground covers the old 2600 u square and whatever the city has grown beyond it (the road out of town), but stops short of
+// x = 3900 / -5900: the garages, flats and the drift arena are built out there (estate.js, driftTrack.js).
+const GROUND = [Math.max(-5900, Math.min(-1300, city.bounds[0] - 400)), Math.min(-1300, city.bounds[1] - 400), Math.min(3900, Math.max(1300, city.bounds[2] + 400)), Math.max(1300, city.bounds[3] + 400)];
 const ground = new THREE.Mesh(
-  groundGeometry(2600, cuts.holes),
+  groundGeometry(GROUND, cuts.holes),
   new THREE.MeshStandardMaterial({ color: 0x575c61, roughness: 0.95 })
 );
 const baseHoles = cuts.holes.slice();
-const setGarageHoles = polys => { ground.geometry.dispose(); ground.geometry = groundGeometry(2600, baseHoles.concat(polys.map(poly => ({ poly })))); };   // an owned apartment's garage ramp is cut into the ground
+const setGarageHoles = polys => { ground.geometry.dispose(); ground.geometry = groundGeometry(GROUND, baseHoles.concat(polys.map(poly => ({ poly })))); };   // an owned apartment's garage ramp is cut into the ground
 ground.rotation.x = -Math.PI / 2;
 ground.receiveShadow = true;
 scene.add(ground);
@@ -736,7 +741,13 @@ const boats = createBoats({ city, scene, drawbridge });
 const goldenGate = createGoldenGate({ city, scene });
 const port = createPort({ city, scene, collisionWorld });
 const airport = createAirport({ city, scene, car, toast: msg => world.toast(msg), collisionWorld });
-const portal = createPortal({ city, scene, car, toast: msg => world.toast(msg) });
+// cruise control (C), and the road out of town: its tunnel takes the player to the next city (interstate.js, travel.js)
+const cruise = createCruise({ car, input, world, toast: msg => world.toast(msg), kmh: u => u * KMH_PER_U });
+const interstate = createInterstate({ city, scene, car, heightAt, onEnter: io => {
+  beginTravel(io.to, { speed: Math.max(14, Math.abs(car.speed)), hour: settings.hour, cruise: cruise.on ? cruise.target : 0, radio: radio.station ? radio.station.id : null, lights: !!input.lightsOn },
+    io.name + '  \u00b7  ' + io.sign);
+} });
+collisionWorld.push(...interstate.colliders);
 const radio = createRadio({ audio, weather, settings });
 const unlockAudio = () => audio.unlock();
 ['pointerdown', 'keydown', 'touchstart'].forEach(ev => addEventListener(ev, unlockAudio, { passive: true }));
@@ -795,7 +806,7 @@ function districtFrame(dt) {
   if (d) { distEl.style.color = d.color; distEl.innerHTML = d.name + '<div style="font:600 11px system-ui;letter-spacing:.12em;opacity:.85">' + d.blurb + '</div>'; distEl.style.opacity = '1'; distHide = 3.5; }
 }
 function audioFrame(dt) {
-  const thr = (input.forward ? 1 : 0) * (input.throttle == null ? 1 : Math.max(0.3, input.throttle));
+  const thr = (!input.forward && input.cruise > 0) ? Math.max(0.3, input.cruise) : (input.forward ? 1 : 0) * (input.throttle == null ? 1 : Math.max(0.3, input.throttle));
   const rev = drive.update(dt, car, world.onFoot ? 0 : thr, world.onFoot);
   lastRev = rev; car.accelMul = rev.manual ? rev.accelMul : 1;
   dashFrame(dt, rev);
@@ -835,9 +846,11 @@ let fpsFrames = 0, fpsT = 0, plowT = 0, audioT = 0;
 const audioCtx = { density: 0, crowd: 0, sirens: [] };
 let perfAcc = 0, perfN = 0, perfBloomOff = false;
 function animate() {
+  if (arrivalFrames < 4 && ++arrivalFrames === 4) endTravel();
   const rawDt = clock.getDelta();
   input.poll(world.onFoot);
   const dt = Math.min(0.1, rawDt);   // slow frames no longer run the game in slow motion
+  cruise.update(dt);
   fpsFrames++; fpsT += rawDt;
   // auto resolution: if the game runs below ~28 FPS for 3 s the render resolution steps down (to 50 %), then shadows go off - so a weak GPU
   // still gets a playable game. Settings -> Graphics -> "Auto-lower quality" turns it off.
@@ -930,7 +943,7 @@ function animate() {
     drawbridge.update(dt, camera);
     boats.update(dt, world.focus());
     goldenGate.update(dt, nightK);
-    portal.update();
+    interstate.update();
     port.update(dt, nightK);
     airport.update(dt, nightK);
     traffic.setGrip(env.grip);
@@ -996,6 +1009,22 @@ function animate() {
   renderFrame();
   requestAnimationFrame(animate);
 }
-window.__game = { airport, port, goldenGate, shopLots, drawbridge, boats, hail, camRig, interior, fuel, radio, weather, plowFx, puffs, gfx, transit, parkedCars, skids, audio, races, structures, world, renderer, taxi, input, destruction, collisionWorld, lampDefs, signs, propInstances, env, settings, menu, minimap, scene, camera, car, city, traffic, pedestrians, lampPool, reflectors, heightAt, offences: { get wrongWay() { return wrongWayOffences; } } };
+window.__game = { interstate, cruise, airport, port, goldenGate, shopLots, drawbridge, boats, hail, camRig, interior, fuel, radio, weather, plowFx, puffs, gfx, transit, parkedCars, skids, audio, races, structures, world, renderer, taxi, input, destruction, collisionWorld, lampDefs, signs, propInstances, env, settings, menu, minimap, scene, camera, car, city, traffic, pedestrians, lampPool, reflectors, heightAt, offences: { get wrongWay() { return wrongWayOffences; } } };
+// Arriving through the tunnel from another city (travel.js): come out of the inbound tube at the speed, time of day and radio station
+// the player went in with, then lift the tunnel off the screen once a few frames of the new city have been drawn.
+{
+  const arrival = takeArrival(MAP.city || 'chicago');
+  if (arrival && interstate.info) {
+    const p = interstate.arrive(), v = Math.min(arrival.speed || 20, car.maxSpeed || 40), sn = Math.sin(p.heading), cs = Math.cos(p.heading);
+    car.teleport(p.x, p.z, 0, p.heading); car.speed = v; car.vx = sn * v; car.vz = cs * v;
+    camera.position.set(p.x - sn * 9, 4, p.z - cs * 9);
+    if (arrival.hour != null) { settings.hour = arrival.hour; applySetting('hour', arrival.hour); }
+    if (arrival.lights) input.lightsOn = true;
+    if (arrival.cruise) cruise.resume(arrival.cruise);
+    audio.unlock();
+    if (arrival.radio) { const tryTune = n => { if (!radio.tuneId(arrival.radio) && n > 0) setTimeout(() => tryTune(n - 1), 700); }; tryTune(6); }
+  }
+}
 loadingDone();
+let arrivalFrames = 0;
 animate();

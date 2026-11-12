@@ -39,9 +39,9 @@ export function updateFollowCamera(camera, car, offset, dt, blocked) {
 }
 
 // ---- camera views: chase (tunable distance/height), front bumper, top-down, inside the car ----------------------------------------
-export const CAM_MODES = [['chase', 'Chase'], ['bumper', 'Bumper'], ['top', 'Top'], ['inside', 'Inside']];
+export const CAM_MODES = [['chase', 'Chase'], ['cruise', 'Cruise'], ['bumper', 'Bumper'], ['top', 'Top'], ['inside', 'Inside']];
 export function createCameraRig({ camera, car, getOffset, interior, onMode, getInside = () => ({ back: 0.5, up: 0.08 }) }) {
-  let mode = 'chase', prev = 'chase';
+  let mode = 'chase', prev = 'chase', cruiseT = 0;
   const eye = new THREE.Vector3(), look = new THREE.Vector3();
   const rig = {
     get mode() { return mode; },
@@ -58,6 +58,17 @@ export function createCameraRig({ camera, car, getOffset, interior, onMode, getI
       if (mode === 'chase') { updateFollowCamera(camera, car, getOffset(), dt, blocked); return; }
       const sin = Math.sin(car.heading), cos = Math.cos(car.heading), roll = (car.roll || 0) * 0.5, pitch = (car.pitch || 0);
       const off = getOffset();
+      if (mode === 'cruise') {
+        // the highway camera: low behind the car, drifting slowly from one rear quarter to the other and looking well up the road,
+        // so the lamps, the lane lines and the tail lights ahead fill the picture
+        cruiseT += dt;
+        const sway = Math.sin(cruiseT * 0.26) * 2.6, back = 7.2 + Math.cos(cruiseT * 0.17) * 1.2, up = 1.25 + 0.35 * Math.sin(cruiseT * 0.21 + 1);
+        eye.set(car.x - sin * back + cos * sway, car.y + up, car.z - cos * back - sin * sway);
+        camera.position.lerp(eye, 1 - Math.pow(0.002, dt));
+        camera.up.set(Math.sin(roll * 0.5), Math.cos(roll * 0.5), 0);
+        camera.lookAt(car.x + sin * 14, car.y + 1.5, car.z + cos * 14);
+        return;
+      }
       if (mode === 'top') {
         const H = Math.max(14, off.y * 3.8);
         eye.set(car.x - sin * 2.5, car.y + H, car.z - cos * 2.5);

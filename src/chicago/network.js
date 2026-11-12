@@ -29,7 +29,7 @@ export function buildNetwork(lines, barriers, opts = {}) {
   const warn = opts.warn || (() => {});
   // ---- 1. bridges: insert deck/approach vertices where a street crosses a barrier ----------------
   lines.forEach(L => {
-    L.v = L.pts.map(p => ({ x: p[0], z: p[1], elev: 0 }));
+    L.v = L.pts.map((p, i) => ({ x: p[0], z: p[1], elev: L.elevs ? (L.elevs[i] || 0) : 0 }));   // elevs: a slip road that comes with its own heights (the cloverleaf's loops)
     if (L.cls === 'ramp') return;
     // arclength of each vertex
     const s = [0]; for (let i = 1; i < L.v.length; i++) s.push(s[i - 1] + dist([L.v[i - 1].x, L.v[i - 1].z], [L.v[i].x, L.v[i].z]));
@@ -55,7 +55,7 @@ export function buildNetwork(lines, barriers, opts = {}) {
     if (!L.drawbridge && !L.lowBridge)
     barriers.forEach(B => {
       if (L.structs && L.structs.length) return;
-      if (B.kind === 'highway' && (L.cls === 'hw' || L.cls === 'hwEnd')) return;
+      if (B.kind === 'highway' && (L.cls === 'hw' || L.cls === 'hwEnd') && !L.crossHW) return;   // crossHW: another interstate that bridges this one (the road out of town)
       if (B.line === L) return;
       if (L.noBridge === B.kind) return;
       for (let i = 1; i < L.v.length; i++) {
@@ -65,7 +65,7 @@ export function buildNetwork(lines, barriers, opts = {}) {
           if (!r) continue;
           const sc = s[i - 1] + (s[i] - s[i - 1]) * r.t;
           if (events.some(e => e.B === B && Math.abs(e.sc - sc) < 30)) continue;
-          events.push({ sc, B, prof: bridgeProfile(L.cls, B) });
+          events.push({ sc, B, prof: (L.crossProf && B.kind === 'highway') ? L.crossProf : bridgeProfile(L.cls, B) });   // crossProf: its own profile, with a level stretch (plat) beyond the deck for slip roads to join on
         }
       }
     });
@@ -82,12 +82,15 @@ export function buildNetwork(lines, barriers, opts = {}) {
       const { d1, d2, h } = ev.prof;
       if (ev.sc - d2 < 4 || ev.sc + d2 > total - 4) { warn('bridge zone leaves the line: ' + L.id + ' (' + ev.B.kind + ')'); L.pendingTrim = L.pendingTrim || []; L.pendingTrim.push(ev); return; }
       cut.push([ev.sc - d2 - 1, ev.sc + d2 + 1]);
-      [[-d2, 0, false], [-d1, h, true], [d1, h, true], [d2, 0, false]].forEach(([o, el, deck]) => {
+      [[-d2, 0, false], [-d1, h, true], [d1, h, true], [d2, 0, false]].concat(ev.prof.plat ? [[-ev.prof.plat, h, false], [ev.prof.plat, h, false]] : []).forEach(([o, el, deck]) => {
         const p = at(ev.sc + o); extra.push({ s: ev.sc + o, x: p.x, z: p.z, elev: el, deck, bridgeId: ev.sc });
       });
     });
+    // keepXZ: vertices a slip road is tied to. Inside a bridge's approach they would be dropped with the rest; they stay, at the height of the slope there.
+    const tied = v => (L.keepXZ || []).some(q => Math.abs(q[0] - v.x) < 0.01 && Math.abs(q[1] - v.z) < 0.01);
+    const slopeAt = sv => { let e = 0; events.forEach(ev => { const { d2, h } = ev.prof, d1 = ev.prof.plat || ev.prof.d1, d = Math.abs(sv - ev.sc); if (d < d2) e = d <= d1 ? h : h * (1 - (d - d1) / (d2 - d1)); }); return e; };
     const keep = L.v.map((v, i) => ({ s: s[i], x: v.x, z: v.z, elev: 0, deck: false })).filter((v, i, arr) =>
-      i === 0 || i === arr.length - 1 || !cut.some(([a, b]) => v.s > a && v.s < b));
+      i === 0 || i === arr.length - 1 || !cut.some(([a, b]) => v.s > a && v.s < b) || (tied(v) && ((v.elev = slopeAt(v.s)), true)));
     L.v = keep.concat(extra).sort((a, b) => a.s - b.s);
   });
 
@@ -108,7 +111,7 @@ export function buildNetwork(lines, barriers, opts = {}) {
   const segsOf = L => { const r = []; for (let i = 1; i < L.v.length; i++) r.push([i - 1, i]); return r; };
   lines.forEach(L => {
     const isRamp = L.cls === 'ramp';
-    if (L.v.length < 2 || (L.noJoin && !isRamp)) return;
+    if (L.v.length < 2 || (L.noJoin && !isRamp) || L.fixedEnds) return;     // fixedEnds: drawn from vertex to vertex already
     [0, L.v.length - 1].forEach(ei => {
       const E = L.v[ei];
       // a slip road must end ON the carriageway it serves (when the highway vertex it was drawn to was swallowed by a bridge, it would dangle):

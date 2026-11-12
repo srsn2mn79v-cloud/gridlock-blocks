@@ -592,6 +592,23 @@ export function buildChicago() {
     }
     return false;
   }
+  // the road out of town: overhead boards. Outbound they count down to the tunnel and the city beyond it; inbound they welcome you to this one.
+  if (R.OUT) {
+    const O = R.OUT, here = MAP.city === 'sf' ? 'SAN FRANCISCO' : 'CHICAGO', shield = (O.name.match(/\d+/) || [''])[0];
+    const km = u => { const k = u * 1.25 / 1000; return k < 0.95 ? Math.round(k * 10) * 100 + ' m' : (Math.round(k * 2) / 2) + ' km'; };
+    const board = (sv, f, dest) => { const h = atLen(O.pts, sv); hwSigns.push({ x: r2(h.x + (-h.dz) * f * O.off), z: r2(h.z + h.dx * f * O.off), d: { x: r2(f * h.dx * 1000) / 1000, z: r2(f * h.dz * 1000) / 1000 }, dest }); };
+    const S0 = O.start, slot = sv => S0 + 46 * Math.round((sv - S0) / 46) + 23;                 // half way between two median lamps
+    [0.04, 0.4, 0.72].forEach(k => { const sv = slot(S0 + (O.total - S0) * k); board(sv, 1, { title: O.sign, sub: O.name + '   ' + km(O.total - sv), shield }); });
+    board(slot(O.total - 210), 1, { title: O.sign, sub: 'Tunnel   ' + km(210), shield });
+    board(slot(O.total - 330), -1, { title: here, sub: O.name + '   ' + km(O.total - 330), shield });
+    board(slot(S0 + (O.total - S0) * 0.45), -1, { title: here, sub: 'City centre   ' + km(O.total * 0.45), shield });
+    board(slot(S0 + 120), -1, { title: here, sub: 'Welcome', shield });
+  }
+  // the road out of town: tall twin-headed sodium lamps down the median, one every ~58 m, all the way to the tunnel
+  if (R.OUT) for (let sv = R.OUT.start; sv < R.OUT.total - 14; sv += 46) {
+    const p = atLen(R.OUT.pts, sv);
+    lampList.push({ type: 'light', twin: true, x: r2(p.x), z: r2(p.z), rotation: Math.round(Math.atan2(-p.dz, p.dx) * 180 / Math.PI) });
+  }
   props.push(...lampList);
 
   // signal poles were placed before the buildings existed: nudge any that ended up in the road or a
@@ -836,9 +853,31 @@ export function buildChicago() {
     if (q.type === 'light' && !q.twin && roadClear(q.x, q.z, true, true) > 4.2 && !parkAt(q.x, q.z)) props.splice(i, 1);
     else if (['oak', 'bush', 'birch', 'pine', 'tree', 'shopsign'].includes(q.type) && (parcelsHit(q.x, q.z, 0.3) || inWater(q.x, q.z, 0.5))) props.splice(i, 1);
   }
+  // the road out of town runs through open country: loose stands of trees and scrub along both verges (thicker here and there, with gaps),
+  // and an advertising board every so often, so there is something for the lamps and the headlights to pick out
+  if (R.OUT) {
+    const O = R.OUT, edge = O.off + 6.7, rnd = rng(8080);
+    for (let sv = O.start - 60; sv < O.total - 30; sv += 17) {
+      const h = atLen(O.pts, sv), dense = 0.35 + 0.45 * (0.5 + 0.5 * Math.sin(sv * 0.011 + 1.7) * Math.sin(sv * 0.0043));
+      for (const f of [1, -1]) {
+        if (rnd() > dense) continue;
+        const lat = edge + 7 + rnd() * rnd() * 46, along = (rnd() - 0.5) * 14;
+        const x = h.x + h.dx * along + (-h.dz) * f * lat, z = h.z + h.dz * along + h.dx * f * lat;
+        if (roadClear(x, z) < 5 || inWater(x, z, 4) || parcelsHit(x, z, 2)) continue;
+        const k = rnd();
+        props.push({ type: k < 0.22 ? 'bush' : k < 0.62 ? 'oak' : 'tree', x: r2(x), z: r2(z), rotation: Math.floor(rnd() * 360) });
+      }
+    }
+    for (let sv = O.start + 180, n = 0; sv < O.total - 260; sv += 430 + Math.floor(rnd() * 160), n++) {
+      const f = n % 2 ? 1 : -1, h = atLen(O.pts, sv), x = h.x + (-h.dz) * f * (edge + 19), z = h.z + h.dx * f * (edge + 19);
+      if (roadClear(x, z) < 9 || inWater(x, z, 5) || billboards.some(q => Math.hypot(q.x - x, q.z - z) < 150)) continue;
+      billboards.push({ x: r2(x), z: r2(z), face: Math.atan2(f * h.dx, f * h.dz), ad: n % 8 });
+    }
+  }
   const districts = DISTRICTS.map(d => { const poly = d.poly.map(([X, Y]) => T(X, Y).map(r2)); return { name: d.name, color: d.color || '#9aa7b8', blurb: d.blurb || '', poly, cx: r2(poly.reduce((a, p) => a + p[0], 0) / poly.length), cz: r2(poly.reduce((a, p) => a + p[1], 0) / poly.length) }; }).filter(d => d.color !== '#9aa7b8' || true);
   const rivers = RIVERS.map(r => ({ id: r.id, half: r.half, pts: r.pts.map(p => [r2(p[0]), r2(p[1])]) }));
   const city = { rivers, districts, roadNodes: nodes, roadEdges: edges, parcels, props, signals, gameplay, shops, stations, billboards, gasStations, driveways, harbour, apartments, agents, stores, warnings, hwSigns, hwLine: R.H.map(p => [r2(p[0]), r2(p[1])]),
+    interstate: R.OUT ? { ...R.OUT, pts: R.OUT.pts.map(p => [r2(p[0]), r2(p[1])]) } : null,
     bounds: (() => { let x0 = 1e9, x1 = -1e9, z0 = 1e9, z1 = -1e9; Object.values(nodes).forEach(n => { x0 = Math.min(x0, n.x); x1 = Math.max(x1, n.x); z0 = Math.min(z0, n.z); z1 = Math.max(z1, n.z); }); return [x0 - 90, z0 - 90, x1 + 90, z1 + 90]; })() };
   return city;
 }

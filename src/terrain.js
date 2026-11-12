@@ -162,6 +162,13 @@ export function createGroundSampler(cityData) {
         const px = p0.x + ex * tc, pz = p0.z + ez * tc, d = dist(x, z, px, pz);
         if (!best || d < best.d) best = { d, p0, p1, tc, px, pz };
       }
+      // On the outside of a bend a point can fall in the thin wedge between two pieces of the curve (beyond the end of one, before the
+      // start of the next): it still belongs to the road if it is within reach of the sample itself. On raised roads those wedges were holes.
+      // (Only between two pieces: beyond the first or last sample the straight road takes over.)
+      if (!best && bi > 0 && bi < pts.length - 1) {
+        const d = Math.sqrt(bd);
+        if (d <= corner.halfWidth + 0.15) best = { d, p0: pts[bi], p1: pts[bi + 1], tc: 0, px: pts[bi].x, pz: pts[bi].z };
+      }
       if (!best || best.d > corner.halfWidth + 0.15) continue;
       const { p0, p1, tc } = best;
       const yc = p0.y + (p1.y - p0.y) * tc, bank = p0.bank + (p1.bank - p0.bank) * tc;

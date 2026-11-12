@@ -163,9 +163,10 @@ export class Car {
     this._backHeld = pedal;
     if (this.speed < -0.3 && pedal) this._revOK = true;
     const reversing = pedal && this._revOK && this.speed <= 0.3;
-    const accelInput = (input.forward && !this.noFuel) ? 1 : (reversing ? -1 : 0);
+    const cruising = !input.forward && input.cruise > 0 && !pedal && !input.brake;      // cruise control holds the gas (cruise.js)
+    const accelInput = ((input.forward || cruising) && !this.noFuel) ? 1 : (reversing ? -1 : 0);
     const steerInput = (input.steerAxis != null) ? input.steerAxis : (input.left ? 1 : input.right ? -1 : 0);
-    const thr = input.throttle == null ? 1 : input.throttle;   // analog gas (touch slider)
+    const thr = cruising ? input.cruise : (input.throttle == null ? 1 : input.throttle);   // analog gas (touch slider, or cruise control)
     const braking = !!(input.brake || input.handbrake || pedal) && !reversing;
 
     const sinH0 = Math.sin(this.heading), cosH0 = Math.cos(this.heading);

@@ -17,6 +17,7 @@
 //   node tools/check.mjs bridgewalls every raised deck has parapets on both sides
 //   node tools/check.mjs obstacles   knocked AI cars collide with every wall, building, parapet and prop
 //   node tools/check.mjs lotgeo      shop car parks meet a street: lane, stop line and STOP sign on clear ground
+//   node tools/check.mjs outroad    the road out of town joins the city, keeps clear of the pocket worlds, tunnel mouths are open
 //   node tools/check.mjs quick      every static check (seconds)       placement / roads: sub-groups of quick
 //   node tools/check.mjs sim        the simulations (traffic, solid, rivals, races)
 //   node tools/check.mjs all        quick + sim
@@ -807,12 +808,26 @@ async function checkTransit() {
   if (!t2.metro.lines.length) bad.push('a custom metro line did not build');
   return { name: 'transit', count: t.lines.length + ' bus lines, ' + t.stops.length + ' stops, ' + t.metro.lines.map(l => l.stations.length).join('+') + ' metro stations', bad };
 }
-const CHECKS = { transit: checkTransit, rivals: checkRivals, sidewalks: checkSidewalks, gas: checkGas, races: checkRaces, drift: checkDrift, covered: checkCovered,  signs: checkSigns, signfacing: checkSignFacing, lamps: checkLamps, buildings: checkBuildings, traffic: () => checkTraffic(+process.argv[3] || 40, +process.argv[4] || 5), markings: checkMarkings, bridges: checkBridges, solid: checkSolid, water: checkWater, rules: checkRules, driveways: checkDriveways, smooth: checkSmooth, mesh: checkMesh, pavement: checkPavement, connected: checkConnected, lots: checkLots, doors: checkDoors, pavementgaps: checkPavementGaps, riverbanks: checkRiverBanks, bridgewalls: checkBridgeWalls, obstacles: checkObstacles, lotgeo: checkLotGeo };
+// ---- the road out of town (outroads.js): it exists, joins the city, stays clear of the pocket worlds, and both tunnel mouths are open ---------
+async function checkOutroad() {
+  const io = city.interstate, bad = [];
+  if (!io) return { name: 'outroad', count: 'no road out of town in this city', bad };
+  (city.warnings || []).filter(w => /road out of town/.test(w)).forEach(w => bad.push(w));
+  const xs = io.pts.map(p => p[0]);
+  if (Math.max(...xs) > 3700 || Math.min(...xs) < -5500) bad.push('runs into the pocket worlds: keep world x between -5500 and 3700 (now ' + r1(Math.min(...xs)) + ' .. ' + r1(Math.max(...xs)) + ')');
+  if (io.total - io.start < 1500) bad.push('only ' + r1(io.total - io.start) + ' u of open road');
+  const N = city.roadNodes, M = io.mouth, rx = -M.dz, rz = M.dx;
+  // a carriageway vertex right at each mouth, and the hidden loop behind them joins the two (the `connected` check covers the rest)
+  [1, -1].forEach(f => { const x = M.x + rx * io.off * f, z = M.z + rz * io.off * f; if (!Object.values(N).some(n => Math.hypot(n.x - x, n.z - z) < 4)) bad.push('no road at the ' + (f > 0 ? 'outbound' : 'inbound') + ' tunnel mouth'); });
+  const lamps = (city.props || []).filter(p => p.type === 'light' && p.twin).length;
+  return { name: 'outroad', count: r1(io.total * 1.25 / 1000) + ' km to ' + io.to + ', ' + lamps + ' median lamps', bad };
+}
+const CHECKS = { outroad: checkOutroad, transit: checkTransit, rivals: checkRivals, sidewalks: checkSidewalks, gas: checkGas, races: checkRaces, drift: checkDrift, covered: checkCovered,  signs: checkSigns, signfacing: checkSignFacing, lamps: checkLamps, buildings: checkBuildings, traffic: () => checkTraffic(+process.argv[3] || 40, +process.argv[4] || 5), markings: checkMarkings, bridges: checkBridges, solid: checkSolid, water: checkWater, rules: checkRules, driveways: checkDriveways, smooth: checkSmooth, mesh: checkMesh, pavement: checkPavement, connected: checkConnected, lots: checkLots, doors: checkDoors, pavementgaps: checkPavementGaps, riverbanks: checkRiverBanks, bridgewalls: checkBridgeWalls, obstacles: checkObstacles, lotgeo: checkLotGeo };
 // groups: run several related checks at once
 const GROUPS = {
   placement: ['signs', 'signfacing', 'lamps', 'driveways', 'buildings', 'pavement', 'sidewalks', 'pavementgaps', 'lotgeo'],   // nothing stands where it shouldn't
   roads: ['markings', 'bridges', 'bridgewalls', 'riverbanks', 'water', 'smooth', 'mesh', 'connected', 'rules'],    // road geometry and connections
-  quick: ['placement', 'roads', 'gas', 'transit', 'drift', 'covered'],                           // all static checks, seconds
+  quick: ['placement', 'roads', 'gas', 'transit', 'drift', 'covered', 'outroad'],                           // all static checks, seconds
   sim: ['traffic', 'solid', 'obstacles', 'rivals', 'races', 'lots', 'doors'],                                       // simulations, minutes
   all: ['quick', 'sim']
 };

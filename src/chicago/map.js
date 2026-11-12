@@ -4,6 +4,7 @@
 // The exports are live bindings: setMapData() swaps the whole map (the studio does this to preview an edit).
 import DEFAULT_MAP from './mapdata.js';
 import SF_MAP from '../sf/mapdata_sf.js';
+import { OUTROADS } from './outroads.js';
 import { spline, offsetPoly, ribbonPoly, nearestOnPoly, pointInPoly, distToSeg, dist, polyLen, atLen } from './geom.js';
 
 export const S = 2.5;
@@ -16,11 +17,16 @@ export const CUSTOM_KEY = 'gridlock-custom-v1';
 export let MAP = DEFAULT_MAP;
 export let LAKES = [], RIVERS = [], PARKS = [], LANDMARKS = [], DECKS = [], STADIUM = { cx: 0, cy: 0, rx: 1, ry: 1 }, DISTRICTS = [], HIGHWAY_PX = [], STREETS = [], IXS = [];
 export let SPOTS = { shops: [], stations: [], gas: [] };
+export let OUTROAD = null;   // this city's road out of town (outroads.js), or null
 
 export function setMapData(md) {
   MAP = md;
   X0 = md.origin[0]; Y0 = md.origin[1];
-  LAKES = md.lakes ? md.lakes.map(TP) : [TP(md.lake)];
+  // interstate.landfill (map px): water outlines whose middle lies within that distance of the road out of town are left out, so the road
+  // runs on a strip of land (the San Francisco map's bay is a grid of square water tiles; this lifts the tiles the road crosses)
+  const io = OUTROAD = md.interstate || OUTROADS[md.city || 'chicago'] || null, fill = io && io.landfill, mid = l => [l.reduce((t, p) => t + p[0], 0) / l.length, l.reduce((t, p) => t + p[1], 0) / l.length];
+  const dry = l => { if (!fill) return false; const c = mid(l); return nearestOnPoly(c[0], c[1], io.pts).d < fill; };
+  LAKES = (md.lakes ? md.lakes : [md.lake]).filter(l => !dry(l)).map(TP);
   RIVERS = md.rivers.map(r => ({ id: r.id, half: r.half * S, pts: spline(TP(r.pts), 40) }));
   PARKS = md.parks.map(p => ({ name: p.name, pts: TP(p.pts) }));
   LANDMARKS = md.landmarks;

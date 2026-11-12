@@ -3,7 +3,7 @@
 // Lays out every road of the map (the traced streets, the interstate and its interchanges) and returns the road graph.
 // The streets come from the map data (mapdata.json / the studio); see map.js.
 import { buildNetwork, CLASSES } from './network.js';
-import { MAP, T, TP, RIVERS, HIGHWAY_PX, STREETS, IXS, X0, Y0, fromWorld } from './map.js';
+import { MAP, T, TP, RIVERS, HIGHWAY_PX, STREETS, IXS, X0, Y0, fromWorld, OUTROAD } from './map.js';
 import { spline, nearestOnPoly, pointInPoly, distToSeg, dist, polyLen, atLen, segInter } from './geom.js';
 
 export function generateRoads() {
@@ -149,9 +149,14 @@ export function generateRoads() {
   // merge lane on the way on) leave from the right-hand side of each direction and meet that street 66 units away.
   // The side away from the city has no street of its own, so the street carries on over the interstate on a bridge
   // to meet the outside ramps - that is how the "outside lane" gets its exits.
+  // the road out of town (outroads.js). With `clover: '<interchange label>'` it takes that interchange over: instead of a street on a bridge
+  // with slip roads, the road out of town itself crosses the interstate there and the two are joined by a full cloverleaf (see below).
+  const OR = (OUTROAD && OUTROAD.pts && OUTROAD.pts.length >= 2 && !(typeof process !== 'undefined' && process.env && process.env.NO_OUTROAD)) ? OUTROAD : null;
   const IX = IXS.map((ix, k) => {
     const sw = TP(ix.pts); const q = hook(sw[sw.length - 1], 60); if (q) sw[sw.length - 1] = q;
-    return { sw, loops: /cloverleaf/i.test(ix.template || ''), ramps: (ix.ramps || []).map(r => TP(r)), cls: ix.cls || 'six', no: k + 1, label: ix.label || ('Interchange ' + (k + 1)) };
+    const clover = !!(OR && OR.clover && hasHW && ix.label === OR.clover);
+    return { sw, loops: /cloverleaf/i.test(ix.template || ''), ramps: clover ? [] : (ix.ramps || []).map(r => TP(r)), cls: ix.cls || 'six', no: k + 1, clover,
+      label: clover ? (OR.exit || OR.name) : (ix.label || ('Interchange ' + (k + 1))) };
   });
   const ramps = [];
   const XH = 210, ENTRY_END = 45;       // a slip road touches its carriageway XH units from where its curve takes over; ENTRY_END only places the 'next exits' signs
@@ -193,6 +198,29 @@ export function generateRoads() {
       needS.push(r.plan.s0);
     });
   });
+  // ---- the road out of town, part 1: its path, and where its cloverleaf's slip roads touch the interstate ---------------------------------
+  const CL = { E0: 30, FL: 60, R: 67, V: 330, RHO: 60, CS: 290, ARC: 14 };     // cloverleaf: loops leave E0 past the crossing on a FL-long lane and turn on radius R (= E0 + FL - 23) in ARC pieces; the outer ramps start V out; the city side's meet the interstate CS out.
+  // Keep the pieces long (15 u or more): every bend in a road is rounded and levelled, so short pieces on a slope turn into steps (tools/check.mjs smooth).
+  let OP = null;
+  if (OR) {
+    const px = TP(OR.pts), cl = IX.find(x => x.clover && x.P);
+    if (cl) {                                                  // the cloverleaf's road starts 30 u on the city side of the old interchange's inner junction (room for the bridge to come down)
+      const a = cl.sw[1], b = cl.sw[2] || cl.sw[1], l = dist(a, b) || 1, k = Math.min(30, l - 20) / l;
+      cl.start = [a[0] + (b[0] - a[0]) * k, a[1] + (b[1] - a[1]) * k]; px[0] = cl.start.slice();
+    }
+    const P = spline(px, 75);
+    if (!cl) { const q0 = hook(P[0], 60); if (q0) P[0] = q0.slice(); else warnings.push('the road out of town does not reach the street map'); }
+    OP = { P, cl, ps: 0, hs: 0 };
+    if (cl) {
+      let hit = null, pa = 0;
+      for (let j = 1; j < P.length && !hit; j++) { let ha = 0; for (let i = 1; i < H.length && !hit; i++) {
+        const r = segInter(P[j - 1], P[j], H[i - 1], H[i]);
+        if (r) hit = { ps: pa + r.t * dist(P[j - 1], P[j]), hs: ha + r.u * dist(H[i - 1], H[i]) };
+        ha += dist(H[i - 1], H[i]); } pa += dist(P[j - 1], P[j]); }
+      if (!hit) { warnings.push('the road out of town misses the interstate: no cloverleaf'); OP.cl = null; }
+      else { Object.assign(OP, hit); [-1, 1].forEach(sg => needS.push(hit.hs + sg * CL.E0, hit.hs + sg * (CL.V + CL.FL), hit.hs + sg * CL.CS)); }
+    }
+  }
   // put vertices into the interstate where the slip roads leave and rejoin it
   needS.sort((a, b) => a - b).forEach(s => {
     let acc = 0;
@@ -256,12 +284,114 @@ export function generateRoads() {
     });
     // the street: outer junction -> over the interstate -> inner junction -> into the city
     const d0 = [ix.sw[0][0] - ix.sw[1][0], ix.sw[0][1] - ix.sw[1][1]], l0 = Math.hypot(d0[0], d0[1]) || 1;   // a short tail beyond the outer junction gives the bridge room (the tail itself is pruned as a stub)
+    if (ix.clover && OP && OP.cl) { lines.push({ id: 'IXS' + ix.no, cls: ix.cls, pts: [ix.start, ix.sw[ix.sw.length - 1]], bridge: true, noBridge: 'highway' }); return; }   // only the stub from the junction into the city is left
     lines.push({ id: 'IXS' + ix.no, cls: ix.cls, pts: [[ix.sw[0][0] + d0[0] / l0 * 70, ix.sw[0][1] + d0[1] / l0 * 70], ...ix.sw], bridge: true, crossHW: true, ixStreet: true });
   });
-  ramps.forEach((r, i) => lines.push({ id: 'RP' + i, cls: 'ramp', pts: r.pts, noJoin: true, ramp: r }));
+  // ---- the road out of town, part 2 (OUTROADS in outroads.js: { to, name, pts, clover? }) -------------------------------------------------
+  // A long interstate from the edge of the city (pts[0]) out to a tunnel mouth (the last point), where interstate.js sends the player on
+  // to the city named in `to`. It is built like the city's own interstate: two one-way carriageways either side of a median that come
+  // together into the street they start from. At the far end they do not stop: hidden inside the tunnel's hill the outbound carriageway
+  // swings round in a wide loop and comes back as the inbound one, so AI traffic drives into the tunnel and a steady stream comes back
+  // out of it, with no dead end.
+  let OUT = null;
+  if (OP) {
+    const io = OR, P = OP.P, cl = OP.cl;
+    const total = polyLen(P), LOOP_R = 48, LOOP_L = 110, sm = k => k * k * (3 - 2 * k), END = 60, DECK = 25, PLAT = 66, APP = 124;
+    const at = s => { const p = atLen(P, Math.max(0, Math.min(total, s))); return { x: p.x, z: p.z, rx: -p.dz, rz: p.dx, dx: p.dx, dz: p.dz }; };
+    const sv = new Set([0, total]); { let acc = 0; for (let i = 1; i < P.length; i++) { acc += dist(P[i - 1], P[i]); sv.add(acc); } }
+    [12, 36, END, 90, 120].forEach(d => sv.add(d));
+    if (cl) [OP.ps - CL.E0, OP.ps + CL.E0, OP.ps + CL.V + CL.FL].forEach(d => sv.add(d));        // where the cloverleaf's slip roads touch it
+    const sl = [...sv].filter(v => v >= 0 && v <= total).sort((a, b) => a - b).filter((v, i, a) => i === 0 || v - a[i - 1] > 1.5 || (cl && [CL.E0, -CL.E0, CL.V + CL.FL].some(d => Math.abs(v - OP.ps - d) < 1e-6)));
+    const offAt = s => s <= 12 ? 4.2 * sm(s / 12) : s <= 60 ? 4.2 + 4.2 * sm((s - 12) / 48) : s < 120 ? 8.4 + (CAR_OFF - 8.4) * sm((s - 60) / 60) : CAR_OFF;   // same taper as the city interstate's ends
+    const side = f => sl.map(s => { const h = at(s), l = offAt(s) * f; return [h.x + h.rx * l, h.z + h.rz * l]; });
+    const out = side(1), back = side(-1).reverse();
+    const M = at(total), lp = (s, lat) => [M.x + M.dx * s + M.rx * lat, M.z + M.dz * s + M.rz * lat], loop = [];
+    const TUBE = 72;                                             // straight on for the length of the tunnel tubes, so nothing is seen to turn inside them
+    loop.push(lp(TUBE, CAR_OFF));
+    for (let k = 1; k <= 6; k++) loop.push(lp(TUBE + LOOP_L * k / 6, CAR_OFF + (LOOP_R - CAR_OFF) * sm(k / 6)));
+    for (let k = 1; k <= 12; k++) { const a = Math.PI * k / 12; loop.push(lp(TUBE + LOOP_L + LOOP_R * Math.sin(a), LOOP_R * Math.cos(a))); }
+    for (let k = 5; k >= 1; k--) loop.push(lp(TUBE + LOOP_L * k / 6, -(CAR_OFF + (LOOP_R - CAR_OFF) * sm(k / 6))));
+    loop.push(lp(TUBE, -CAR_OFF));
+    const iE = sl.findIndex(s => s >= END), n = sl.length, name = io.name || 'Interstate';
+
+    // ---- the cloverleaf: the road out of town bridges the interstate; in each of the four quarters a loop (the left turn, 270 degrees
+    // to the right) and an outer ramp (the right turn) join the two. On the city side there is no room for a long outer ramp, so those
+    // two start and end at the junction where the road out of town begins, as the old interchange's slip roads did.
+    const keepXZ = [], cramps = [];
+    if (cl) {
+      // the bridge: level at 4.6 over the interstate and on to PLAT (the loops join it there: a junction needs level road), then down to the ground at APP
+      const elP = d => d <= PLAT ? 4.6 : d >= APP ? 0 : 4.6 * (1 - (d - PLAT) / (APP - PLAT));
+      const elR = d => d <= PLAT ? 4.6 : Math.max(elP(d), 4.6 - 0.05 * (d - PLAT));        // a slip road beside the slope comes down a little more gently than the bridge does
+      const RH = { sc: OP.hs, at: s => { const p = atLen(H, Math.max(0, Math.min(polyLen(H), s))); return p; }, off: () => CAR_OFF, el: () => 0, isH: true };
+      const RP = { sc: OP.ps, at: s => atLen(P, Math.max(0, Math.min(total, s))), off: offAt, el: elR, isH: false };
+      const LL = 2 * CAR_OFF, ARC_N = CL.ARC, TOP = 4.6;
+      const quarter = (A, sa, B) => {
+        const ta = A.at(A.sc), tb = B.at(B.sc), da = [sa * ta.dx, sa * ta.dz], sb = (da[1] * tb.dx - da[0] * tb.dz) > 0 ? 1 : -1;    // b = left of a
+        const onA = (u, lat) => { const p = A.at(A.sc + sa * u); return [p.x - sa * p.dz * lat, p.z + sa * p.dx * lat]; };
+        const onB = (v, lat) => { const p = B.at(B.sc - sb * v); return [p.x - sb * p.dz * lat, p.z + sb * p.dx * lat]; };
+        const map = (u, v) => { const pa = onA(u, v), pb = onB(v, u), w = u * u / ((u * u + v * v) || 1); return [pa[0] * w + pb[0] * (1 - w), pa[1] * w + pb[1] * (1 - w)]; };
+        const offA = u => A.off(A.sc + sa * u), offB = v => B.off(B.sc - sb * v);
+        return { A, B, sa, sb, onA, onB, map, offA, offB };
+      };
+      const push = (pts, elevs, rec) => { cramps.push({ pts, elevs, ...rec }); };
+      // the loop: leaves A just past the crossing, runs beside it for FL, turns three quarters of a circle and joins B before the crossing
+      const loopRamp = Q => {
+        // Beside the interstate (on the ground) the slip road's own lane is FL long. Beside the bridge it is short (FLB) and level with the
+        // bridge, so that where the two still overlap they are at one height; from there it runs on beside the bridge to where the circle
+        // starts and comes down steadily all the way round the loop.
+        const { E0, FL, R } = CL, FLB = 36, cu = E0 + FL, cv = LL + R, pts = [], el = [], fa = Q.A.isH ? FL : FLB, fb = Q.B.isH ? FL : FLB;
+        const head = [], mid = [], tail = [];
+        for (let k = 0; k <= 4; k++) { const u = E0 + fa * k / 4; head.push(k === 0 ? Q.onA(u, Q.offA(u)) : Q.map(u, Q.offA(E0) + (LL - Q.offA(E0)) * sm(k / 4))); }
+        if (fa < FL) mid.push(Q.map(cu, LL));
+        for (let k = 1; k < ARC_N; k++) { const th = 1.5 * Math.PI * k / ARC_N; mid.push(Q.map(cu + R * Math.sin(th), cv - R * Math.cos(th))); }
+        if (fb < FL) mid.push(Q.map(LL, cv));
+        for (let k = 0; k <= 4; k++) { const v = E0 + fb - fb * k / 4; tail.push(k === 4 ? Q.onB(v, Q.offB(v)) : Q.map(LL - (LL - Q.offB(E0)) * sm(k / 4), v)); }
+        const eA = Q.A.isH ? 0 : TOP, eB = Q.B.isH ? 0 : TOP;
+        // heights: level along both lanes, a steady slope (by distance) between the end of one and the start of the other
+        const run = [head[head.length - 1], ...mid, tail[0]], acc = [0]; for (let i = 1; i < run.length; i++) acc.push(acc[i - 1] + dist(run[i - 1], run[i]));
+        head.forEach(p => { pts.push(p); el.push(eA); });
+        mid.forEach((p, i) => { pts.push(p); el.push(eA + (eB - eA) * acc[i + 1] / acc[acc.length - 1]); });
+        tail.forEach(p => { pts.push(p); el.push(eB); });
+        return { pts, el };
+      };
+      // the outer ramp: leaves B a long way before the crossing, cuts the corner outside the loop and joins A well past the crossing
+      const outerRamp = Q => {
+        const { V, FL, RHO } = CL, pts = [];
+        for (let k = 0; k <= 4; k++) { const v = V + FL - FL * k / 4; pts.push(k === 0 ? Q.onB(v, Q.offB(v)) : Q.map(Q.offB(V + FL) + (LL - Q.offB(V + FL)) * sm(k / 4), v)); }
+        for (let k = 1; k <= 3; k++) { const f = Math.PI / 4 * k / 3; pts.push(Q.map(LL + RHO - RHO * Math.cos(f), V - RHO * Math.sin(f))); }
+        for (let k = 3; k >= 0; k--) { const f = Math.PI / 4 * k / 3; pts.push(Q.map(V - RHO * Math.sin(f), LL + RHO - RHO * Math.cos(f))); }
+        for (let k = 1; k <= 4; k++) { const u = V + FL * k / 4; pts.push(k === 4 ? Q.onA(u, Q.offA(u)) : Q.map(u, LL - (LL - Q.offA(V + FL)) * sm(k / 4))); }
+        return { pts, el: pts.map(() => 0) };
+      };
+      // the city side's outer ramp: between the interstate (p along it) and the junction at the start of the road out of town (q = OP.ps along that)
+      const cityRamp = (Q, hIsA) => {
+        const J = OP.ps, C0 = CL.CS - 46, way = [[0, J], [50, J - 6], [105, J - 17], [148, 152], [172, 112], [188, 70], [206, 40], [C0 - 16, LL + 0.8], [C0, LL]];
+        const sp = spline(way, 18), pq = sp.concat([1, 2, 3, 4].map(k => [C0 + 46 * k / 4, LL - (LL - CAR_OFF) * sm(k / 4)]));
+        const pts = pq.map(([p, q], i) => i === 0 ? (hIsA ? Q.onB(J, 0) : Q.onA(J, 0)) : i === pq.length - 1 ? (hIsA ? Q.onA(p, CAR_OFF) : Q.onB(p, CAR_OFF)) : (hIsA ? Q.map(p, q) : Q.map(q, p)));
+        return { pts: hIsA ? pts : pts.reverse(), el: pts.map(() => 0) };
+      };
+      [[RH, 1, RP], [RH, -1, RP], [RP, 1, RH], [RP, -1, RH]].forEach(([A, sa, B]) => {
+        const Q = quarter(A, sa, B);
+        // which side of the interstate this quarter is on: the city (where the road out of town starts, OP.ps before the crossing) or the open country
+        const city = A.isH ? Q.sb > 0 : sa < 0;
+        const lr = loopRamp(Q);
+        push(lr.pts, lr.el, { kind: A.isH ? 'exit' : 'link', f: A.isH ? sa : Q.sb, ix: cl, inside: true });
+        const orr = city ? cityRamp(Q, A.isH) : outerRamp(Q);
+        push(orr.pts, orr.el, { kind: A.isH ? 'link' : 'exit', f: A.isH ? sa : Q.sb, ix: cl, inside: true });    // the outer ramp runs B -> A: it leaves the interstate when B is the interstate
+        [lr, orr].forEach(r => [r.pts[0], r.pts[r.pts.length - 1]].forEach(e => keepXZ.push(e)));
+      });
+    }
+    lines.push({ id: 'OUTa', cls: 'hwEnd', pts: out.slice(0, iE + 1), keepEnds: true, oneWay: true, name });
+    lines.push({ id: 'OUT', cls: 'hw', pts: [...out.slice(iE), ...loop, ...back.slice(0, n - iE)], keepEnds: true, oneWay: true, name, outroad: true, crossHW: !!cl, crossProf: { d1: DECK, plat: PLAT, d2: APP, h: 4.6 }, keepXZ });
+    lines.push({ id: 'OUTb', cls: 'hwEnd', pts: back.slice(n - iE - 1), keepEnds: true, oneWay: true, name });
+    cramps.forEach((r, i) => { ramps.push(r); r.custom = true; });
+    OUT = { to: io.to, name, sign: io.sign || String(io.to).toUpperCase(), pts: P, total, mouth: { x: M.x, z: M.z, dx: M.dx, dz: M.dz }, loopR: LOOP_R, loopL: LOOP_L, tube: TUBE, off: CAR_OFF,
+      start: cl ? OP.ps + CL.V + CL.FL + 30 : 150 };       // where the open road begins (beyond the cloverleaf, if there is one)
+  }
+  ramps.forEach((r, i) => lines.push({ id: 'RP' + i, cls: 'ramp', pts: r.pts, noJoin: true, ramp: r, ...(r.custom ? { fixedEnds: true, elevs: r.elevs } : {}) }));
 
   // ---- barriers for the bridge builder -----------------------------------------------------------------------------------------------------
   const barriers = RIVERS.map(r => ({ kind: 'river', half: r.half, pts: r.pts })).concat(hasHW ? [hwBarrier] : []);
   const net = buildNetwork(lines, barriers, { warn: m => warnings.push(m), minEdge: 13, stubLen: hasHW ? 90 : (+process.env.STUB || 320) });
-  return { net, lines, H, warnings, IX, ramps, CAR_OFF, ENTRY_END };
+  return { net, lines, H, warnings, IX, ramps, CAR_OFF, ENTRY_END, OUT };
 }

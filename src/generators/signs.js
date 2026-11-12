@@ -161,6 +161,30 @@ function nextTexture(list) {
   _gantryTex[key] = t;
   return t;
 }
+// a destination board for the road out of town: the place in big letters, the road and the distance underneath
+function destTexture(d) {
+  const key = 'dest|' + d.title + '|' + d.sub + '|' + (d.shield || '');
+  if (_gantryTex[key]) return _gantryTex[key];
+  const t = labelTexture((c, w, h) => {
+    c.fillStyle = '#0b6b3a'; c.fillRect(0, 0, w, h);
+    c.strokeStyle = '#fff'; c.lineWidth = 8; c.strokeRect(10, 10, w - 20, h - 20);
+    c.textBaseline = 'middle'; c.textAlign = 'left';
+    if (d.shield) {                                   // the interstate shield: blue with a red crown
+      c.fillStyle = '#1f4fa8'; c.fillRect(28, 30, 86, 64); c.fillStyle = '#c8102e'; c.fillRect(28, 30, 86, 20);
+      c.strokeStyle = '#fff'; c.lineWidth = 4; c.strokeRect(28, 30, 86, 64);
+      c.fillStyle = '#fff'; c.font = 'bold 36px Arial, sans-serif'; c.textAlign = 'center'; c.fillText(d.shield, 71, 74); c.textAlign = 'left';
+    }
+    c.fillStyle = '#fff';
+    let size = 60; c.font = 'bold ' + size + 'px Arial, sans-serif';
+    const room = w - (d.shield ? 160 : 60), mw = c.measureText(d.title).width;
+    if (mw > room) { size = Math.floor(size * room / mw); c.font = 'bold ' + size + 'px Arial, sans-serif'; }
+    c.fillText(d.title, d.shield ? 134 : 30, 64);
+    c.font = 'bold 30px Arial, sans-serif'; c.fillText(d.sub, 30, 146);
+    c.textAlign = 'right'; c.font = 'bold 54px Arial, sans-serif'; c.fillText('\u2191', w - 30, 140);
+  }, 512, 200);
+  _gantryTex[key] = t;
+  return t;
+}
 function panelMesh(tex, px) {
   const pw = 7.6, ph = 3.0;
   const panel = new THREE.Mesh(new THREE.BoxGeometry(pw, ph, 0.12), [
@@ -246,7 +270,7 @@ function addGantries(city, heightAt, group, instances, distToRoad) {
     if ([-9, 9].some(lx => (city.parcels || []).some(q => (q.type === 'building' || q.type === 'water') && pointInPolygon(h.x + right.x * lx, h.z + right.z * lx, q.footprint)))) return;
     if ([-9, 9].some(lx => distToRoad(h.x + right.x * lx, h.z + right.z * lx) < 0.5)) return;
     const mesh = gantryMesh(null, true);
-    mesh.add(panelMesh(nextTexture(h.next), 0)); addPanelLamps(mesh, 0);
+    mesh.add(panelMesh(h.dest ? destTexture(h.dest) : nextTexture(h.next), 0)); addPanelLamps(mesh, 0);
     [-3, 3].forEach(dx => { const hb = new THREE.Mesh(new THREE.BoxGeometry(0.2, 0.9, 0.2), gantryMat); hb.position.set(dx, 7.9, 0.2); mesh.add(hb); });
     mesh.position.set(h.x, heightAt(h.x, h.z), h.z);
     mesh.rotation.y = Math.atan2(-h.d.x, -h.d.z);
