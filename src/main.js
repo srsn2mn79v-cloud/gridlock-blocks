@@ -592,6 +592,7 @@ function applySetting(k, v) {
   else if (k === 'camDist' || k === 'camHeight') refreshCamOffset();
   else if (k === 'swapSticks') input.setSwap(v);
   else if (k === 'sound') audio.setEnabled(v);
+  else if (k === 'awake') wakeLock.sync();
   else if (k === 'volume') audio.setVolume(v);
   else if (k === 'fps') fpsEl.style.display = v ? '' : 'none';
   else if (k === 'ao' || k === 'bloom' || k === 'tone' || k === 'tex' || k === 'fx') gfx.set(k, v);
@@ -608,6 +609,24 @@ const menu = createMenu({
   ownedCars: () => world.ownedCars(),
   canOpen: () => !world.modal && !races.menuOpen() && !minimap.isFullOpen() && performance.now() - minimap.escAt() > 80 && performance.now() - world.escAt() > 80
 });
+// "Keep screen on" (Settings, on by default): asks the browser not to dim/lock the phone while the game is visible. The browser drops the lock
+// whenever the page is hidden, so it is asked for again on return and on the first touch/key (some browsers insist on a gesture).
+const wakeLock = (() => {
+  let lock = null;
+  const supported = typeof navigator !== 'undefined' && 'wakeLock' in navigator;
+  async function sync() {
+    try {
+      const want = supported && settings.awake !== false && !document.hidden;
+      if (want && !lock) { lock = await navigator.wakeLock.request('screen'); lock.addEventListener('release', () => { lock = null; }); }
+      else if (!want && lock) { const l = lock; lock = null; await l.release(); }
+    } catch (e) { lock = null; }
+  }
+  document.addEventListener('visibilitychange', sync);
+  ['pointerdown', 'keydown', 'touchend'].forEach(ev => window.addEventListener(ev, () => { if (!lock) sync(); }, { passive: true }));
+  sync();
+  return { sync, get active() { return !!lock; }, supported };
+})();
+
 // Phone locked / app switched / tab hidden: pause the game, silence audio and the radio host; pick up again when the page is visible.
 // (The game never asks the phone to stay awake, so the screen locks on its own timer as usual.)
 function screenState(off) {
@@ -1023,7 +1042,7 @@ function animate() {
   renderFrame();
   requestAnimationFrame(animate);
 }
-window.__game = { interstate, cruise, airport, port, goldenGate, shopLots, drawbridge, boats, hail, camRig, interior, fuel, radio, weather, plowFx, puffs, gfx, transit, parkedCars, skids, audio, races, structures, world, renderer, taxi, input, destruction, collisionWorld, lampDefs, signs, propInstances, env, settings, menu, minimap, scene, camera, car, city, traffic, pedestrians, lampPool, reflectors, heightAt, offences: { get wrongWay() { return wrongWayOffences; } } };
+window.__game = { wakeLock, interstate, cruise, airport, port, goldenGate, shopLots, drawbridge, boats, hail, camRig, interior, fuel, radio, weather, plowFx, puffs, gfx, transit, parkedCars, skids, audio, races, structures, world, renderer, taxi, input, destruction, collisionWorld, lampDefs, signs, propInstances, env, settings, menu, minimap, scene, camera, car, city, traffic, pedestrians, lampPool, reflectors, heightAt, offences: { get wrongWay() { return wrongWayOffences; } } };
 // Arriving through the tunnel from another city (travel.js): come out of the inbound tube at the speed, time of day and radio station
 // the player went in with, then lift the tunnel off the screen once a few frames of the new city have been drawn.
 {

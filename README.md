@@ -7,6 +7,8 @@ modules instead of one HTML file, so it's the base to keep building on.
 
 - **Phone lock:** when the page is hidden (screen locked, app switched, tab hidden) the game pauses, audio is suspended and the radio host is cut off; it picks up again when you come back. The game never keeps the screen awake, so the phone locks on its own timer.
 
+- **Keep screen on** (Settings, on by default): uses the browser's Screen Wake Lock so the phone does not dim or lock while the game is visible; released when the page is hidden or the switch is off, and asked for again on return or on the first touch.
+
 ## Round: stop-sign rules and radio fixes
 
 - **Stop signs follow real-life etiquette** (`stopMayGo` in `src/traffic.js`): come to a full stop at the line, wait for the junction to be clear, first to arrive goes first (also between the two minor roads of a T), simultaneous arrivals give way to the car on the right, a left-turner facing oncoming traffic waits, a minor road gives way to main-road cars within about a 4 s gap, a car that has been waved on keeps conflicting cars waiting, and paths that cannot meet (two opposite cars going straight, two right-turners) go together. The old 14 s override stays as a last-resort deadlock breaker. A car that crept a little past the line now still has to stop instead of counting as having passed it.

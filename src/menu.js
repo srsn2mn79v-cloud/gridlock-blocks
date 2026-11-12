@@ -15,7 +15,7 @@ const coarse = typeof matchMedia !== 'undefined' && matchMedia('(pointer: coarse
 export const DEFAULT_SETTINGS = {
   traffic: 40, peds: 100, hour: 22, day: 0, dynWeather: true, clockRun: true, fog: 0, rain: false, snow: false, car: 'hatch', camMode: 'chase', camDist: 9.5, camHeight: 5.2, camInBack: 0.5, camInUp: 0.08,
   ao: coarse ? 'off' : 'low', bloom: true, tone: true, tex: coarse ? 1 : 2, fx: true, shadow: coarse ? 1024 : 2048, quality: coarse ? 'medium' : 'high',
-  taxi: true, sound: true, volume: 0.7, swapSticks: false, res: coarse ? 0.75 : 1, view: coarse ? 0.7 : 1, fps: true
+  taxi: true, sound: true, volume: 0.7, swapSticks: false, awake: true, res: coarse ? 0.75 : 1, view: coarse ? 0.7 : 1, fps: true
 };
 
 const PRESETS = {
@@ -108,6 +108,7 @@ export function createMenu({ settings, limits, onChange, onOpenChange , ownedCar
         <button class="toggle" data-t="rain">🌧 Rain</button>
         <button class="toggle" data-t="snow">❄️ Snow</button>
         <button class="toggle" data-t="sound">🔊 Sound</button>
+        <button class="toggle" data-t="awake">📱 Keep screen on</button>
       </div>
       <div class="toggles"><button class="toggle" data-t="swapSticks">🎮 Swap thumbsticks (on foot: camera left, move right)</button></div>
       <div class="row"><label>Volume</label><input type="range" data-k="volume" min="0" max="1" step="0.01"><output></output></div>
