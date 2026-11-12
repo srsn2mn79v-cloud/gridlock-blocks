@@ -18,7 +18,7 @@ const HEAVY = { bus: 1, truck: 1, van: 0.5, pickup: 0.35, fire: 1, plow: 1, ambu
 export function createAudio({ camera }) {
   const AC = typeof window !== 'undefined' && (window.AudioContext || window.webkitAudioContext);
   let ctx = null, master = null, comp = null, enabled = true, volume = 0.7, ready = false;
-  let noiseBuf = null;
+  let noiseBuf = null, silentEl = null;
   const v3 = new THREE.Vector3(), camDir = new THREE.Vector3();
 
   function init() {
@@ -416,7 +416,17 @@ export function createAudio({ camera }) {
   }
 
   return {
-    unlock() { init(); if (ctx && ctx.state === 'suspended') ctx.resume(); },
+    // iPhone Safari is strict: audio can only start inside touchend / click / keydown (touchstart and pointerdown do not count), the hardware
+    // silent switch mutes Web Audio unless the page plays as "media", and after a lock or call the context sits in 'interrupted' (not 'suspended').
+    unlock() {
+      init();
+      try { if (navigator.audioSession && navigator.audioSession.type !== 'playback') navigator.audioSession.type = 'playback'; } catch (e) { /* older iOS */ }
+      if (!silentEl) {       // a silent looping <audio> element moves the page onto the media channel, so the silent switch no longer mutes it
+        try { silentEl = new Audio('data:audio/wav;base64,UklGRigAAABXQVZFZm10IBAAAAABAAEARKwAAIhYAQACABAAZGF0YQQAAAAAAAAA'); silentEl.loop = true; silentEl.volume = 0.01; silentEl.setAttribute('playsinline', ''); const pr = silentEl.play(); if (pr && pr.catch) pr.catch(() => { silentEl = null; }); } catch (e) { silentEl = null; }
+      }
+      if (ctx && ctx.state !== 'running' && ctx.state !== 'closed') { const r = ctx.resume(); if (r && r.catch) r.catch(() => {}); }
+    },
+    get running() { return !!ctx && ctx.state === 'running'; },
     setEnabled(v) { enabled = !!v; if (master) master.gain.setTargetAtTime(enabled ? volume : 0, ctx.currentTime, 0.05); },
     setVolume(v) { volume = Math.max(0, Math.min(1, v)); if (master && enabled) master.gain.setTargetAtTime(volume, ctx.currentTime, 0.05); },
     update, honk, crash, airBrake, tick, bell, get ready() { return ready; },

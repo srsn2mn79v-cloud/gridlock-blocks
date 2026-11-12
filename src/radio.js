@@ -229,7 +229,7 @@ export function createRadio({ audio, weather, settings, onChange }) {
   // a refused line is retried on the next key press / click, and a watchdog un-ducks if the engine goes quiet.
   let sayTok = 0, pending = null;
   const retry = () => { if (pending && !djBusy) { const p = pending; pending = null; say(p.st, p.text, p.done); } };
-  if (typeof window !== 'undefined') ['keydown', 'pointerdown', 'touchstart'].forEach(ev => window.addEventListener(ev, retry, { passive: true }));
+  if (typeof window !== 'undefined') ['keydown', 'pointerdown', 'touchstart', 'touchend', 'click'].forEach(ev => window.addEventListener(ev, retry, { passive: true }));
   function say(st, text, done) {
     if (settings.sound === false) { done && done(); return; }
     caption(st.dj.name, text);

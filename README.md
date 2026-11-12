@@ -10,6 +10,8 @@ modules instead of one HTML file, so it's the base to keep building on.
 - **Keep screen on** (Settings, on by default): uses the browser's Screen Wake Lock so the phone does not dim or lock while the game is visible; released when the page is hidden or the switch is off, and asked for again on return or on the first touch.
 
 
+- **iPhone sound:** audio now starts on touchend / click / keydown (the only events iPhone Safari accepts), every touch retries until the audio context is running (also after a lock or call, when iOS leaves it `interrupted`), the page asks to play as media (`navigator.audioSession.type = 'playback'`) and plays a silent looping audio element so the hardware silent switch no longer mutes Web Audio. Untested on a real iPhone.
+
 ## Round: radio songs, hosts, seasons, flats
 
 - **Radio songs** (`src/songs.js`, played by `src/radio.js`): 22 songs (8 Neon Drive, 7 Low Key, 7 Night Cruise FM), each 3-4 minutes with a real form: intro, A, B, A, B, bridge, A, outro. The melody is composed once per song from a fixed seed, so verses repeat exactly: a four-bar phrase that asks (lands on the fifth) and one that answers (comes home to the tonic), mixing whole and half notes with eighths and sixteenths, strong beats on chord tones, mostly stepwise; the B section is a contrasting higher pair and is doubled an octave up; the bridge holds a few long notes. The accompaniment is the old background (kick, snare, hats, arpeggios, pads) with a real bass line in each style (pulsing, walking, steady) that sits in E2-E3 and carries upper harmonics so phone speakers play it. Some songs have no lead at all (the groove is the song). The Runescape-flavoured titles are gone. `node tools/check.mjs songs` checks range, leaps, length and titles.

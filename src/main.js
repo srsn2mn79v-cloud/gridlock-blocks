@@ -636,7 +636,7 @@ function screenState(off) {
   screenOff = off; paused = menuOpenNow || screenOff;
   try {
     if (off) { if (audio.ctx && audio.ctx.state === 'running') audio.ctx.suspend(); if (typeof speechSynthesis !== 'undefined') speechSynthesis.cancel(); }
-    else if (audio.ctx && audio.ctx.state === 'suspended') audio.ctx.resume();
+    else audio.unlock();
   } catch (e) { /* ignore */ }
 }
 document.addEventListener('visibilitychange', () => screenState(document.hidden));
@@ -785,7 +785,8 @@ const interstate = createInterstate({ city, scene, car, heightAt, onEnter: io =>
 collisionWorld.push(...interstate.colliders);
 const radio = createRadio({ audio, weather, settings });
 const unlockAudio = () => audio.unlock();
-['pointerdown', 'keydown', 'touchstart'].forEach(ev => addEventListener(ev, unlockAudio, { passive: true }));
+['pointerdown', 'pointerup', 'touchstart', 'touchend', 'click', 'keydown'].forEach(ev => addEventListener(ev, unlockAudio, { passive: true }));      // iPhone only accepts touchend / click / keydown; every touch retries until the context runs (also after a lock or call)
+addEventListener('pageshow', unlockAudio);
 audio.setEnabled(settings.sound !== false); audio.setVolume(settings.volume ?? 0.7);
 const HEAVY_TYPES = { bus: 2, truck: 2, van: 1, pickup: 1 };
 // Cab stands: stop the car (any car) on a painted TAXI bay for a moment to start - or end - a taxi shift.
