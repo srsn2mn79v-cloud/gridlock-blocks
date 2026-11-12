@@ -4,6 +4,13 @@ This is the real Vite + Three.js project version of the game, built from the sam
 road/parcel/prop/gameplay schema the Gridlock City Editor exports. It's organized into
 modules instead of one HTML file, so it's the base to keep building on.
 
+
+## Round: stop-sign rules and radio fixes
+
+- **Stop signs follow real-life etiquette** (`stopMayGo` in `src/traffic.js`): come to a full stop at the line, wait for the junction to be clear, first to arrive goes first (also between the two minor roads of a T), simultaneous arrivals give way to the car on the right, a left-turner facing oncoming traffic waits, a minor road gives way to main-road cars within about a 4 s gap, a car that has been waved on keeps conflicting cars waiting, and paths that cannot meet (two opposite cars going straight, two right-turners) go together. The old 14 s override stays as a last-resort deadlock breaker. A car that crept a little past the line now still has to stop instead of counting as having passed it.
+- **Simulation:** `node tools/check.mjs stops [cars] [minutes]` (seeded with `SEED=n`; `STOPS_BASELINE=1` only prints numbers). Three seeds, 120 cars, 6 minutes each, same cars before/after: rolled stops about 4.5 % to about 1.1 %, out-of-turn entries at all-way stops 48 of 1782 (2.7 %) to 19 of 1711 (1.1 %), cars from different roads inside one junction box together 13 to 1, average wait about 3.3 s and average speed about 12.5 u/s unchanged (so traffic is not slower, just orderly). Ambulances with sirens are excluded.
+- **Radio:** the music is only turned down once the host actually starts speaking (before, a refused line left the radio quiet for up to 40 s); a refused line (the browser blocks speech until you press a key, e.g. right after a tunnel trip) is retried on the next key press or click; a stale cancel no longer ducks the next line; a watchdog un-ducks if the speech engine goes silent.
+
 ## Two cities and the interstate between them
 
 The game has two cities, Chicago and San Francisco (pick one in the menu). Each has a road out of town, Interstate 80:

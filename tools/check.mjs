@@ -18,6 +18,7 @@
 //   node tools/check.mjs obstacles   knocked AI cars collide with every wall, building, parapet and prop
 //   node tools/check.mjs lotgeo      shop car parks meet a street: lane, stop line and STOP sign on clear ground
 //   node tools/check.mjs outroad    the road out of town joins the city, keeps clear of the pocket worlds, tunnel mouths are open
+//   node tools/check.mjs stops [cars=90] [minutes=6]   stop signs: stop, take turns, keep the box clear (numbers; set STOPS_BASELINE=1 to only print)
 //   node tools/check.mjs quick      every static check (seconds)       placement / roads: sub-groups of quick
 //   node tools/check.mjs sim        the simulations (traffic, solid, rivals, races)
 //   node tools/check.mjs all        quick + sim
@@ -822,13 +823,85 @@ async function checkOutroad() {
   const lamps = (city.props || []).filter(p => p.type === 'light' && p.twin).length;
   return { name: 'outroad', count: r1(io.total * 1.25 / 1000) + ' km to ' + io.to + ', ' + lamps + ' median lamps', bad };
 }
-const CHECKS = { outroad: checkOutroad, transit: checkTransit, rivals: checkRivals, sidewalks: checkSidewalks, gas: checkGas, races: checkRaces, drift: checkDrift, covered: checkCovered,  signs: checkSigns, signfacing: checkSignFacing, lamps: checkLamps, buildings: checkBuildings, traffic: () => checkTraffic(+process.argv[3] || 40, +process.argv[4] || 5), markings: checkMarkings, bridges: checkBridges, solid: checkSolid, water: checkWater, rules: checkRules, driveways: checkDriveways, smooth: checkSmooth, mesh: checkMesh, pavement: checkPavement, connected: checkConnected, lots: checkLots, doors: checkDoors, pavementgaps: checkPavementGaps, riverbanks: checkRiverBanks, bridgewalls: checkBridgeWalls, obstacles: checkObstacles, lotgeo: checkLotGeo };
+
+// ---- stop signs behave like real life: stop, take turns, don't block the junction -------------------------------------------------------
+// Runs the AI on its own and watches every junction that has stop signs. Per car it notes when it came to rest at the line (arrival) and when it
+// drove into the box. Counted: rolled stops (entered without ever stopping), out-of-turn entries at all-way stops (someone who stopped earlier
+// on another approach was still waiting), box conflicts (two cars from different approaches within 2.2 u inside one junction), waits.
+async function checkStops(cars = +process.argv[3] || 90, minutes = +process.argv[4] || 6) {
+  { let a = (+process.env.SEED || 1) >>> 0; Math.random = () => { a = (a + 0x6D2B79F5) >>> 0; let t = Math.imul(a ^ (a >>> 15), 1 | a); t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t; return ((t ^ (t >>> 14)) >>> 0) / 4294967296; }; }   // seeded, so before/after runs see the same city and the same cars
+  const { createTrafficSystem } = await imp('src/traffic.js');
+  const { computeStopApproaches, stopKey } = await imp('src/junctionRules.js');
+  const { stops, allWay } = computeStopApproaches(city);
+  const dt = 1 / 15, tr = createTrafficSystem(city, new THREE.Scene(), heightAt, cars, cars, null);
+  const player = { x: 9999, z: 9999, y: 0, heading: 0, speed: 0 };
+  const st = new Map(), waits = [], bad = [];
+  let entries = 0, rolled = 0, outOfTurn = 0, conflicts = 0, carSec = 0, stuckAtStop = 0, travelled = 0, passedAll = 0;
+  const waiting = new Map();                 // nodeId -> Map(car -> arrival time)
+  const seenConf = new Set();
+  for (let k = 0; k < 15 * 60 * minutes; k++) {
+    T += dt * 1000; tr.update(dt, player); const t = T / 1000;
+    const inBox = new Map();
+    tr.cars.forEach((c, i) => {
+      if (!c.active || !c.edge || c.ghost > 0 || c.crashTimer > 0 || c.knock || c.siren) return;
+      carSec += dt; travelled += c.speed * dt;
+      const S = st.get(i) || st.set(i, { edge: null, arr: null, stopped: false, inConn: false, lastWait: 0 }).get(i);
+      if (S.edge !== c.edge) { S.edge = c.edge; S.arr = null; S.stopped = false; S.inConn = false; }
+      const key = stopKey(c.to, c.edge.id), isStop = stops.has(key);
+      if (process.env.DBG) { (S.h || (S.h = [])).push([c.edge.id, +(c.path ? c.path.length - c.s : 0).toFixed(1), +c.speed.toFixed(2), c.stopCleared ? 1 : 0, c.why, c.conn ? 'C' : '']); if (S.h.length > 40) S.h.shift(); }
+      if (!c.conn && c.path && c.path.length - c.s < 26) S.minSp = Math.min(S.minSp ?? 99, c.speed); if (S.edge !== c.edge) S.minSp = undefined;
+      if (!c.conn && isStop) {
+        const d = c.len_ !== undefined ? 0 : 0;
+        const toNode = c.path ? c.path.length - c.s : 99; // the line is clearance+3.7 before the node (up to ~20 u on avenues)
+        if (toNode < 26 && c.speed < 0.45 && S.arr == null) { S.arr = t; S.stopped = true; (waiting.get(c.to) || waiting.set(c.to, new Map()).get(c.to)).set(i, t); }
+        if (toNode < 26 && S.arr != null && c.speed < 0.45) { S.lastWait = t - S.arr; if (S.lastWait > 45) { stuckAtStop++; S.arr = t - 1; } }
+      }
+      if (c.conn) {
+        const node = c.to;
+        (inBox.get(node) || inBox.set(node, []).get(node)).push({ c, i });
+        if (!S.inConn) {
+          S.inConn = true;
+          if (isStop) {
+            entries++;
+            if (!S.stopped && !c.siren) { rolled++; if (process.env.DBG && rolled < 3) console.log(JSON.stringify(S.h.filter((_, q) => q % 3 === 0)), 'rolled', i, c.edge.id, 'speed', c.speed.toFixed(2), 'why', c.why, 'cleared', c.stopCleared, 'toNode', (c.path.length - c.s).toFixed(1), 'minSp', (S.minSp ?? -1).toFixed(2), 'type', c.type); }
+            else { waits.push(t - S.arr); if (process.env.DBG && t - S.arr > 25) console.log('LONG wait', (t - S.arr).toFixed(0), 'car', i, 'node', c.to, 'edge', c.edge.id, 'at t', t.toFixed(0), 'type', c.type, 'dwell', (c.dwell||0).toFixed(1)); }
+            if (allWay.has(node)) {
+              passedAll++;
+              const w = waiting.get(node);
+              if (w) for (const [j, ta] of w) if (j !== i && ta < S.arr - 0.6 && !tr.cars[j].conn && tr.cars[j].active && tr.cars[j].to === node && tr.cars[j].from !== c.from && tr.pathsConflict(c, tr.cars[j])) { outOfTurn++; break; }
+            }
+            const w2 = waiting.get(node); if (w2) w2.delete(i);
+          }
+        }
+      } else S.inConn = false;
+    });
+    for (const [node, list] of inBox) if (list.length > 1) {
+      for (let a = 0; a < list.length; a++) for (let b = a + 1; b < list.length; b++) {
+        const A = list[a], B = list[b];
+        if (A.c.from === B.c.from) continue;
+        if (Math.hypot(A.c.collider.x - B.c.collider.x, A.c.collider.z - B.c.collider.z) < 2.2) { const key = node + ':' + Math.min(A.i, B.i) + ':' + Math.max(A.i, B.i) + ':' + Math.floor(t / 4); if (!seenConf.has(key)) { seenConf.add(key); conflicts++; } }
+      }
+    }
+  }
+  waits.sort((a, b) => a - b);
+  const avg = waits.length ? waits.reduce((a, b) => a + b, 0) / waits.length : 0, p95 = waits.length ? waits[Math.floor(waits.length * 0.95)] : 0, mx = waits.length ? waits[waits.length - 1] : 0;
+  const per = n => entries ? Math.round(n / entries * 1000) / 10 : 0;
+  const summary = cars + ' cars, ' + minutes + ' min: ' + entries + ' stop-sign entries (' + (entries / minutes).toFixed(1) + '/min), rolled stops ' + rolled + ' (' + per(rolled) + ' %), out of turn at all-way stops ' + outOfTurn + ' of ' + passedAll + ', box conflicts ' + conflicts + ', wait avg ' + avg.toFixed(1) + ' s / p95 ' + p95.toFixed(1) + ' s / max ' + mx.toFixed(1) + ' s, waits >45 s ' + stuckAtStop + ', avg speed ' + (travelled / carSec).toFixed(2) + ' u/s';
+  if (process.env.STOPS_BASELINE) return { name: 'stops', count: summary, bad };
+  if (entries < 20) bad.push('too few stop-sign entries (' + entries + ') to judge');
+  if (rolled > entries * 0.03) bad.push('cars rolled through ' + rolled + ' stop signs without stopping');
+  if (passedAll && outOfTurn > passedAll * 0.05) bad.push(outOfTurn + ' of ' + passedAll + ' all-way entries were out of turn');
+  if (conflicts > entries * 0.02) bad.push(conflicts + ' box conflicts');
+  if (stuckAtStop) bad.push(stuckAtStop + ' cars waited >45 s at a stop sign');
+  return { name: 'stops', count: summary, bad };
+}
+const CHECKS = { stops: checkStops,  outroad: checkOutroad, transit: checkTransit, rivals: checkRivals, sidewalks: checkSidewalks, gas: checkGas, races: checkRaces, drift: checkDrift, covered: checkCovered,  signs: checkSigns, signfacing: checkSignFacing, lamps: checkLamps, buildings: checkBuildings, traffic: () => checkTraffic(+process.argv[3] || 40, +process.argv[4] || 5), markings: checkMarkings, bridges: checkBridges, solid: checkSolid, water: checkWater, rules: checkRules, driveways: checkDriveways, smooth: checkSmooth, mesh: checkMesh, pavement: checkPavement, connected: checkConnected, lots: checkLots, doors: checkDoors, pavementgaps: checkPavementGaps, riverbanks: checkRiverBanks, bridgewalls: checkBridgeWalls, obstacles: checkObstacles, lotgeo: checkLotGeo };
 // groups: run several related checks at once
 const GROUPS = {
   placement: ['signs', 'signfacing', 'lamps', 'driveways', 'buildings', 'pavement', 'sidewalks', 'pavementgaps', 'lotgeo'],   // nothing stands where it shouldn't
   roads: ['markings', 'bridges', 'bridgewalls', 'riverbanks', 'water', 'smooth', 'mesh', 'connected', 'rules'],    // road geometry and connections
   quick: ['placement', 'roads', 'gas', 'transit', 'drift', 'covered', 'outroad'],                           // all static checks, seconds
-  sim: ['traffic', 'solid', 'obstacles', 'rivals', 'races', 'lots', 'doors'],                                       // simulations, minutes
+  sim: ['traffic', 'stops', 'solid', 'obstacles', 'rivals', 'races', 'lots', 'doors'],                                       // simulations, minutes
   all: ['quick', 'sim']
 };
 const expand = n => GROUPS[n] ? GROUPS[n].flatMap(expand) : [n];

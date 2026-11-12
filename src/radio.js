@@ -214,14 +214,30 @@ export function createRadio({ audio, weather, settings, onChange }) {
     if (dj.voice) { const m = vs.find(v => v.name.toLowerCase().includes(dj.voice.toLowerCase())); if (m) return m; }
     const key = (dj.name || '').split('').reduce((a, c) => a + c.charCodeAt(0), 0); return vs[key % vs.length];
   }
+  // The host talks through speechSynthesis. Three things used to go wrong: (1) the music was ducked as soon as we asked, so when the
+  // browser silently refused to speak (no user activation after a page reload / tunnel trip, no voices yet) the radio stayed quiet for
+  // 40 s with nobody talking; (2) cancel() straight before speak() is dropped by Chrome, and the cancelled line's end event ducked the
+  // *next* line; (3) a refused line was never retried. Now: duck only once speech really starts, stale events are ignored by a token,
+  // a refused line is retried on the next key press / click, and a watchdog un-ducks if the engine goes quiet.
+  let sayTok = 0, pending = null;
+  const retry = () => { if (pending && !djBusy) { const p = pending; pending = null; say(p.st, p.text, p.done); } };
+  if (typeof window !== 'undefined') ['keydown', 'pointerdown', 'touchstart'].forEach(ev => window.addEventListener(ev, retry, { passive: true }));
   function say(st, text, done) {
     if (!djOK()) { done && done(); return; }
-    djBusy = true; el.classList.add('talk'); duck(true);
+    const tok = ++sayTok; djBusy = true; el.classList.add('talk'); let spoke = false, fin = false, wd = 0;
     const u = new SpeechSynthesisUtterance(text), v = pickVoice(st.dj); if (v) u.voice = v;
-    u.pitch = st.dj.pitch || 1; u.rate = st.dj.rate || 1; u.volume = Math.min(1, 0.9 * (settings.volume != null ? 1 : 1));
-    let fin = false; const end = () => { if (fin) return; fin = true; djBusy = false; el.classList.remove('talk'); duck(false); done && done(); };
-    u.onend = end; u.onerror = end; setTimeout(end, 40000);
-    try { speechSynthesis.cancel(); speechSynthesis.speak(u); } catch (e) { end(); }
+    u.pitch = st.dj.pitch || 1; u.rate = st.dj.rate || 1; u.volume = 1;
+    const end = (refused) => {
+      if (fin) return; fin = true; clearTimeout(wd);
+      if (tok === sayTok) { djBusy = false; el.classList.remove('talk'); duck(false); if (refused && !spoke) pending = { st, text, done }; }
+      if (!refused || spoke) done && done(); else if (tok !== sayTok) done && done();
+    };
+    u.onstart = () => { spoke = true; if (tok === sayTok && !fin) duck(true); };
+    u.onend = () => end(false); u.onerror = e => end(!!(e && (e.error === 'not-allowed' || e.error === 'synthesis-failed')));
+    // watchdog: if nothing has started after 4 s the engine is not going to speak; if it started, allow the line's length
+    wd = setTimeout(() => end(!spoke), Math.min(40000, 4000 + text.length * 110));
+    try { if (speechSynthesis.speaking || speechSynthesis.pending) { speechSynthesis.cancel(); setTimeout(() => { if (tok === sayTok && !fin) speechSynthesis.speak(u); }, 80); } else speechSynthesis.speak(u); }
+    catch (e) { end(false); }
   }
   function djBreak(st, done) {
     const r = Math.random(), kind = r < 0.22 ? 'time' : r < 0.42 ? 'forecast' : r < 0.62 ? (nextNews() ? 'news' : 'quip') : r < 0.82 ? 'quip' : 'ident';
@@ -232,7 +248,7 @@ export function createRadio({ audio, weather, settings, onChange }) {
   function stop() {
     if (seq) { seq.stop(); seq = null; } if (elem) { elem.pause(); }
     if (typeof speechSynthesis !== 'undefined') { try { speechSynthesis.cancel(); } catch (e) { /* ignore */ } }
-    djBusy = false; el.classList.remove('talk'); if (bus) duck(false); trackTitle = '';
+    sayTok++; pending = null; djBusy = false; el.classList.remove('talk'); if (bus) duck(false); trackTitle = '';
   }
   function tune(i) {
     if (!setup()) return;

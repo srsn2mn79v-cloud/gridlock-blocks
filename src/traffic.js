@@ -334,7 +334,7 @@ export function createTrafficSystem(cityData, scene, heightAt, count = 6, maxCou
     car.width = edge.width || 9;
     car.lanes = Math.max(1, edge.lanes || 1);
     car.oneWay = !!edge.oneWay;
-    car.stopCleared = false; car.dwell = 0; car.dwellNeeded = 1.0 + Math.random() * 1.2;
+    car.stopCleared = false; car.stopArr = null; car.dwell = 0; car.dwellNeeded = 1.0 + Math.random() * 1.2;
     car.crashTimer = 0;
     car.path = pathFor(edge, car.from, car.to);
     car.s = Math.random() * 0.7 * car.path.length;
@@ -575,6 +575,62 @@ export function createTrafficSystem(cityData, scene, heightAt, count = 6, maxCou
       const d = Math.hypot(o.mesh.position.x - node.x, o.mesh.position.z - node.z);
       if (d < clr + 1.5 && (o.speed > 0.3 || d < clr)) return false;
       if (o.to === car.to && roadRank(o.edge) > myRank && d < 24 && o.speed > 0.5) return false;
+    }
+    return true;
+  }
+
+
+  // --- Stop-sign etiquette -------------------------------------------------------------------------------------------------
+  // Real-life rules, in the order a driver applies them once stopped at the line:
+  //  1. wait until the junction box is clear (stopJunctionClear);
+  //  2. the first car to arrive goes first (first come, first served), at an all-way stop AND between the two minor approaches of a T;
+  //  3. cars that arrive together: give way to the car on your right; when facing each other, straight and right-turners go before a left-turner;
+  //  4. at a two-way stop give way to everything on the main road that is close (a ~4 s gap) or already in the junction;
+  //  5. a car that has been waved on (stopCleared) and is about to enter keeps everybody it conflicts with waiting, so two cars never leave together;
+  //  6. paths that cannot meet (two opposite cars both going straight / right, two right-turners) go together.
+  // The old 14 s override stays as a last resort so nothing can ever deadlock.
+  function turnKind(car) {                               // -1 left, 0 straight, +1 right (positive turn = clockwise on screen = right, see offsetVec)
+    const A = nodes[car.from], B = nodes[car.to], C = car.nextEdge && nodes[otherEnd(car.nextEdge, car.to)];
+    if (!A || !B || !C) return 0;
+    const d = normalizeAngle(Math.atan2(C.z - B.z, C.x - B.x) - Math.atan2(B.z - A.z, B.x - A.x));
+    return d > 0.55 ? 1 : d < -0.55 ? -1 : 0;
+  }
+  function pathsConflict(a, b) {                          // a, b: cars approaching the same node from different roads
+    const A1 = nodes[a.from], A2 = nodes[b.from], B = nodes[a.to]; if (!A1 || !A2 || !B) return true;
+    const ax = B.x - A1.x, az = B.z - A1.z, bx = B.x - A2.x, bz = B.z - A2.z, la = Math.hypot(ax, az) || 1, lb = Math.hypot(bx, bz) || 1;
+    const cos = (ax * bx + az * bz) / (la * lb), ta = turnKind(a), tb = turnKind(b);
+    if (cos < -0.8) return (ta === -1) !== (tb === -1) ;  // facing each other: only a lone left-turner crosses the other's path
+    if (ta === 1 && tb === 1) return false;
+    return true;
+  }
+  function onMyRight(a, b) {                              // is car b's approach on a's right-hand side?
+    const A1 = nodes[a.from], A2 = nodes[b.from], B = nodes[a.to]; if (!A1 || !A2 || !B) return false;
+    const h = Math.atan2(B.z - A1.z, B.x - A1.x), rx = -Math.sin(h), rz = Math.cos(h);
+    return (A2.x - B.x) * rx + (A2.z - B.z) * rz > 0;
+  }
+  const toNodeDist = o => Math.hypot(o.mesh.position.x - nodes[o.to].x, o.mesh.position.z - nodes[o.to].z);
+  function stopMayGo(car, clr) {
+    if (!stopJunctionClear(car, clr)) return false;
+    const node = car.to, waited = car.dwell - car.dwellNeeded;
+    for (const o of cars) {
+      if (o === car || !o.active || o.ghost > 0 || o.crashTimer > 0 || !o.edge || o.to !== node || o.from === car.from || o.conn) continue;
+      const dN = toNodeDist(o); if (dN > 60) continue;
+      if (!pathsConflict(car, o)) continue;
+      const oStop = stopSet.has(stopKey(node, o.edge.id));
+      if (!oStop) {                                       // main-road traffic: give way if it is close, or on its way and not slowing for anything
+        if (o.speed > 1 && dN / Math.max(o.speed, 3) < 4.2) return false;
+        if (dN < 14 && o.speed > 0.4) return false;
+        continue;
+      }
+      if (o.stopCleared) { if (dN < 16) return false; continue; }                       // somebody already waved on
+      if (o.stopArr == null || o.speed > 0.5 || dN > 14) continue;                      // not yet at the line: they will wait for us
+      if (o.stopArr < car.stopArr - 0.3) return false;                                  // arrived first
+      if (o.stopArr > car.stopArr + 0.3) continue;                                      // arrived after us
+      // a tie
+      if (waited > 2.5) { if (o.stopArr < car.stopArr || (o.stopArr === car.stopArr && (o.seed || 0) < (car.seed || 0))) return false; continue; }
+      const opposite = (() => { const A1 = nodes[car.from], A2 = nodes[o.from], B = nodes[node]; const ax = B.x - A1.x, az = B.z - A1.z, bx = B.x - A2.x, bz = B.z - A2.z; return (ax * bx + az * bz) / (Math.hypot(ax, az) * Math.hypot(bx, bz) || 1) < -0.8; })();
+      if (opposite) { if (turnKind(car) === -1) return false; continue; }              // facing each other: the left-turner waits
+      if (onMyRight(car, o)) return false;                                               // otherwise: the car on the right goes first
     }
     return true;
   }
@@ -865,11 +921,12 @@ export function createTrafficSystem(cityData, scene, heightAt, count = 6, maxCou
       const sig = findSignalForApproach(cityData, car.to, car.from);
       if (!sig && car.edge && !car.stopCleared && stopSet.has(stopKey(car.to, car.edge.id))) {
         const toStop = distToNode - lineDist;
-        if (toStop > -0.8) {
+        if (toStop > -0.8 || (toStop > -2.4 && car.speed < 2.5)) {          // a car that has crept a little past the line still has to stop (it used to count as "passed" and roll on)
           hold(toStop, 'stop');
           if (car.speed < 0.2 && toStop < 2.5) {
+            if (car.stopArr == null) car.stopArr = now / 1000;                // the moment it came to rest at the line: first come, first served
             car.dwell = (car.dwell || 0) + dt;
-            if (car.dwell > car.dwellNeeded && (stopJunctionClear(car, clr) || car.dwell > car.dwellNeeded + 14)) car.stopCleared = true;
+            if (car.dwell > car.dwellNeeded && (stopMayGo(car, clr) || car.dwell > car.dwellNeeded + 14)) car.stopCleared = true;
           }
         } else car.stopCleared = true;
       }
@@ -1076,7 +1133,7 @@ export function createTrafficSystem(cityData, scene, heightAt, count = 6, maxCou
           car.from = car.to;
           car.to = otherEnd(next, car.from);
           car.prevType = car.edge && car.edge.type; car.edge = next;
-          car.stopCleared = false; car.dwell = 0; car.dwellNeeded = 1.0 + Math.random() * 1.2;
+          car.stopCleared = false; car.stopArr = null; car.dwell = 0; car.dwellNeeded = 1.0 + Math.random() * 1.2;
           car.targetSpeed = (next.speedLimit ? next.speedLimit / KMH_PER_U * (next.type === 'highway' ? 0.82 : 1) : (typeSpeed[next.type] || 8)) * car.veh.speedMul * (next.type === 'highway' ? (car.pace || 1) : 1) * (car.siren ? 1.3 : 1);
           car.width = next.width || 9;
           car.lanes = Math.max(1, next.lanes || 1);
@@ -1281,5 +1338,5 @@ export function createTrafficSystem(cityData, scene, heightAt, count = 6, maxCou
   function release(car, speed = 4) {
     car.active = true; car.mesh.visible = true; car.speed = speed; car.colliders.forEach(k => { k.blocksCar = true; });
   }
-  return { setGrip(g) { gripNow = g; }, reserveLane, release, adopt, update, walkerHit, events, setClearZone, addRival, clearRivals, rivalPool, colliders: colliderList, cars, svcCars, setPlows, setCount, activeCount, maxCount, setSink(arr) { sink = arr; } };
+  return { pathsConflict, setGrip(g) { gripNow = g; }, reserveLane, release, adopt, update, walkerHit, events, setClearZone, addRival, clearRivals, rivalPool, colliders: colliderList, cars, svcCars, setPlows, setCount, activeCount, maxCount, setSink(arr) { sink = arr; } };
 }
