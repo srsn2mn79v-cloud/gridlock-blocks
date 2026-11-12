@@ -29,6 +29,9 @@ export const APARTMENT_TIERS = [
   { key: 'loft',      label: 'Loft',          price: 165000, W: 14.0, D: 13.4, floor: 12, garage: 4, beds: 3, baths: 2 },
   { key: 'penthouse', label: 'Penthouse',     price: 390000, W: 17.0, D: 15.0, floor: 18, garage: 6, beds: 4, baths: 3 }
 ];
+// Flats are 1.5x as long and wide as the first design (about 2.25x the floor area): room to walk around in.
+const APT_SCALE = 1.5;
+APARTMENT_TIERS.forEach(t => { t.W = Math.round(t.W * APT_SCALE * 10) / 10; t.D = Math.round(t.D * APT_SCALE * 10) / 10; });
 export const FLOOR_H = 3.4;
 export const AGENT_MARKUP = 1.10;
 export const regionOf = (x, z) => (z > Math.abs(x) ? 'north' : z < -Math.abs(x) ? 'south' : x < 0 ? 'east' : 'west');   // east is -x on this map

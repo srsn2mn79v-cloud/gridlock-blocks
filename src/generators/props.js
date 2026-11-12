@@ -6,13 +6,33 @@ import { snowCap, bakeSnowHeights } from '../surfaceShaders.js';
 import { createGroundGlow, createHalo, setGlow } from '../glow.js';
 import { createInstanceStream } from '../instanceStream.js';
 
+// Foliage materials are shared and tagged (userData.leaf) so seasons.js can recolour them for autumn and hide the merged leaf meshes in winter.
+// `base` is the summer green; `fall` the colour that variety turns in autumn.
+export const LEAF = {
+  oakA: Object.assign(new THREE.MeshStandardMaterial({ color: 0x4b9a4f, flatShading: true }), { userData: { leaf: { base: 0x4b9a4f, fall: 0xd9b02a } } }),
+  oakB: Object.assign(new THREE.MeshStandardMaterial({ color: 0x3f8a46, flatShading: true }), { userData: { leaf: { base: 0x3f8a46, fall: 0xc4452a } } }),
+  cone: Object.assign(new THREE.MeshStandardMaterial({ color: 0x3f8f4a }), { userData: { leaf: { base: 0x3f8f4a, fall: 0xd2761f } } }),
+  bush: Object.assign(new THREE.MeshStandardMaterial({ color: 0x2f7a3c, flatShading: true }), { userData: { leaf: { base: 0x2f7a3c, fall: 0x9a5a2a, stays: true } } })
+};
+const woodMat = new THREE.MeshStandardMaterial({ color: 0x5b4632 }), oakWoodMat = new THREE.MeshStandardMaterial({ color: 0x5a4430 });
+// bare branches: hidden inside the foliage in summer, the skeleton of the tree in winter
+function branches(g, mat, y0, spread, n, len, seedK) {
+  const geo = new THREE.CylinderGeometry(0.035, 0.07, len, 4); geo.translate(0, len / 2, 0);
+  for (let i = 0; i < n; i++) {
+    const a = i / n * Math.PI * 2 + seedK, tilt = 0.5 + 0.12 * (i % 3);
+    const arm = new THREE.Group(); arm.position.set(0, y0 + 0.25 * (i % 3), 0); arm.rotation.set(0, a, 0); g.add(arm);
+    const m = new THREE.Mesh(geo, mat); m.rotation.z = tilt; arm.add(m);                                   // the bough leans out from the trunk
+    const tw = new THREE.Mesh(geo, mat); tw.scale.set(0.6, 0.55, 0.6); tw.position.set(-Math.sin(tilt) * len * 0.7, Math.cos(tilt) * len * 0.7, 0); tw.rotation.z = tilt - 0.9; arm.add(tw);   // and forks once
+  }
+}
 function treeMesh() {
   const g = new THREE.Group();
-  const trunk = new THREE.Mesh(new THREE.CylinderGeometry(0.15, 0.2, 1.2, 6), new THREE.MeshStandardMaterial({ color: 0x5b4632 }));
+  const trunk = new THREE.Mesh(new THREE.CylinderGeometry(0.15, 0.2, 1.2, 6), woodMat);
   trunk.position.y = 0.6; trunk.castShadow = true;
-  const leaves = new THREE.Mesh(new THREE.ConeGeometry(1.1, 2.2, 7), new THREE.MeshStandardMaterial({ color: 0x3f8f4a }));
+  const leaves = new THREE.Mesh(new THREE.ConeGeometry(1.1, 2.2, 7), LEAF.cone);
   leaves.position.y = 2.1; leaves.castShadow = true;
   g.add(trunk, leaves);
+  branches(g, woodMat, 1.0, 0.8, 5, 1.7, 0);
   return g;
 }
 
@@ -310,20 +330,21 @@ const M = (c, o = {}) => new THREE.MeshStandardMaterial({ color: c, ...o });
 function oakMesh(prop) {
   const g = new THREE.Group();
   const k = 0.85 + ((Math.abs(Math.sin((prop.x || 0) * 12.9 + (prop.z || 0) * 7.7)) * 1000) % 1) * 0.5;
-  const trunk = new THREE.Mesh(new THREE.CylinderGeometry(0.22 * k, 0.32 * k, 2.2 * k, 7), M(0x5a4430));
+  const trunk = new THREE.Mesh(new THREE.CylinderGeometry(0.22 * k, 0.32 * k, 2.2 * k, 7), oakWoodMat);
   trunk.position.y = 1.1 * k; trunk.castShadow = true;
   g.add(trunk);
   [[0, 3.4, 0, 1.7], [0.9, 3.0, 0.3, 1.2], [-0.8, 3.1, -0.4, 1.25], [0.1, 4.2, 0.2, 1.1]].forEach(([x, y, z, r], i) => {
-    const m = new THREE.Mesh(new THREE.IcosahedronGeometry(r * k, 1), M(i % 2 ? 0x4b9a4f : 0x3f8a46, { flatShading: true }));
+    const m = new THREE.Mesh(new THREE.IcosahedronGeometry(r * k, 1), i % 2 ? LEAF.oakA : LEAF.oakB);
     m.position.set(x * k, y * k, z * k); m.castShadow = true; g.add(m);
   });
+  const sub = new THREE.Group(); sub.scale.setScalar(k); branches(sub, oakWoodMat, 2.0, 1.4, 6, 2.0, k * 3); g.add(sub);
   return g;
 }
 function bushMesh(prop) {
   const g = new THREE.Group();
   const k = 0.8 + ((Math.abs(Math.sin((prop.x || 0) * 3.1 + (prop.z || 0) * 5.3)) * 1000) % 1) * 0.5;
   [[0, 0.55, 0, 0.75], [0.55, 0.42, 0.2, 0.55], [-0.5, 0.4, -0.2, 0.55]].forEach(([x, y, z, r]) => {
-    const m = new THREE.Mesh(new THREE.IcosahedronGeometry(r * k, 1), M(0x2f7a3c, { flatShading: true }));
+    const m = new THREE.Mesh(new THREE.IcosahedronGeometry(r * k, 1), LEAF.bush);
     m.position.set(x * k, y * k, z * k); m.castShadow = true; g.add(m);
   });
   return g;
@@ -447,6 +468,7 @@ function mergeStaticProps(meshes) {
   buckets.forEach(b => {
     const mesh = new THREE.Mesh(mergeGeometries(b.geos, false), mats.get(b.mk));
     mesh.castShadow = true;
+    if (mesh.material.userData && mesh.material.userData.leaf) { mesh.userData.leaf = true; (out.userData.leafMeshes ||= []).push(mesh); }       // seasons.js hides these in winter
     out.add(mesh);
   });
   return out;
@@ -573,7 +595,8 @@ export function buildProps(cityData) {
   });
   const stream = group.userData.stream = createInstanceStream();   // main.js calls stream.update(camera, drawDistance) every frame
   if (parked.length) group.add(buildParkedCars(parked, stream));
-  if (statics.length) group.add(mergeStaticProps(statics));
+  if (statics.length) { const st = mergeStaticProps(statics); group.add(st); group.userData.leafMeshes = st.userData.leafMeshes || []; }
+  group.userData.trees = (cityData.props || []).filter(q => q.type === 'oak' || q.type === 'tree').map(q => [q.x, q.z, q.type === 'oak' ? 1.9 : 1.3]);       // where leaves can fall (seasons.js)
   if (awnings.length) group.add(mergeStaticProps(awnings));
   if (neonSigns.length) { const ns = buildNeonSigns(neonSigns, stream); group.add(ns); group.userData.neon = ns.userData; }
   if (pathLights.length) { const pl = buildPathLights(pathLights); group.add(pl); group.userData.pathLights = pl.userData; }

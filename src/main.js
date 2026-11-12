@@ -46,6 +46,7 @@ import { createMenu, loadSettings, saveSettings } from './menu.js';
 import { createWorld } from './world.js';
 import { createTaxi } from './taxi.js';
 import { createWeather } from './weather.js';
+import { createSeasons } from './seasons.js';
 import { createPlowFx } from './plowfx.js';
 import { createRadio } from './radio.js';
 import { createAudio } from './audio.js';
@@ -72,7 +73,7 @@ scene.fog = new THREE.Fog(0x0b0f14, 60, 260);
 const camera = new THREE.PerspectiveCamera(62, innerWidth / innerHeight, 0.1, 600);
 let gfx = null;   // graphics pipeline, created once the world exists (graphics.js)
 const renderer = new THREE.WebGLRenderer({ antialias: true });
-let resScale = 1, viewMul = 1;
+let resScale = 1, viewMul = 1, flatLite = false;
 const applyRatio = () => renderer.setPixelRatio(Math.min(devicePixelRatio, 2) * resScale);
 applyRatio();
 renderer.setSize(innerWidth, innerHeight);
@@ -498,7 +499,8 @@ if (settings.rain && settings.snow) settings.snow = false;
 await tick('Setting up the world...', 0.94);
 const env = createEnvironment({ scene, camera, hemi, sun, ground, roadsGroup, parcelGroup, propGroup, onNight, bounds: city.bounds });
 const minimap = createMinimap(city, roadsGroup);
-const weather = createWeather({ env, settings, save: () => saveSettings(settings) });
+const seasons = createSeasons({ propGroup, env, scene });
+const weather = createWeather({ env, settings, save: () => saveSettings(settings), onApply: cur => seasons.apply(cur.season) });
 const plowFx = createPlowFx(scene);
 const taxi = createTaxi({ city, scene, heightAt, snowing: () => !!settings.snow });
 let modalPause = false;
@@ -904,7 +906,12 @@ function animate() {
   marketDecor.userData.update(env.hour, nightK);
   // View distance: scale the fog and cut the camera's far plane just beyond it, so geometry
   // that fog would hide anyway isn't drawn at all.
-  scene.fog.near *= viewMul; scene.fog.far *= viewMul;
+  // Inside a flat the windows only need a postcard of the city: half the view distance and a third of the cars and walkers
+  // (the flats sit high up, so the whole city was in view and being drawn). Everything returns when you step out.
+  const inFlat = world.mode === 'flat';
+  if (inFlat !== flatLite) { flatLite = inFlat; traffic.setCount(inFlat ? Math.round(settings.traffic * 0.3) : settings.traffic); pedestrians.setCount(inFlat ? Math.round(settings.peds * 0.3) : settings.peds); }
+  const vm = viewMul * (inFlat ? 0.5 : 1);
+  scene.fog.near *= vm; scene.fog.far *= vm;
   const wantFar = Math.max(80, scene.fog.far + 25);
   if (Math.abs(camera.far - wantFar) > 2) { camera.far = wantFar; camera.updateProjectionMatrix(); }
   syncLights();
@@ -1042,7 +1049,7 @@ function animate() {
   renderFrame();
   requestAnimationFrame(animate);
 }
-window.__game = { wakeLock, interstate, cruise, airport, port, goldenGate, shopLots, drawbridge, boats, hail, camRig, interior, fuel, radio, weather, plowFx, puffs, gfx, transit, parkedCars, skids, audio, races, structures, world, renderer, taxi, input, destruction, collisionWorld, lampDefs, signs, propInstances, env, settings, menu, minimap, scene, camera, car, city, traffic, pedestrians, lampPool, reflectors, heightAt, offences: { get wrongWay() { return wrongWayOffences; } } };
+window.__game = { seasons, wakeLock, interstate, cruise, airport, port, goldenGate, shopLots, drawbridge, boats, hail, camRig, interior, fuel, radio, weather, plowFx, puffs, gfx, transit, parkedCars, skids, audio, races, structures, world, renderer, taxi, input, destruction, collisionWorld, lampDefs, signs, propInstances, env, settings, menu, minimap, scene, camera, car, city, traffic, pedestrians, lampPool, reflectors, heightAt, offences: { get wrongWay() { return wrongWayOffences; } } };
 // Arriving through the tunnel from another city (travel.js): come out of the inbound tube at the speed, time of day and radio station
 // the player went in with, then lift the tunnel off the screen once a few frames of the new city have been drawn.
 {

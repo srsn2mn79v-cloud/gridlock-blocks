@@ -2,6 +2,7 @@
 // evaluated later: smooth noise decides cloud / precipitation / fog, a daily temperature curve decides whether the precipitation
 // falls as rain or snow (snow only near or below freezing). The module also runs the game clock (time of day keeps moving unless
 // paused), applies the result to the environment and shows a small weather + clock readout.
+import { seasonAt, meanTemp } from './seasons.js';
 const hash = n => { const s = Math.sin(n * 127.1 + 311.7) * 43758.5453; return s - Math.floor(s); };
 const vnoise = x => { const i = Math.floor(x), f = x - i, u = f * f * (3 - 2 * f); return hash(i) * (1 - u) + hash(i + 1) * u; };
 const sstep = (a, b, x) => { const t = Math.max(0, Math.min(1, (x - a) / (b - a))); return t * t * (3 - 2 * t); };
@@ -11,19 +12,22 @@ export const KIND_ICON = { clear: '☀️', night: '🌙', cloudy: '☁️', fog
 
 // absolute game hour A = day * 24 + hour
 export function weatherAt(A) {
-  const day = Math.floor(A / 24), h = A - day * 24;
-  const dayBase = 1.5 + (vnoise(day * 0.8 + 3.3) - 0.5) * 13;                 // late autumn / early winter in Chicago: roughly -5 .. +8 C
-  const diurnal = 3.6 * Math.sin((h - 9) / 24 * Math.PI * 2);                  // coldest before dawn, warmest mid afternoon
+  const day = Math.floor(A / 24), h = A - day * 24, sea = seasonAt(day, h);
+  const winter = sea.yp >= 0.75 || sea.yp < 0.03, summer = sea.yp >= 0.25 && sea.yp < 0.5;
+  const dayBase = meanTemp(sea.yp) + (vnoise(day * 0.8 + 3.3) - 0.5) * (winter ? 11 : 9);              // the season's average, give or take a few degrees from day to day
+  const diurnal = (summer ? 5 : 3.6) * Math.sin((h - 9) / 24 * Math.PI * 2);                         // coldest before dawn, warmest mid afternoon
   const w = vnoise(A / 7.5 + 11.7) * 0.75 + vnoise(A / 2.3 + 5.1) * 0.25;
-  const cloud = sstep(0.38, 0.62, w);
-  const precip = sstep(0.62, 0.8, w);
+  // wet days: winter has few of them (so it is not snowing every day), the other seasons a normal number
+  const wetDay = vnoise(day * 1.13 + 9.7), gate = sstep((winter ? 0.4 : 0.42) - 0.08, (winter ? 0.4 : 0.42) + 0.08, wetDay);
+  const cloud = sstep(0.38, 0.62, w) * (winter ? 1 : 0.85 + 0.15 * gate);
+  const precip = sstep(0.62, 0.8, w) * gate;
   const fogN = vnoise(A / 5 + 40.2);
   const temp = dayBase + diurnal - 1.6 * cloud - 1.2 * precip;
   let kind = 'clear', level = 0;
   if (precip > 0.18) { kind = temp <= 0.8 ? 'snow' : 'rain'; level = 0.3 + 0.7 * precip; }
   else if (fogN > 0.74 && (h < 9.5 || h > 19.5) && cloud < 0.9) { kind = 'fog'; level = Math.min(1, (fogN - 0.74) * 5); }
   else if (cloud > 0.45) kind = 'cloudy';
-  return { kind, level, temp, cloud };
+  return { kind, level, temp, cloud, season: sea };
 }
 
 const fmtT = t => (Math.round(t) <= 0 && t > -0.5 ? 0 : Math.round(t)) + '°C';
@@ -54,7 +58,7 @@ export function createWeather({ env, settings, save, onApply, dayMinutes = 60 })
     const night = env.nightK > 0.5;
     const icon = cur.kind === 'clear' && night ? KIND_ICON.night : KIND_ICON[cur.kind];
     const kindWord = settings.dynWeather === false ? (settings.snow ? 'snow' : settings.rain ? 'rain' : settings.fog > 0.3 ? 'foggy' : 'clear') : KIND_LABEL[cur.kind];
-    el.textContent = `${icon} ${fmtT(cur.temp)} · ${kindWord} · ${fmtClock(settings.hour)}`;
+    el.textContent = `${cur.season ? cur.season.monthName + ' · ' : ''}${icon} ${fmtT(cur.temp)} · ${kindWord} · ${fmtClock(settings.hour)}`;
   }
   apply(); text();
 

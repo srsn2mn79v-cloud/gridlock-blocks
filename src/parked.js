@@ -4,6 +4,7 @@
 import * as THREE from 'three';
 import { buildCarBody } from './vehicleModels.js';
 import { bodyLift } from './bodyLift.js';
+import { installSnowCap } from './surfaceShaders.js';
 
 const MASS = { wagon: 1400, suv: 2000, rally: 1200, roadster: 1150, supercar: 1350, hyper: 1450, hatch: 1050, sport: 1250, muscle: 1700, pickup: 2100, van: 2300, taxi: 1400 };
 
@@ -20,6 +21,7 @@ export function createParkedCars({ scene, propInstances, collisionWorld, heightA
     const st = colliderOf.get(it); if (st) { st.destroyed = true; st.blocksCar = false; }
     if (rec.item) rec.item.hidden = true;   // drops it from the instanced parked cars on the next frame
     const mesh = buildCarBody(rec.style, rec.color); mesh.rotation.order = 'YXZ';
+    mesh.traverse(o => { if (o.isMesh) (Array.isArray(o.material) ? o.material : [o.material]).forEach(installSnowCap); });      // the instanced copy wears the snow coat; the woken one must too, or the snow vanishes as you drive up
     const d = mesh.userData.dims || { len: 3.6, wid: 1.8 };
     mesh.position.set(rec.x, rec.y || 0.02, rec.z); mesh.rotation.y = rec.heading;
     scene.add(mesh);

@@ -895,12 +895,34 @@ async function checkStops(cars = +process.argv[3] || 90, minutes = +process.argv
   if (stuckAtStop) bad.push(stuckAtStop + ' cars waited >45 s at a stop sign');
   return { name: 'stops', count: summary, bad };
 }
-const CHECKS = { stops: checkStops,  outroad: checkOutroad, transit: checkTransit, rivals: checkRivals, sidewalks: checkSidewalks, gas: checkGas, races: checkRaces, drift: checkDrift, covered: checkCovered,  signs: checkSigns, signfacing: checkSignFacing, lamps: checkLamps, buildings: checkBuildings, traffic: () => checkTraffic(+process.argv[3] || 40, +process.argv[4] || 5), markings: checkMarkings, bridges: checkBridges, solid: checkSolid, water: checkWater, rules: checkRules, driveways: checkDriveways, smooth: checkSmooth, mesh: checkMesh, pavement: checkPavement, connected: checkConnected, lots: checkLots, doors: checkDoors, pavementgaps: checkPavementGaps, riverbanks: checkRiverBanks, bridgewalls: checkBridgeWalls, obstacles: checkObstacles, lotgeo: checkLotGeo };
+// ---- the radio songs (songs.js): every song builds, runs 2.5-5 minutes, keeps its melody in range and mostly by step, has a bass register --------
+async function checkSongs() {
+  const { SONGS, buildPlan, noteName } = await imp('src/songs.js'), bad = [], names = new Set();
+  for (const P of SONGS) {
+    const pl = buildPlan(P), dur = pl.bars.length * pl.barSec; let prev = null, leaps = 0, n = 0, lens = new Set();
+    if (names.has(P.name)) bad.push('two songs called ' + P.name); names.add(P.name);
+    if (/runescape|varrock|falador|wilderness/i.test(P.name)) bad.push(P.name + ': a game reference in the title');
+    if (dur < 150 || dur > 330) bad.push(P.name + ' runs ' + Math.round(dur) + ' s');
+    pl.bars.forEach(b => b.mel.forEach((m, i) => {
+      n++; lens.add(m.len); if (!(m.midi >= 60 && m.midi <= 90)) bad.push(P.name + ': melody note out of range ' + m.midi);
+      if (prev != null && i > 0 && b.sec !== 'bridge' && b.sec !== 'outro' && Math.abs(m.midi - prev) > 9) leaps++; prev = m.midi;
+    }));
+    if (P.melody && n < 60) bad.push(P.name + ' has only ' + n + ' melody notes');
+    if (P.melody && lens.size < 4) bad.push(P.name + ' uses only ' + lens.size + ' note lengths');
+    if (leaps > 3) bad.push(P.name + ' has ' + leaps + ' big leaps');
+    if (!pl.bars.some(b => b.kick) && P.style !== 'lowkey') bad.push(P.name + ' never plays the kick');
+  }
+  const styles = ['neon', 'lowkey', 'cruise'].map(k => SONGS.filter(s => s.style === k).length);
+  if (Math.min(...styles) < 6) bad.push('a station has fewer than 6 songs: ' + styles.join('/'));
+  return { name: 'songs', count: SONGS.length + ' songs (' + styles.join('/') + ' per station), ' + SONGS.filter(s => !s.melody).length + ' instrumental grooves', bad };
+}
+
+const CHECKS = { songs: checkSongs,  stops: checkStops,  outroad: checkOutroad, transit: checkTransit, rivals: checkRivals, sidewalks: checkSidewalks, gas: checkGas, races: checkRaces, drift: checkDrift, covered: checkCovered,  signs: checkSigns, signfacing: checkSignFacing, lamps: checkLamps, buildings: checkBuildings, traffic: () => checkTraffic(+process.argv[3] || 40, +process.argv[4] || 5), markings: checkMarkings, bridges: checkBridges, solid: checkSolid, water: checkWater, rules: checkRules, driveways: checkDriveways, smooth: checkSmooth, mesh: checkMesh, pavement: checkPavement, connected: checkConnected, lots: checkLots, doors: checkDoors, pavementgaps: checkPavementGaps, riverbanks: checkRiverBanks, bridgewalls: checkBridgeWalls, obstacles: checkObstacles, lotgeo: checkLotGeo };
 // groups: run several related checks at once
 const GROUPS = {
   placement: ['signs', 'signfacing', 'lamps', 'driveways', 'buildings', 'pavement', 'sidewalks', 'pavementgaps', 'lotgeo'],   // nothing stands where it shouldn't
   roads: ['markings', 'bridges', 'bridgewalls', 'riverbanks', 'water', 'smooth', 'mesh', 'connected', 'rules'],    // road geometry and connections
-  quick: ['placement', 'roads', 'gas', 'transit', 'drift', 'covered', 'outroad'],                           // all static checks, seconds
+  quick: ['placement', 'roads', 'gas', 'transit', 'drift', 'covered', 'outroad', 'songs'],                           // all static checks, seconds
   sim: ['traffic', 'stops', 'solid', 'obstacles', 'rivals', 'races', 'lots', 'doors'],                                       // simulations, minutes
   all: ['quick', 'sim']
 };

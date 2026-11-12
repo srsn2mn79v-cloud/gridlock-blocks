@@ -74,7 +74,7 @@ export function createEnvironment({ scene, camera, hemi, sun, ground, roadsGroup
   const remember = (mat, kind) => {
     if (!mat || tint.has(mat) || !mat.color) return;
     if (kind === 'parcel' && mat.color.b - mat.color.r > 0.18) return; // leave water alone
-    tint.set(mat, { color: mat.color.clone(), rough: mat.roughness, env: mat.envMapIntensity, kind });
+    tint.set(mat, { color: mat.color.clone(), rough: mat.roughness, env: mat.envMapIntensity, kind, green: kind === 'parcel' && mat.color.g > mat.color.r * 1.08 && mat.color.g > mat.color.b * 1.08 });
   };
   remember(ground.material, 'ground');
   roadsGroup.traverse(o => { if (o.isMesh && o.userData.isRoadSurface) remember(o.material, 'road'); });
@@ -175,9 +175,11 @@ export function createEnvironment({ scene, camera, hemi, sun, ground, roadsGroup
     mat.needsUpdate = true;
   });
   const SNOW_GROUND = C(0xe8eff5), SNOW_ROAD = C(0xbfc7cf), SNOW_ROOF = C(0xdde5ec);
+  const seasonTint = { color: new THREE.Color(1, 1, 1), k: 0 };       // grass colour by season (seasons.js); parks and the ground plane
   function applyTints() {
     tint.forEach((o, mat) => {
       mat.color.copy(o.color);
+      if (seasonTint.k > 0.001 && (o.kind === 'ground' || o.green)) mat.color.lerp(seasonTint.color, seasonTint.k);
       if (o.kind === 'ground') {
         mat.color.multiplyScalar(1 - 0.3 * wet);
         mat.color.lerp(SNOW_GROUND, snowAcc * 0.95);
@@ -348,6 +350,7 @@ export function createEnvironment({ scene, camera, hemi, sun, ground, roadsGroup
     },
     get hour() { return state.hour; },
     setTemp(t) { state.temp = t; },
+    setGroundTint(hex, k) { seasonTint.k = hex == null ? 0 : k; if (hex != null) seasonTint.color.set(hex); },
     get temp() { return state.temp; },
     // road grip: 1 dry, ~0.7 wet, down to ~0.3 once snow has settled
     get grip() { return Math.max(0.28, (1 - 0.4 * wet - 0.65 * snowAcc) * (state.temp < 1.2 && wet > 0.25 && snowAcc < 0.3 ? 0.88 : 1)); },
