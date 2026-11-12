@@ -4,6 +4,7 @@ import { buildParkedCars, parkedCarStyle } from '../vehicleModels.js';
 import { collapse } from '../collapse.js';
 import { snowCap, bakeSnowHeights } from '../surfaceShaders.js';
 import { createGroundGlow, createHalo, setGlow } from '../glow.js';
+import { createInstanceStream } from '../instanceStream.js';
 
 function treeMesh() {
   const g = new THREE.Group();
@@ -20,6 +21,15 @@ function treeMesh() {
 // material and the actual light so the glow and the light it casts match.
 const SODIUM_COLOR = 0xffa033;
 const SODIUM_EMISSIVE = 0xff8c1a;
+
+// Every working street lamp shares one lens material (they all glow alike, so main.js sets its brightness once
+// and all the lenses can be drawn in one batch); a lamp that gets knocked over is switched to deadLampLensMat.
+export const lampLensMat = new THREE.MeshStandardMaterial({ color: SODIUM_COLOR, emissive: SODIUM_EMISSIVE, emissiveIntensity: 1.1, roughness: 0.4 });
+export const deadLampLensMat = new THREE.MeshStandardMaterial({ color: SODIUM_COLOR, emissive: SODIUM_EMISSIVE, emissiveIntensity: 0, roughness: 0.4 });
+const lampPoleMat = new THREE.MeshStandardMaterial({ color: 0x2a2f36, roughness: 0.6, metalness: 0.4 });
+lampPoleMat.userData.snow = { grad: [1.9, 3.7] };
+const lampHeadMat = new THREE.MeshStandardMaterial({ color: 0x1d2127, roughness: 0.5, metalness: 0.5 });
+lampHeadMat.userData.snow = { skip: true };
 
 // One lamp head — arm, housing, lens, and an aimed SpotLight (not an omnidirectional
 // PointLight) so it actually points where the arm points rather than glowing equally
@@ -38,15 +48,12 @@ function lampHead(poleMat, mirror) {
   arm2.rotation.x = Math.PI / 2.1;
   arm2.castShadow = false;
 
-  const headMat = new THREE.MeshStandardMaterial({ color: 0x1d2127, roughness: 0.5, metalness: 0.5 });
-  headMat.userData.snow = { skip: true };
+  const headMat = lampHeadMat;
   const head = new THREE.Mesh(new THREE.BoxGeometry(0.4, 0.16, 0.6), headMat);
   head.position.set(0, 3.78, 0.85);
   head.castShadow = false;
 
-  const lensMat = new THREE.MeshStandardMaterial({
-    color: SODIUM_COLOR, emissive: SODIUM_EMISSIVE, emissiveIntensity: 1.1, roughness: 0.4
-  });
+  const lensMat = lampLensMat;
   const lens = new THREE.Mesh(new THREE.BoxGeometry(0.3, 0.04, 0.46), lensMat);
   lens.position.set(0, 3.70, 0.85);
 
@@ -79,8 +86,7 @@ function lampHead(poleMat, mirror) {
 function lightMesh(prop) {
   const twin = !!(prop && prop.twin);
   const g = new THREE.Group();
-  const poleMat = new THREE.MeshStandardMaterial({ color: 0x2a2f36, roughness: 0.6, metalness: 0.4 });
-  poleMat.userData.snow = { grad: [1.9, 3.7] };
+  const poleMat = lampPoleMat;
 
   const base = new THREE.Mesh(new THREE.CylinderGeometry(0.16, 0.2, 0.18, 10), poleMat);
   base.position.y = 0.09; base.castShadow = false;
@@ -222,7 +228,7 @@ function trafficLightMesh(prop) {
   const backMat = new THREE.MeshStandardMaterial({ color: 0xe9e6dc, roughness: 0.7 });
   const lensDefs = [['red', 0xff2a2a, 0.6], ['yellow', 0xffc02a, 0], ['green', 0x2aff6a, -0.6]];
   const lenses = {}, halos = {};
-  lensDefs.forEach(([name, color]) => { lenses[name] = new THREE.MeshStandardMaterial({ color: 0x241a1a, emissive: color, emissiveIntensity: 0.05 }); });
+  lensDefs.forEach(([name, color]) => { lenses[name] = new THREE.MeshStandardMaterial({ color: 0x241a1a, emissive: color, emissiveIntensity: 0.05 }); lenses[name].userData.live = true; });   // live: lit per signal, never batched
   const headY = POLE_H - (wire ? 1.9 : 1.5);
   let mainHead = null;
   heads.forEach((hx, idx) => {
@@ -254,6 +260,7 @@ function trafficLightMesh(prop) {
   // in the walk/don't-walk vocabulary (white = walk, red = don't walk).
   const makeLens = (y, color, z) => {
     const mat = new THREE.MeshStandardMaterial({ color: 0x241a1a, emissive: color, emissiveIntensity: 0.08 });
+    mat.userData.live = true;
     const lens = new THREE.Mesh(new THREE.CylinderGeometry(0.13, 0.13, 0.06, 12), mat);
     lens.rotation.x = Math.PI / 2;
     lens.position.set(0, y, z);
@@ -470,24 +477,28 @@ function neonTexture(word, blade) {
   g.strokeStyle = '#fff'; g.lineWidth = 4; g.strokeRect(5, 5, W - 10, H - 10);
   const t = new THREE.CanvasTexture(c); t.colorSpace = THREE.SRGBColorSpace; return t;
 }
-function buildNeonSigns(list) {
+function buildNeonSigns(list, stream) {
   const g = new THREE.Group(), mats = [], byKey = new Map();
   list.forEach(p => { const k = p.word + (p.blade ? '|b' : ''); (byKey.get(k) || byKey.set(k, []).get(k)).push(p); });
-  const m = new THREE.Matrix4(), q = new THREE.Quaternion(), sc = new THREE.Vector3(), pos = new THREE.Vector3(), col = new THREE.Color(), up = new THREE.Vector3(0, 1, 0);
+  const q = new THREE.Quaternion(), sc = new THREE.Vector3(), pos = new THREE.Vector3(), up = new THREE.Vector3(0, 1, 0);
   const geo = new THREE.PlaneGeometry(1, 1);
   byKey.forEach((arr, k) => {
     // opaque panel, drawn twice back to back: the second copy faces the other way so the words read correctly from behind too
     const mat = new THREE.MeshBasicMaterial({ map: neonTexture(arr[0].word, arr[0].blade), toneMapped: false });
     const front = new THREE.InstancedMesh(geo, mat, arr.length), back = new THREE.InstancedMesh(geo, mat, arr.length);
     const flip = new THREE.Quaternion().setFromAxisAngle(up, Math.PI), qb = new THREE.Quaternion(), off = new THREE.Vector3(), pb = new THREE.Vector3();
-    arr.forEach((p, i) => {
+    const fItems = [], bItems = [];
+    arr.forEach(p => {
       q.setFromAxisAngle(up, (p.rotation || 0) * Math.PI / 180); sc.set(p.w, p.h, 1);
       off.set(0, 0, 0.02).applyQuaternion(q);
-      pos.set(p.x, p.y + p.h / 2, p.z).add(off); m.compose(pos, q, sc); front.setMatrixAt(i, m);
-      qb.copy(q).multiply(flip); pb.set(p.x, p.y + p.h / 2, p.z).sub(off); m.compose(pb, qb, sc); back.setMatrixAt(i, m);
-      col.setHex(p.color).multiplyScalar(2.2); front.setColorAt(i, col); back.setColorAt(i, col);
+      const color = new THREE.Color(p.color).multiplyScalar(2.2), radius = Math.hypot(p.w, p.h) / 2, y = p.y + p.h / 2;
+      pos.set(p.x, y, p.z).add(off);
+      fItems.push({ x: p.x, y, z: p.z, radius, color, matrix: new THREE.Matrix4().compose(pos, q, sc) });
+      qb.copy(q).multiply(flip); pb.set(p.x, y, p.z).sub(off);
+      bItems.push({ x: p.x, y, z: p.z, radius, color, matrix: new THREE.Matrix4().compose(pb, qb, sc) });
     });
-    [front, back].forEach(im => { im.frustumCulled = false; g.add(im); });
+    g.add(front, back);
+    stream.addSet([front], fItems, front); stream.addSet([back], bItems, back);   // only the signs in view are drawn (instanceStream.js)
     mats.push(mat);
   });
   g.userData = { mats };
@@ -560,10 +571,11 @@ export function buildProps(cityData) {
       signalNode: p.signalNode, signalApproach: p.signalApproach
     });
   });
-  if (parked.length) { const pg = buildParkedCars(parked); group.add(pg); group.userData.parkedHandles = pg.userData.handles; }
+  const stream = group.userData.stream = createInstanceStream();   // main.js calls stream.update(camera, drawDistance) every frame
+  if (parked.length) group.add(buildParkedCars(parked, stream));
   if (statics.length) group.add(mergeStaticProps(statics));
   if (awnings.length) group.add(mergeStaticProps(awnings));
-  if (neonSigns.length) { const ns = buildNeonSigns(neonSigns); group.add(ns); group.userData.neon = ns.userData; }
+  if (neonSigns.length) { const ns = buildNeonSigns(neonSigns, stream); group.add(ns); group.userData.neon = ns.userData; }
   if (pathLights.length) { const pl = buildPathLights(pathLights); group.add(pl); group.userData.pathLights = pl.userData; }
   return { group, instances };
 }

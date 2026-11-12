@@ -10,7 +10,8 @@ import { buildShopBays } from './shopBays.js';
 import { buildSigns, signLampMat } from './generators/signs.js';
 import { buildParcels, waterTime } from './generators/parcels.js';
 import { buildDoors } from './generators/doors.js';
-import { buildProps } from './generators/props.js';
+import { buildProps, lampLensMat, deadLampLensMat } from './generators/props.js';
+import { batchProps, freeze, unbatch } from './propBatch.js';
 import { getSpawn } from './generators/gameplay.js';
 import { createRaces } from './races.js';
 import { createFuel } from './fuel.js';
@@ -145,9 +146,9 @@ function onNight(k) {
   nightK = k;
   signLampMat.emissiveIntensity = 0.1 + 2.2 * k;
   if (gfx) gfx.setNight(k);
+  lampLensMat.emissiveIntensity = 0.05 + 1.05 * nightK;   // one shared lens material for every working lamp
   lampLights.forEach(l => {
     if (l.dead) return;
-    l.lens.forEach(m => { m.emissiveIntensity = 0.05 + 1.05 * nightK; });
     l.pools.forEach(pl => setGlow(pl, 0.28));
   });
   const neon = propGroup.userData.neon; if (neon) neon.mats.forEach(m => { m.color.setScalar(0.28 + 0.72 * Math.min(1, nightK * 1.15)); });          // dim by day, blazing at night (the panels are solid)
@@ -163,6 +164,11 @@ const reflectors = roadsGroup.userData.reflectors || [];
 // Far lamps and signal heads are hidden: each is a handful of draw calls and at 150+ units they are a speck.
 // Only what this function hid is shown again, so knocked-down props stay gone.
 const cullSet = propInstances.filter(p => p.mesh && ['light', 'trafficlight', 'shoplamp', 'shopsign', 'sign', 'oneway', 'hydrant', 'mailbox', 'cafeset', 'bush', 'picnic'].includes(p.type));
+// Parked cars and neon signs are instanced city-wide; each frame only the ones in view are handed to the GPU (instanceStream.js).
+function renderFrame() {
+  propGroup.userData.stream.update(camera, camera.far + 8, Math.max(90, camera.far * 0.55) + 4);   // street furniture: same range as cullProps
+  gfx.render();
+}
 let cullT = 0;
 function cullProps(dt) {
   cullT -= dt; if (cullT > 0) return; cullT = 0.25;
@@ -284,7 +290,7 @@ propInstances.filter(p => p.type === 'light').forEach(p => {
 function lampOff(inst) {
   for (let i = lampDefs.length - 1; i >= 0; i--) if (lampDefs[i].owner === inst) lampDefs.splice(i, 1);
   const l = lampLights.find(x => x.owner === inst);
-  if (l) { l.dead = true; l.lens.forEach(m => { m.emissiveIntensity = 0; }); l.pools.forEach(p => { p.visible = false; p.material.opacity = 0; }); }
+  if (l) { l.dead = true; inst.mesh.traverse(o => { if (o.isMesh && o.material === lampLensMat) o.material = deadLampLensMat; }); l.pools.forEach(p => { p.visible = false; p.material.opacity = 0; }); }
   const k = lampXZ.findIndex(x => x.owner === inst);
   if (k >= 0) { const at = lampXZ.splice(k, 1)[0]; computeLampGlow(at); }
 }
@@ -330,6 +336,12 @@ scene.add(buildBillboards(city, heightAt));
 const signs = buildSigns(city, heightAt, roadsGroup.userData.mapPaths);
 scene.add(signs.group);
 signs.group.traverse(o => { if (o.isMesh) (Array.isArray(o.material) ? o.material : [o.material]).forEach(installSnowCap); });
+// Identical parts of lamps, signals, signs and small street furniture are drawn together (propBatch.js). Each object
+// is still there to be hit; unbatch() below hands it back as a normal object the moment it is knocked over.
+const BATCH_TYPES = new Set(['light', 'trafficlight', 'shopsign', 'sign', 'oneway', 'hydrant', 'mailbox', 'cafeset', 'picnic', 'foodstand', 'gazebo']);
+batchProps(propInstances.filter(p => BATCH_TYPES.has(p.type)), propGroup.userData.stream, propGroup, { near: true });
+batchProps(signs.instances, propGroup.userData.stream, signs.group);
+freeze(propInstances); freeze(signs.instances);   // nothing here moves until it is hit (unbatch() thaws it)
 const destruction = createDestruction(scene);
 const riverbanks = buildRiverBanks(city);
 scene.add(riverbanks.group);
@@ -512,7 +524,7 @@ const shopLots = createShopLots({ scene, cityData: city, collisionWorld, heightA
     if (pts.some(p => Math.hypot(car.x - p.x, car.z - p.z) < 9)) return true;
     return traffic.cars.some(c => c.active && c.mesh.visible && !c.parked && pts.some((p, i) => Math.hypot(c.mesh.position.x - p.x, c.mesh.position.z - p.z) < (i ? 11 : 8)));
   } });
-const parkedCars = createParkedCars({ scene, propInstances, handles: propGroup.userData.parkedHandles, collisionWorld, heightAt, events: traffic.events });
+const parkedCars = createParkedCars({ scene, propInstances, collisionWorld, heightAt, events: traffic.events });
 const camGrid = new Map();
 collisionWorld.forEach(c => {
   if (c.kind !== 'parcel' || !c.blocksCar || c.ymax !== undefined || !c.footprint || c.garage) return;
@@ -853,7 +865,7 @@ function animate() {
   if (paused) {
     audio.update(dt, { car, input, onFoot: true, paused: true });
     // game is paused behind the menu; keep rendering so time/weather changes show live
-    gfx.render();
+    renderFrame();
     requestAnimationFrame(animate);
     return;
   }
@@ -872,7 +884,7 @@ function animate() {
     // inside a shop the radio keeps playing, with the garage acoustics and no street noise or rain
     distEl.style.opacity = '0'; distName = null;
     if (world.inShop) { env.setCovered(true); radio.update(dt, { place: 'garage', onFoot: false, dFoot: 0 }); }
-    gfx.render();
+    renderFrame();
     requestAnimationFrame(animate);
     return;
   }
@@ -939,6 +951,7 @@ function animate() {
     car.group.position.set(car.x, car.y, car.z); // re-sync after any collision push-back
     destroyed.forEach(c => {
       const inst = c.instance, mesh = inst.mesh;
+      unbatch(inst);   // it was being drawn in a batch with its lookalikes: from here on it is its own object again
       if (c.spray) sprays.add(mesh.position.x, mesh.position.y + 0.1, mesh.position.z);
       if (c.destroy === 'burst') {
         mesh.visible = false;
@@ -980,7 +993,7 @@ function animate() {
   if (!window.__freeCam) { if (hail.cabCam()) hail.updateCamera(dt); else if (world.onFoot) world.updateCamera(dt); else camRig.update(dt, camBlocked); }
   minimap.update(focus, [], mapExtras(false));
   fxFrame(dt);
-  gfx.render();
+  renderFrame();
   requestAnimationFrame(animate);
 }
 window.__game = { airport, port, goldenGate, shopLots, drawbridge, boats, hail, camRig, interior, fuel, radio, weather, plowFx, puffs, gfx, transit, parkedCars, skids, audio, races, structures, world, renderer, taxi, input, destruction, collisionWorld, lampDefs, signs, propInstances, env, settings, menu, minimap, scene, camera, car, city, traffic, pedestrians, lampPool, reflectors, heightAt, offences: { get wrongWay() { return wrongWayOffences; } } };

@@ -667,13 +667,21 @@ function finishRoads(group) {
   // reflector studs -> one InstancedMesh per colour; r.set(color) updates a single stud
   const refl = group.userData.reflectors || [];
   const base = { white: new THREE.Color(0xe8e8e8), yellow: new THREE.Color(0xe0b020) };
-  ['white', 'yellow'].forEach(key => {
-    const list = refl.filter(r => r.colorKey === key);
-    if (!list.length) return;
-    const im = new THREE.InstancedMesh(new THREE.BoxGeometry(0.16, 0.045, 0.12), new THREE.MeshBasicMaterial({ color: 0xffffff }), list.length);
-    im.frustumCulled = false;
+  // Split per 180 u map square so the renderer can skip the squares that are off screen or beyond the draw distance:
+  // as one city-wide mesh, all ~50 000 studs (over half a million triangles) were sent to the GPU on every pass.
+  const STUD_CELL = 180, studGeo = new THREE.BoxGeometry(0.16, 0.045, 0.12), studMat = new THREE.MeshBasicMaterial({ color: 0xffffff });
+  const cells = new Map();
+  refl.forEach(r => {
+    if (!base[r.colorKey]) return;
+    const k = r.colorKey + '|' + Math.floor(r.x / STUD_CELL) + ',' + Math.floor(r.z / STUD_CELL);
+    (cells.get(k) || cells.set(k, []).get(k)).push(r);
+  });
+  cells.forEach((list, k) => {
+    const key = k.split('|')[0];
+    const im = new THREE.InstancedMesh(studGeo, studMat, list.length);
     list.forEach((r, i) => { im.setMatrixAt(i, r.matrix); im.setColorAt(i, base[key]); r.im = im; r.idx = i; r.base = base[key]; r.last = -1; });
     im.instanceColor.setUsage(THREE.DynamicDrawUsage);
+    im.computeBoundingSphere();
     group.add(im);
   });
 }

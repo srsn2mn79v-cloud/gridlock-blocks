@@ -9,6 +9,7 @@
 // - Stations: eight forecourts (chicago.js `gasStations`): a canopy over the pump lanes, a big price board facing the street, a shop.
 import * as THREE from 'three';
 import { createGroundGlow, createHalo, setGlow } from './glow.js';
+import { collapse } from './collapse.js';
 
 export const BASE_TANK_L = 20, TANK_STEP_L = 5, PRICE_PER_L = 5, PREMIUM_MUL = 5, PREMIUM_POWER = 0.05, FILL_SECONDS = 10;
 export const FUELS = { regular: { name: 'Regular', l100: 20 }, premium: { name: 'Performance', l100: 25 }, diesel: { name: 'Diesel', l100: 15 } };
@@ -105,6 +106,7 @@ export function createFuel({ city, scene, heightAt, car, world, active = () => t
       t.rotation.x = Math.PI / 2; d.rotation.x = -Math.PI / 2; r.add(t, d);
       r.position.set(f.x, heightAt(f.x, f.z, 0) + 0.12, f.z); r.userData.base = r.position.y; scene.add(r); rings.push(r); return r;
     });
+    collapse(g);   // the forecourt is ~30 static boxes in four paints: merged, it is four draw calls
     scene.add(g); s._group = g;
   });
 

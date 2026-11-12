@@ -332,19 +332,18 @@ export function buildTrafficBody(type, color, dimsOverride) {
 // material) instead of a Group of meshes each. `cars` = [{x, y, z, heading, style, color}].
 const PARK_STYLES = ['hatch', 'hatch', 'sport', 'muscle', 'pickup', 'van'];
 export function parkedCarStyle(i) { return PARK_STYLES[i % PARK_STYLES.length]; }
-export function buildParkedCars(cars) {
+// Parked cars: one InstancedMesh per car model and material, refilled every frame with just the cars in view
+// (see instanceStream.js). They used to be split per model AND per 140 u map square, which made ~4600 batches
+// averaging under three cars each.
+export function buildParkedCars(cars, stream) {
   const out = new THREE.Group();
-  const handles = out.userData.handles = new Map();   // car record -> [[instancedMesh, index], ...] so a car can be lifted out when it's woken
   const byStyle = {};
-  cars.forEach(c => (byStyle[c.style + '|' + Math.floor(c.x / 140) + ',' + Math.floor(c.z / 140)] ||= []).push(c));
-  const m4 = new THREE.Matrix4(), q = new THREE.Quaternion(), up = new THREE.Vector3(0, 1, 0), sc = new THREE.Vector3(1, 1, 1);
-  const protoCache = new Map();
-  Object.entries(byStyle).forEach(([key, list]) => {
-    const style = key.split('|')[0];
-    const proto = protoCache.get(style) || protoCache.set(style, buildCarBody(style, 0xffffff)).get(style);
+  cars.forEach(c => (byStyle[c.style] ||= []).push(c));
+  const q = new THREE.Quaternion(), up = new THREE.Vector3(0, 1, 0), sc = new THREE.Vector3(1, 1, 1);
+  Object.entries(byStyle).forEach(([style, list]) => {
+    const proto = buildCarBody(style, 0xffffff);
     proto.updateMatrixWorld(true);
-    let groups = proto.userData._pg;
-    if (!groups) { groups = proto.userData._pg = new Map();
+    const groups = new Map();
     proto.traverse(o => {
       if (!o.isMesh || o.geometry.type === 'PlaneGeometry') return;      // contact-shadow blob is skipped
       let geo = o.geometry.index ? o.geometry.toNonIndexed() : o.geometry.clone();
@@ -353,24 +352,24 @@ export function buildParkedCars(cars) {
       geo.applyMatrix4(o.matrixWorld);
       (groups.get(o.material) || groups.set(o.material, []).get(o.material)).push(geo);
       // spinning rims are children of the tyre mesh; traverse reaches them with their own material
-    }); }
-    groups.forEach((geos, mat) => {
-      const geo = proto.userData._mg?.get(mat) || (proto.userData._mg ||= new Map()).set(mat, mergeGeometries(geos)).get(mat);
-      const paint = mat.isMeshPhysicalMaterial && mat.clearcoat > 0.5;
-      const im = new THREE.InstancedMesh(geo, mat, list.length);
-      im.castShadow = false; im.receiveShadow = false;
-      list.forEach((c, i) => {
-        q.setFromAxisAngle(up, c.heading);
-        m4.compose(new THREE.Vector3(c.x, c.y || 0.02, c.z), q, sc);
-        im.setMatrixAt(i, m4);
-        (handles.get(c) || handles.set(c, []).get(c)).push([im, i]);
-        if (paint) im.setColorAt(i, new THREE.Color(c.color));
-      });
-      im.instanceMatrix.needsUpdate = true;
-      if (im.instanceColor) im.instanceColor.needsUpdate = true;
-      im.computeBoundingSphere();
-      out.add(im);
     });
+    const d = proto.userData.dims || { len: 3.6, wid: 1.8 };
+    const radius = Math.hypot(d.len, d.wid, d.height || 1.5) / 2 + 0.3;
+    const items = list.map(c => {
+      q.setFromAxisAngle(up, c.heading);
+      const item = { x: c.x, y: (c.y || 0.02) + 0.7, z: c.z, radius, color: new THREE.Color(c.color),
+        matrix: new THREE.Matrix4().compose(new THREE.Vector3(c.x, c.y || 0.02, c.z), q, sc) };
+      c.item = item;                                                    // parked.js sets item.hidden when the car is woken
+      return item;
+    });
+    const meshes = []; let paintMesh = null;
+    groups.forEach((geos, mat) => {
+      const im = new THREE.InstancedMesh(mergeGeometries(geos), mat, list.length);
+      im.castShadow = false; im.receiveShadow = false;
+      if (mat.isMeshPhysicalMaterial && mat.clearcoat > 0.5) paintMesh = im;
+      meshes.push(im); out.add(im);
+    });
+    stream.addSet(meshes, items, paintMesh);
   });
   return out;
 }

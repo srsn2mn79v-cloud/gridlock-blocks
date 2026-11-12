@@ -4,8 +4,8 @@ import { mergeGeometries } from 'three/examples/jsm/utils/BufferGeometryUtils.js
 // Cuts the draw calls of a small composite object (a lamp, a traffic light, a sign...) by merging every
 // group of meshes that share an equivalent material into one mesh, per parent node. Parent groups are
 // kept as they are, so anything that moves, hides or breaks off a whole sub-group still works.
-function matKey(m) {
-  if (Array.isArray(m) || !m.isMeshStandardMaterial) return null;
+export function matKey(m) {
+  if (Array.isArray(m) || !m.isMeshStandardMaterial || (m.userData && m.userData.live)) return null;   // live: changed per object while the game runs
   return [m.type, m.color.getHex(), m.emissive.getHex(), m.emissiveIntensity, m.roughness, m.metalness, m.flatShading ? 1 : 0, m.transparent ? 1 : 0,
     m.opacity, m.side, m.map ? m.map.uuid : '', m.vertexColors ? 1 : 0, JSON.stringify(m.userData && m.userData.snow || null)].join('|');
 }

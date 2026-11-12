@@ -184,6 +184,7 @@ float snowPl = 0.0;
 const _caps = [];
 const _capMat = new THREE.MeshStandardMaterial({ color: 0xf2f6ff, roughness: 0.95 });
 _capMat.userData.snow = { skip: true };
+_capMat.userData.live = true;   // lids are shown and resized as snow builds up: never merged or batched
 export function snowCap(parent, w, h, d, x, y, z) {
   const geo = new THREE.BoxGeometry(w, h, d); geo.translate(0, h / 2, 0);
   const m = new THREE.Mesh(geo, _capMat);
@@ -191,8 +192,11 @@ export function snowCap(parent, w, h, d, x, y, z) {
   parent.add(m); _caps.push(m);
   return m;
 }
+let _capK = -1;
 export function updateSnowCaps(acc) {
   const k = Math.max(0, Math.min(1, (acc - 0.08) / 0.5));
-  const vis = k > 0.02;
-  for (const m of _caps) { if (m.visible !== vis) m.visible = vis; if (vis) m.scale.set(1, 0.3 + 0.7 * k, 1); }
+  const vis = k > 0.02, grew = vis && k !== _capK;
+  _capK = k;
+  // the lids sit on frozen street furniture (propBatch.js), so their matrix is refreshed here, and only when the snow depth changed
+  for (const m of _caps) { if (m.visible !== vis) m.visible = vis; if (grew) { m.scale.set(1, 0.3 + 0.7 * k, 1); m.updateWorldMatrix(false, false); } }
 }

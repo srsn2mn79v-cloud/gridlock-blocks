@@ -6,9 +6,8 @@ import { buildCarBody } from './vehicleModels.js';
 import { bodyLift } from './bodyLift.js';
 
 const MASS = { wagon: 1400, suv: 2000, rally: 1200, roadster: 1150, supercar: 1350, hyper: 1450, hatch: 1050, sport: 1250, muscle: 1700, pickup: 2100, van: 2300, taxi: 1400 };
-const ZERO = new THREE.Matrix4().makeScale(0, 0, 0);
 
-export function createParkedCars({ scene, propInstances, handles, collisionWorld, heightAt, events }) {
+export function createParkedCars({ scene, propInstances, collisionWorld, heightAt, events }) {
   const items = propInstances.filter(p => p.type === 'parkedcar' && p.rec);
   const cell = 24, grid = new Map();
   items.forEach(it => { const k = Math.floor(it.x / cell) + ',' + Math.floor(it.z / cell); (grid.get(k) || grid.set(k, []).get(k)).push(it); });
@@ -19,7 +18,7 @@ export function createParkedCars({ scene, propInstances, handles, collisionWorld
     if (it.awake) return; it.awake = true;
     const rec = it.rec;
     const st = colliderOf.get(it); if (st) { st.destroyed = true; st.blocksCar = false; }
-    (handles && handles.get(rec) || []).forEach(([im, i]) => { im.setMatrixAt(i, ZERO); im.instanceMatrix.needsUpdate = true; });
+    if (rec.item) rec.item.hidden = true;   // drops it from the instanced parked cars on the next frame
     const mesh = buildCarBody(rec.style, rec.color); mesh.rotation.order = 'YXZ';
     const d = mesh.userData.dims || { len: 3.6, wid: 1.8 };
     mesh.position.set(rec.x, rec.y || 0.02, rec.z); mesh.rotation.y = rec.heading;
