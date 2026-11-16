@@ -70,7 +70,9 @@ export function createMinimap(city, roadsGroup) {
   paths.forEach(p => stroke(p, (ROAD[p.type] || ROAD.local).fill, 0, p.structure === 'tunnel' ? [10, 8] : null));
 
   const unitsH = VIEW_UNITS_W * H / W;
+  let lastCar = null;
   function update(car, checkpoints = [], extras = null) {
+    lastCar = car;
     ctx.save();
     ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
     ctx.clearRect(0, 0, W, H);
@@ -202,7 +204,7 @@ export function createMinimap(city, roadsGroup) {
     if (e.code === 'KeyM' && !shopOpen && !document.querySelector('#menu.open, .menu.open')) setFull(!fullOpen);
     else if (e.code === 'Escape' && fullOpen) { setFull(false); escAt = performance.now(); }
   });
-  const centreOnCar = () => { zoom = 3; cu = toU(car.x); cv = toV(car.z); clampView(); };
+  const centreOnCar = () => { const car = lastCar; if (!car) return; zoom = 3; cu = toU(car.x); cv = toV(car.z); clampView(); };
   const setFull = v => { if (v && !fullOpen && !pickCb) centreOnCar(); fullOpen = v; lastFull = 0; full.style.display = v ? 'block' : 'none'; if (!v) { pickCb = null; full.querySelector('.fmt').textContent = 'City map'; full.querySelector('.fmh').textContent = '· drag to move, scroll or pinch to zoom, M / Esc to close'; } };
   el.addEventListener('click', () => setFull(true));
   const clampView = () => { zoom = Math.max(1, Math.min(8, zoom)); cu = Math.max(fullRect.x0, Math.min(fullRect.x0 + fullRect.w, cu)); cv = Math.max(fullRect.y0, Math.min(fullRect.y0 + fullRect.h, cv)); lastFull = 0; };
