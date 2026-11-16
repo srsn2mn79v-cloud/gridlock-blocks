@@ -400,13 +400,13 @@ export function createWorld({ tunnels = null, transit = null, setGarageHoles, ci
     if (mode === 'flat') return flatBlocked(x, z);
     if (waterPolys.some(w => pointInPoly(x, z, w)) && heightAt(x, z, foot.y) < 0.6) return true;
     const cell = grid.get(gkey(Math.floor(x / BUCKET), Math.floor(z / BUCKET)));
-    if (!cell) return false;
-    for (const it of cell) {
+    if (cell) for (const it of cell) {
       if (it.poly) { if (inGateway(x, z)) continue; if (pointInPoly(x, z, it.poly) || closestOnPoly(x, z, it.poly).d < R) return true; }
       else if (!it.c.destroyed && Math.hypot(x - it.c.x, z - it.c.z) < it.c.radius + R * 0.6) return true;
     }
-    return false;
+    return footSolids ? footSolids(x, z, R * 0.6, foot.y, foot.x, foot.z) : false;      // the moving things: your own car, parked cars that were knocked awake
   }
+  let footSolids = null;
   const B = city.bounds || [-1e4, -1e4, 1e4, 1e4];
   let lookDX = 0, lookDY = 0;
   addEventListener('pointermove', e => { if (onFoot && !modal && e.buttons & 1 && e.target && e.target.tagName === 'CANVAS') { lookDX += e.movementX * 0.006; lookDY -= e.movementY * 0.004; } });
@@ -1395,7 +1395,7 @@ export function createWorld({ tunnels = null, transit = null, setGarageHoles, ci
     }, get _dbg() { return { mode, cur, fleet, foot, targets: local.slice() }; },
     carClassInfo: () => { const st = CAR_STYLES.find(c => c.key === car.styleKey) || CAR_STYLES[0]; return carClass(st.cls, modsOf(car.styleKey)); }, persist, spend, cash: () => cash(), modsOf, setFootFrozen: v => { footFrozen = !!v; }, setAvatarVisible: v => { avatar.visible = !!v; },
     shoveFoot: (vx, vz) => { if (!onFoot || mode !== 'city') return; if (Math.hypot(foot.pushX || 0, foot.pushZ || 0) < 3) { foot.pushX = vx; foot.pushZ = vz; if (!shoveT || performance.now() - shoveT > 1500) { shoveT = performance.now(); toast('Watch out!'); } } },
-    placeFoot: (x, z, h) => { foot.x = x; foot.z = z; foot.y = hAt(x, z, 0); foot.heading = foot.camH = h; foot.speed = 0; foot.turn = 0; foot.vx = foot.vz = 0; onFoot = true; avatar.visible = true; stepFoot(0); camSnap = true; }, setBlocked: fn => { blockedFn = fn; }, escAt: () => escAt, ownedCars, applyMods, openModal, closeModal, act, updateModal, updateCamera, mapMarkers, beforeCar, save,
+    placeFoot: (x, z, h) => { foot.x = x; foot.z = z; foot.y = hAt(x, z, 0); foot.heading = foot.camH = h; foot.speed = 0; foot.turn = 0; foot.vx = foot.vz = 0; onFoot = true; avatar.visible = true; stepFoot(0); camSnap = true; }, setBlocked: fn => { blockedFn = fn; }, setFootSolids: fn => { footSolids = fn; }, escAt: () => escAt, ownedCars, applyMods, openModal, closeModal, act, updateModal, updateCamera, mapMarkers, beforeCar, save,
     update(dt) {
       stats.secs += dt; if (!onFoot && mode !== 'flat') stats.units += Math.abs(car.speed || 0) * dt; statsT -= dt; if (statsT <= 0) { statsT = 30; persist(); }
       markerAnim(dt);

@@ -539,6 +539,19 @@ const fuel = createFuel({ city, scene, heightAt, car, world, active: () => !race
 collisionWorld.push(...fuel.colliders);
 const hail = createHail({ city, scene, heightAt: world.heightAt, world, camera, minimap, toast: msg => world.toast(msg) });
 world.setDestinations(() => races.plan.map(r => ({ name: r.name + ' (class ' + r.cls + ')', group: 'Races', sub: ({ drag: 'Drag', drift: 'Drift', circuit: 'Circuit', sprint: 'Sprint' })[r.kind], x: r.start.x - Math.sin(r.start.heading) * 14, z: r.start.z - Math.cos(r.start.heading) * 14, h: r.start.heading })));
+// things a walker cannot step through: the car you got out of and every parked car that has been woken up (knocked about). A walker already
+// inside one (just stepped out, or the car rolled onto them) is let out rather than stuck.
+{
+  const inBox = (x, z, cx, cz, h, len, wid, r) => { const dx = x - cx, dz = z - cz, v = dx * Math.sin(h) + dz * Math.cos(h), u = dx * Math.cos(h) - dz * Math.sin(h); return Math.abs(v) < len / 2 + r && Math.abs(u) < wid / 2 + r; };
+  const footSolidsFn = (x, z, r, y, fx, fz) => {
+    if (world.mode !== 'city' || flight.active) return false;
+    const st = car.model && car.model.userData && car.model.userData.style, len = car.dimLen || 3.6, wid = (st && st.wid) || 1.8;
+    if (Math.abs((car.y || 0) - y) < 2.5 && inBox(x, z, car.x, car.z, car.heading, len, wid, r) && !inBox(fx, fz, car.x, car.z, car.heading, len, wid, 0)) return true;
+    for (const o of parkedCars.awake) { const k = o.knock; if (Math.abs(k.x - x) < 4 && Math.abs(k.z - z) < 4 && Math.abs(k.y - y) < 2.5 && inBox(x, z, k.x, k.z, k.yaw, o.len, o.wid, r) && !inBox(fx, fz, k.x, k.z, k.yaw, o.len, o.wid, 0)) return true; }
+    return false;
+  };
+  world.setFootSolids(footSolidsFn);
+}
 world.setBlocked(() => races.active() || races.offering() || hail.busy() || flight.active);
 world.setRaceInfo(() => races.plan);
 world.setSleepHook(h => weather.advance(h));
@@ -1095,6 +1108,18 @@ window.__game = { bus, roadsGroup, tunnels, flight, seasons, wakeLock, interstat
     if (arrival.radio) { const tryTune = n => { if (!radio.tuneId(arrival.radio) && n > 0) setTimeout(() => tryTune(n - 1), 700); }; tryTune(6); }
   }
 }
+// Pre-compile every shader variant now, behind the loading screen. A variant that first shows up in the middle of a drive (the first crash's debris and
+// sparks, a hidden prop coming into play, a flat-shaded or double-sided material) used to be compiled right then: a visible hitch of a few hundred ms.
+try {
+  const hid = [], dummies = [];
+  scene.traverse(o => { if (!o.visible) { hid.push(o); o.visible = true; } });
+  [{}, { flatShading: true }, { side: THREE.DoubleSide }, { flatShading: true, side: THREE.DoubleSide }, { transparent: true, opacity: 0.5 }].forEach(o => {
+    const m = new THREE.Mesh(new THREE.BoxGeometry(0.1, 0.1, 0.1), new THREE.MeshStandardMaterial({ color: 0x888888, ...o })); m.position.set(0, -900, 0); m.castShadow = m.receiveShadow = true; scene.add(m); dummies.push(m);
+  });
+  renderer.compile(scene, camera);
+  dummies.forEach(m => { scene.remove(m); m.geometry.dispose(); m.material.dispose(); });
+  hid.forEach(o => { o.visible = false; });
+} catch (e) { console.warn('shader warm-up skipped', e); }
 loadingDone();
 let arrivalFrames = 0;
 animate();

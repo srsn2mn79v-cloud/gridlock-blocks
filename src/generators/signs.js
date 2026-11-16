@@ -67,7 +67,8 @@ function speedSignMesh(limit) {
   });
   const mat = new THREE.MeshStandardMaterial({ map: _limitTex[limit], emissive: 0x222222, emissiveMap: _limitTex[limit], roughness: 0.5 });
   mat.userData.snow = { plaster: true };
-  const board = new THREE.Mesh(new THREE.BoxGeometry(0.62, 0.78, 0.04), mat);
+  const backMat = new THREE.MeshStandardMaterial({ color: 0x9a9da0, roughness: 0.6, metalness: 0.3 });      // the back of a road sign is bare metal
+  const board = new THREE.Mesh(new THREE.BoxGeometry(0.62, 0.78, 0.04), [backMat, backMat, backMat, backMat, mat, backMat]);
   board.position.set(0, 1.95, 0.04); board.castShadow = true;
   g.add(post, board);
   snowCap(g, 0.6, 0.07, 0.08, 0, 2.34, 0.04);
