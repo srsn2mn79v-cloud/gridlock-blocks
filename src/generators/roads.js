@@ -386,6 +386,20 @@ export function buildRoads(cityData) {
     (e.from === a && e.to === b) || (e.from === b && e.to === a)
   );
 
+  // A slip road leaves from the carriageway's outer lane: its own paint starts only where it clears the highway pavement (and ends where it meets it),
+  // so no edge lines cut across the through lanes. hwGrid: highway segments by 40 u cell.
+  const hwGrid = new Map(), HC = 40;
+  cityData.roadEdges.forEach(h => {
+    if (h.type !== 'highway' || h.ramp || (h.structure && h.structure !== 'surface')) return;
+    const a = nodes[h.from], b = nodes[h.to]; if (!a || !b) return;
+    const seg = { ax: a.x, az: a.z, bx: b.x, bz: b.z, half: h.width / 2 + 0.3 };
+    for (let cx = Math.floor((Math.min(a.x, b.x) - 12) / HC); cx <= Math.floor((Math.max(a.x, b.x) + 12) / HC); cx++) for (let cz = Math.floor((Math.min(a.z, b.z) - 12) / HC); cz <= Math.floor((Math.max(a.z, b.z) + 12) / HC); cz++) { const k = cx + ',' + cz; (hwGrid.get(k) || hwGrid.set(k, []).get(k)).push(seg); }
+  });
+  const onHwPaving = (x, z, extra = 0) => (hwGrid.get(Math.floor(x / HC) + ',' + Math.floor(z / HC)) || []).some(g => {
+    const dx = g.bx - g.ax, dz = g.bz - g.az, l2 = dx * dx + dz * dz || 1, t = Math.max(0, Math.min(1, ((x - g.ax) * dx + (z - g.az) * dz) / l2));
+    return Math.hypot(x - (g.ax + dx * t), z - (g.az + dz * t)) < g.half + extra;
+  });
+
   const curveInfo = {};
   for (const id in nodes) {
     const c = buildHorizontalCurve(id, nodes, edgesByNode);
@@ -465,7 +479,9 @@ export function buildRoads(cityData) {
           bank: bk
         });
       }
-      addLaneMarkings(group, markPts, e.width, e.type, e.lanes, e.oneWay);
+      let mp = markPts;
+      if (e.ramp) { const ex = e.width * 0.5; const k0 = mp.findIndex(q => !onHwPaving(q.x, q.z, ex)); let k1 = -1; mp.forEach((q, i) => { if (!onHwPaving(q.x, q.z, ex)) k1 = i; }); mp = k0 < 0 ? [] : mp.slice(k0, k1 + 1); }
+      if (mp.length >= 2) addLaneMarkings(group, mp, e.width, e.type, e.lanes, e.oneWay);
     }
 
     // Crosswalks at the clearance line on each approach that meets a true intersection —
