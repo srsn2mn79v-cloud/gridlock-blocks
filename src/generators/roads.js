@@ -440,7 +440,14 @@ export function buildRoads(cityData) {
     }
     const startPt = pts[0], endPt = pts[pts.length - 1];
 
-    if (!e.drawbridge) group.add(buildRibbon(pts, e.width, color, pts.map(p => p.bank), LIFT_BY_TYPE[e.type] ?? ROAD_LIFT));      // the drawbridge's two leaves (drawbridge.js) are its road surface
+    // the extra lane of an interchange widens gradually: where this highway edge (4 lanes) meets a narrower one, the pavement flares out over TAPER units
+    let ribW = e.width;
+    if (e.type === 'highway' && !e.ramp && e.lanes === 4) {
+      const narrow = id => (edgesByNode[id] || []).find(o => o !== e && o.type === 'highway' && !o.ramp && o.lanes < e.lanes);
+      const n0 = narrow(e.from), n1 = narrow(e.to), TAPER = Math.min(40, fullLen * 0.45);
+      if (n0 || n1) ribW = pts.map((q, i) => { const sPos = sStart + (runLen * i) / sampleCount; let w = e.width; const flare = (d, o) => { if (d < TAPER) w = Math.min(w, o.width + (e.width - o.width) * (d / TAPER) ** 2 * (3 - 2 * d / TAPER)); }; if (n0) flare(sPos, n0); if (n1) flare(fullLen - sPos, n1); return w; });
+    }
+    if (!e.drawbridge) group.add(buildRibbon(pts, ribW, color, pts.map(p => p.bank), LIFT_BY_TYPE[e.type] ?? ROAD_LIFT));      // the drawbridge's two leaves (drawbridge.js) are its road surface
     (group.userData.mapPaths ||= []).push({ type: e.type, width: e.width, structure: e.structure, minY: Math.min(...pts.map(p => p.y)), pts: pts.map(p => [p.x, p.z]) });
     if (e.drawbridge) return;
 
