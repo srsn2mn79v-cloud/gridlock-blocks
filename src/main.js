@@ -545,6 +545,7 @@ collisionWorld.forEach(c => {
 });
 function camBlocked(x, z) {
   if (world.mode === 'garage') return world.pocketWall(x, z);
+  if (car.y < -1.2) return false;          // in a metro tunnel the buildings above are not walls (they used to push the camera up through the roof)
   const cell = camGrid.get(Math.floor(x / 48) + ',' + Math.floor(z / 48));
   return !!cell && cell.some(f => pointInPolygon(x, z, f));
 }

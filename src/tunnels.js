@@ -18,13 +18,26 @@ export function createTunnels({ city, scene, transit, collisionWorld, parcels = 
   const seg = (ax, az, bx, bz, extra = {}) => { const dx = bx - ax, dz = bz - az, len = Math.hypot(dx, dz) || 1; return { ax, az, bx, bz, dx: dx / len, dz: dz / len, len, ...extra }; };
   const distSeg = (s, x, z) => { const t = Math.max(0, Math.min(s.len, (x - s.ax) * s.dx + (z - s.az) * s.dz)); return Math.hypot(x - (s.ax + s.dx * t), z - (s.az + s.dz * t)); };
 
-  // ---- the line tunnels ----
-  const segs = [];                                        // body segments (floor at FLOOR)
+  // ---- the line tunnels: each line is a smooth curve (centripetal Catmull-Rom through the stations, with a straight lead-in either side of every station) ----
+  const segs = [];                                        // short body segments (floor at FLOOR), grouped in chains
   const stationsAt = [];                                  // { x, z, name, color }
+  let chainId = 0;
+  const addChain = (pts, extra = {}) => {
+    const curve = new THREE.CatmullRomCurve3(pts.map(p => new THREE.Vector3(p.x, 0, p.z)), false, 'centripetal');
+    const n = Math.max(2, Math.ceil(curve.getLength() / 6)), sp = curve.getSpacedPoints(n), id = chainId++;
+    for (let i = 0; i < n; i++) segs.push(seg(sp[i].x, sp[i].z, sp[i + 1].x, sp[i + 1].z, { chain: id, idx: i, last: i === n - 1, ...extra }));
+  };
   lines.forEach(l => {
-    const st = l.stations;
-    st.forEach(s => stationsAt.push({ x: s.x, z: s.z, name: s.name, color: l.color }));
-    for (let i = 0; i + 1 < st.length; i++) segs.push(seg(st[i].x, st[i].z, st[i + 1].x, st[i + 1].z, { line: l }));
+    const st = l.stations, pts = [];
+    st.forEach((s, i) => {
+      stationsAt.push({ x: s.x, z: s.z, name: s.name, color: l.color });
+      const p = st[i - 1] || s, n = st[i + 1] || s, tx = n.x - p.x, tz = n.z - p.z, tl = Math.hypot(tx, tz) || 1;
+      const lp = i ? Math.hypot(s.x - p.x, s.z - p.z) : 1e9, ln = i + 1 < st.length ? Math.hypot(n.x - s.x, n.z - s.z) : 1e9, a = Math.min(30, 0.3 * Math.min(lp, ln));
+      if (i) pts.push({ x: s.x - tx / tl * a, z: s.z - tz / tl * a });
+      pts.push({ x: s.x, z: s.z });
+      if (i + 1 < st.length) pts.push({ x: s.x + tx / tl * a, z: s.z + tz / tl * a });
+    });
+    addChain(pts, { line: l });
   });
 
   // ---- where a ramp can go: free ground beside a road, near a station ----
@@ -83,13 +96,16 @@ export function createTunnels({ city, scene, transit, collisionWorld, parcels = 
   // feeder: the foot of each ramp, straight on for 8 u, then to the station
   ramps.forEach(p => {
     const mx = p.bx + p.dx * 16, mz = p.bz + p.dz * 16;
-    segs.push(seg(p.bx, p.bz, mx, mz, { feeder: p, noExtStart: true }), seg(mx, mz, p.S.x, p.S.z, { feeder: p }));
+    addChain([{ x: p.bx, z: p.bz }, { x: mx, z: mz }, { x: p.S.x, z: p.S.z }], { feeder: p });
     p.rampSeg = seg(p.x, p.z, p.bx, p.bz, { ramp: true });
   });
 
   // ---- height, hole polygons, walls (collision) ----
   const rampH = u => FLOOR * sm(Math.max(0, Math.min(1, u / L)));
-  const inUnion = (x, z, rad) => segs.some(s => distSeg(s, x, z) < rad) || ramps.some(p => distSeg(p.rampSeg, x, z) < rad);
+  const segGrid = new Map();
+  segs.forEach(s => put(segGrid, Math.min(s.ax, s.bx) - 8, Math.min(s.az, s.bz) - 8, Math.max(s.ax, s.bx) + 8, Math.max(s.az, s.bz) + 8, s));
+  const nearSegs = (x, z) => segGrid.get(Math.floor(x / CELL) + ',' + Math.floor(z / CELL)) || [];
+  const inUnion = (x, z, rad) => nearSegs(x, z).some(s => distSeg(s, x, z) < rad) || ramps.some(p => distSeg(p.rampSeg, x, z) < rad);
   const holes = ramps.map(p => [[0.15, -1], [L, -1], [L, 1], [0.15, 1]].map(([u, s]) => { const lat = s * (W / 2 + 0.55); return [p.x + p.dx * u - p.dz * lat, p.z + p.dz * u + p.dx * lat]; }));
   ramps.forEach(p => {       // low walls along the trench: a car on the street cannot drive into its side, and they are the rim you see
     [-1, 1].forEach(s => {
@@ -106,8 +122,8 @@ export function createTunnels({ city, scene, transit, collisionWorld, parcels = 
     },
     constrain(car) {
       if (car.y > -0.6) return;
-      const lim = W / 2 - 1.25; let best = null;
-      const all = segs.concat(ramps.map(p => p.rampSeg));
+      const lim = W / 2 - 1.65; let best = null;
+      const all = nearSegs(car.x, car.z).concat(ramps.map(p => p.rampSeg));
       for (const s of all) { const t = Math.max(0, Math.min(s.len, (car.x - s.ax) * s.dx + (car.z - s.az) * s.dz)), px = s.ax + s.dx * t, pz = s.az + s.dz * t, d = Math.hypot(car.x - px, car.z - pz); if (!best || d < best.d) best = { d, px, pz }; }
       if (!best || best.d <= lim) return;
       const nx = (car.x - best.px) / best.d, nz = (car.z - best.pz) / best.d;
@@ -123,39 +139,46 @@ export function createTunnels({ city, scene, transit, collisionWorld, parcels = 
   const add = (geo, m, x, y, z, ry = 0) => { const o = new THREE.Mesh(geo, m); o.position.set(x, y, z); o.rotation.y = ry; g.add(o); return o; };
   const boxGeo = new THREE.BoxGeometry(1, 1, 1);
   const bx = (m, len, h, wd, x, y, z, ry) => { const o = add(boxGeo, m, x, y, z, ry); o.scale.set(len, h, wd); return o; };
-  const lamps = [], dashes = [];
-  const joined = (x, z, self) => segs.some(o => o !== self && distSeg(o, x, z) < 1) || ramps.some(p => distSeg(p.rampSeg, x, z) < 1);
+  // everything repeated (floor, rails, sleepers, walls ...) is instanced: one draw call per material
+  const inst = new Map(); const bxi = (m, len, h, wd, x, y, z, ry) => { let a = inst.get(m); if (!a) inst.set(m, a = []); a.push([len, h, wd, x, y, z, ry]); };
+  const ballastM = B(0x4a463f), sleeperM = B(0x6b6258), railM = B(0xc4c7cc), walkM = B(0x75787c), cableM = B(0x1f2124), stripM = B(0xd9b21c);
+  const lamps = [];
+  const joinedOther = (x, z, s) => nearSegs(x, z).some(o => o.chain !== s.chain && distSeg(o, x, z) < 1) || ramps.some(p => distSeg(p.rampSeg, x, z) < 1);
+  const hiddenAt = (x, z, s) => nearSegs(x, z).some(o => o !== s && (o.chain !== s.chain || Math.abs(o.idx - s.idx) > 2) && distSeg(o, x, z) < W / 2 - 0.5) || ramps.some(p => distSeg(p.rampSeg, x, z) < W / 2 - 0.5 && p.feeder !== s.feeder);
+  const TR = 1.9;                                          // two tracks, this far either side of the centre line
   segs.forEach((s, i) => {
-    const free0 = !s.noExtStart && !joined(s.ax, s.az, s), free1 = !joined(s.bx, s.bz, s);
-    const ry = Math.atan2(-s.dz, s.dx), e0 = s.noExtStart || free0 ? 0 : W / 2, e1 = free1 ? 0 : W / 2, len = s.len + e0 + e1, cx = s.ax + s.dx * ((s.len + e1 - e0) / 2), cz = s.az + s.dz * ((s.len + e1 - e0) / 2), j = (i % 7) * 0.003;
-    bx(floorM, len, 0.4, W + 0.6, cx, FLOOR - 0.2 - j, cz, ry);                                                   // floor
-    bx(ceilM, len, 0.5, W + 1.2, cx, TOP + 0.25 + j, cz, ry);                                                     // roof
-    [-1, 1].forEach(sd => bx(lineM, len - 2, 0.02, 0.22, cx, FLOOR + 0.01 + j, cz, ry).position.add(new THREE.Vector3(-s.dz * sd * (W / 2 - 0.9), 0, s.dx * sd * (W / 2 - 0.9))));   // edge lines
-    for (let t = 4; t < s.len - 2; t += 8) dashes.push([s.ax + s.dx * t, s.az + s.dz * t, ry]);
-    for (let t = 6; t < s.len - 3; t += 16) lamps.push([s.ax + s.dx * t, s.az + s.dz * t, ry]);
-    if (free0) bx(wallM, 0.5, CEIL, W + 0.8, s.ax - s.dx * 0.25, FLOOR + CEIL / 2, s.az - s.dz * 0.25, ry);        // the dead end of a line: a wall across it
-    if (free1) bx(wallM, 0.5, CEIL, W + 0.8, s.bx + s.dx * 0.25, FLOOR + CEIL / 2, s.bz + s.dz * 0.25, ry);
-    // walls: runs along both sides that are not inside another tunnel (junction mouths and the inside of bends stay open)
+    const free0 = s.idx === 0 && !s.noExtStart && !joinedOther(s.ax, s.az, s), free1 = s.last && !joinedOther(s.bx, s.bz, s);
+    const ry = Math.atan2(-s.dz, s.dx), e0 = free0 ? 0 : 0.7, e1 = free1 ? 0 : 0.7, len = s.len + e0 + e1, m0 = (s.len + e1 - e0) / 2, cx = s.ax + s.dx * m0, cz = s.az + s.dz * m0, j = (i % 7) * 0.003;
+    const at = (t, lat) => [s.ax + s.dx * t - s.dz * lat, s.az + s.dz * t + s.dx * lat];
+    { const q = at(m0, 0); bxi(ballastM, len, 0.4, W + 0.6, q[0], FLOOR - 0.2 - j, q[1], ry); bxi(ceilM, len, 0.5, W + 1.2, q[0], TOP + 0.25 + j, q[1], ry); }
     [-1, 1].forEach(sd => {
-      let run = null; const runs = [];
-      for (let t = -e0; t <= s.len + e1 + 0.001; t += 1) {
-        const x = s.ax + s.dx * t - s.dz * sd * (W / 2), z = s.az + s.dz * t + s.dx * sd * (W / 2);
-        const hidden = segs.some((o, k) => k !== i && distSeg(o, x, z) < W / 2 - 0.5) || ramps.some(p => distSeg(p.rampSeg, x, z) < W / 2 - 0.5 && p.feeder !== s.feeder);
-        if (!hidden) { if (!run) runs.push(run = [t, t]); else run[1] = t; } else run = null;
+      [-0.72, 0.72].forEach(o => { const q = at(m0, sd * TR + o); bxi(railM, len, 0.16, 0.13, q[0], FLOOR + 0.2 + j, q[1], ry); });                 // the two rails of each track
+      for (let t = 0.3; t < s.len; t += 1.2) { const q = at(t, sd * TR); bxi(sleeperM, 0.4, 0.13, 3.1, q[0], FLOOR + 0.065, q[1], ry); }              // sleepers
+    });
+    for (let t = 6; t < s.len - 3; t += 16) { if (i % 3 === 0) lamps.push([s.ax + s.dx * t, s.az + s.dz * t, ry]); }
+    if (free0) bxi(wallM, 0.5, CEIL, W + 0.8, s.ax - s.dx * 0.25, FLOOR + CEIL / 2, s.az - s.dz * 0.25, ry);      // the dead end of a line: a wall across it
+    if (free1) bxi(wallM, 0.5, CEIL, W + 0.8, s.bx + s.dx * 0.25, FLOOR + CEIL / 2, s.bz + s.dz * 0.25, ry);
+    // walls, walkway ledge and cable tray along both sides, in 3 u pieces, left out where another tunnel opens into this one
+    [-1, 1].forEach(sd => {
+      for (let t = 0; t < s.len; t += 3) {
+        const pl = Math.min(3, s.len - t), mid = t + pl / 2, w = at(mid, sd * (W / 2)); if (hiddenAt(w[0], w[1], s)) continue;
+        const q = at(mid, sd * (W / 2 + 0.2)); bxi(wallM, pl + 0.5, CEIL, 0.4, q[0], FLOOR + CEIL / 2, q[1], ry); bxi(baseM, pl + 0.5, 1.0, 0.46, q[0], FLOOR + 0.5, q[1], ry);
+        const wk = at(mid, sd * (W / 2 - 0.65)); bxi(walkM, pl + 0.5, 0.34, 1.3, wk[0], FLOOR + 0.17, wk[1], ry);
+        const st = at(mid, sd * (W / 2 - 1.3)); bxi(stripM, pl + 0.5, 0.02, 0.12, st[0], FLOOR + 0.35, st[1], ry);
+        const cb = at(mid, sd * (W / 2 - 0.12)); bxi(cableM, pl + 0.5, 0.14, 0.14, cb[0], FLOOR + 2.1, cb[1], ry); bxi(cableM, pl + 0.5, 0.14, 0.14, cb[0], FLOOR + 2.45, cb[1], ry);
       }
-      runs.forEach(([t0, t1]) => { if (t1 - t0 < 0.5) return; const m = (t0 + t1) / 2, x = s.ax + s.dx * m - s.dz * sd * (W / 2 + 0.2), z = s.az + s.dz * m + s.dx * sd * (W / 2 + 0.2);
-        bx(wallM, t1 - t0 + 1, CEIL, 0.4, x, FLOOR + CEIL / 2, z, ry); bx(baseM, t1 - t0 + 1, 1.1, 0.46, x, FLOOR + 0.55, z, ry); });
     });
   });
-  { const lg = new THREE.InstancedMesh(boxGeo, lampM, Math.max(1, lamps.length)); lamps.forEach((q, k) => { const m = new THREE.Matrix4().compose(new THREE.Vector3(q[0], TOP - 0.1, q[1]), new THREE.Quaternion().setFromEuler(new THREE.Euler(0, q[2], 0)), new THREE.Vector3(2.4, 0.12, W * 0.55)); lg.setMatrixAt(k, m); }); lg.count = lamps.length; g.add(lg);
-    const dg = new THREE.InstancedMesh(boxGeo, yellowM, Math.max(1, dashes.length)); dashes.forEach((q, k) => { const m = new THREE.Matrix4().compose(new THREE.Vector3(q[0], FLOOR + 0.012, q[1]), new THREE.Quaternion().setFromEuler(new THREE.Euler(0, q[2], 0)), new THREE.Vector3(3, 0.02, 0.2)); dg.setMatrixAt(k, m); }); dg.count = dashes.length; g.add(dg); }
+  { const mat = new THREE.Matrix4(), qt = new THREE.Quaternion(), eu = new THREE.Euler(), p3 = new THREE.Vector3(), s3 = new THREE.Vector3();
+    inst.forEach((arr, m) => { const im = new THREE.InstancedMesh(boxGeo, m, arr.length); arr.forEach((a, k) => { mat.compose(p3.set(a[3], a[4], a[5]), qt.setFromEuler(eu.set(0, a[6], 0)), s3.set(a[0], a[1], a[2])); im.setMatrixAt(k, mat); }); im.frustumCulled = false; g.add(im); });
+    const lg = new THREE.InstancedMesh(boxGeo, lampM, Math.max(1, lamps.length)); lamps.forEach((q, k) => { mat.compose(p3.set(q[0], TOP - 0.1, q[1]), qt.setFromEuler(eu.set(0, q[2], 0)), s3.set(2.4, 0.12, W * 0.55)); lg.setMatrixAt(k, mat); }); lg.count = lamps.length; lg.frustumCulled = false; g.add(lg); }
   // station signs: a coloured light bar and a hanging name board over the lane at each station
   stationsAt.forEach(s => {
     const c = document.createElement('canvas'); c.width = 512; c.height = 128; const x = c.getContext('2d');
     if (x && x.fillRect) { x.fillStyle = '#' + s.color.toString(16).padStart(6, '0'); x.fillRect(0, 0, 512, 128); x.fillStyle = '#fff'; x.fillRect(0, 0, 512, 10); x.fillRect(0, 118, 512, 10); x.font = 'bold 54px sans-serif'; x.textAlign = 'center'; x.textBaseline = 'middle'; x.fillText('Ⓜ ' + String(s.name).toUpperCase(), 256, 66, 490); }
     const tex = new THREE.CanvasTexture(c), sg = new THREE.Mesh(new THREE.PlaneGeometry(7, 1.75), new THREE.MeshBasicMaterial({ map: tex, side: THREE.DoubleSide })); sg.position.set(s.x, TOP - 1.3, s.z);
-    const near = segs.find(q => !q.feeder && distSeg(q, s.x, s.z) < 1); sg.rotation.y = near ? Math.atan2(near.dx, near.dz) : 0; g.add(sg);
-    bx(B(s.color), 9, 0.04, W - 1.5, s.x, FLOOR + 0.02, s.z, near ? Math.atan2(-near.dz, near.dx) : 0);
+    const near = segs.find(q => !q.feeder && distSeg(q, s.x, s.z) < 2); sg.rotation.y = near ? Math.atan2(near.dx, near.dz) : 0; g.add(sg);
+    if (near) [-1, 1].forEach(sd => bx(B(s.color), 26, 0.5, 0.08, s.x - near.dz * sd * (W / 2 - 0.02), FLOOR + 2.8, s.z + near.dx * sd * (W / 2 - 0.02), Math.atan2(-near.dz, near.dx)));      // a coloured band along both walls
   });
   // ramps: floor, retaining walls, rim, the trench's end wall over the mouth, and a gantry sign at the top
   ramps.forEach(p => {
