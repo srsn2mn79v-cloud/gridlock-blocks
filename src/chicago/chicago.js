@@ -3,6 +3,7 @@
 // shops hidden in alleys, and apartments to buy. Deterministic (seeded) so every load is the same city.
 import { generateRoads } from './gen_network.js';
 import { CLASSES } from './network.js';
+import { widenInterchanges } from '../hwLanes.js';
 import { buildEdgesByNode, intersectionClearance } from '../roadMath.js';
 import { BANK_W } from '../rivers.js';
 import { S, T, TP, fromWorld, LAKES, DECKS, SPOTS, MAP, X0, Y0, RIVERS, PARKS, LANDMARKS, STADIUM, districtAt, DISTRICTS } from './map.js';
@@ -62,6 +63,7 @@ export function buildChicago() {
     o.cls = e.line.cls;
     return o;
   });
+  widenInterchanges(nodes, edges, globalThis.__hw);                    // the extra interchange lane (hwLanes.js)
   const byNode = buildEdgesByNode(edges);
   const other = (e, id) => (e.from === id ? e.to : e.from);
 

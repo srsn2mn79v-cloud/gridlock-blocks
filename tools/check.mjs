@@ -33,6 +33,9 @@ const ctx2d = new Proxy({}, { get: (t, k) => (k === 'createRadialGradient' || k 
 globalThis.document = { createElement: () => ({ getContext: () => ctx2d, width: 0, height: 0, style: {} }) };
 let T = 0; performance.now = () => T;
 
+// interchange lane rules (src/hwLanes.js): HW=off for the old 3-lane behaviour, or HW='exitFar=966,exitNear=322,entryHold=644,mergeRun=200,rampBoost=1' to try other numbers (1 u = 1.25 m, 644 u = half a mile)
+if (process.env.HW === 'off') globalThis.__hw = null;
+else if (process.env.HW) { const { HW_DEFAULT } = await import(pathToFileURL(path.join(root, 'src/hwLanes.js')).href); globalThis.__hw = { ...HW_DEFAULT }; process.env.HW.split(',').forEach(kv => { const [k, v] = kv.split('='); globalThis.__hw[k] = v === undefined ? true : +v; }); }
 if (process.env.RB !== undefined) globalThis.__RB_ONLY = process.env.RB.split(',').filter(Boolean).map(Number);   // experiment: which river bridges to build
 const { buildChicago } = await imp('src/chicago/chicago.js');
 const city = buildChicago();
@@ -743,9 +746,9 @@ async function checkObstacles() {
 
 
 // ---- highway flow: how well does traffic move along the interstate and through its slip roads? (numbers, plus stuck cars as failures) ----------------------
-//   node tools/check.mjs hwflow [cars=500] [minutes=4]     env AUX=1 / AUX=4 try the merge-lane rules (3 lanes / a real fourth lane); the default is the plain behaviour
+//   node tools/check.mjs hwflow [cars=500] [minutes=4]     env HW=off is the old 3-lane behaviour, HW=exitFar=...,entryHold=... tries other numbers (see the top of this file)
 async function checkHwFlow(cars = 500, minutes = 4) {
-  if (process.env.AUX) globalThis.__aux = +process.env.AUX;      // 1: the right-hand lane of an interchange zone is kept for slip road traffic (3 lanes); 4: same with a real fourth lane
+  if (process.env.SEED) { let a = +process.env.SEED >>> 0; Math.random = () => { a = (a + 0x6D2B79F5) >>> 0; let t = Math.imul(a ^ (a >>> 15), 1 | a); t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t; return ((t ^ (t >>> 14)) >>> 0) / 4294967296; }; }
   const { createTrafficSystem } = await imp('src/traffic.js');
   const { buildTransit, clearTransitSpots } = await imp('src/transit.js'); const transit = buildTransit(city); clearTransitSpots(city, transit);
   const dt = 1 / 15, tr = createTrafficSystem(city, new THREE.Scene(), heightAt, cars, cars, transit);
@@ -756,13 +759,14 @@ async function checkHwFlow(cars = 500, minutes = 4) {
     tr.cars.forEach((c, i) => {
       if (!c.active || !c.edge || c.knock) return;
       const on = c.edge.type === 'highway' ? hwSec : c.edge.ramp ? rampSec : null; if (!on) { still.set(i, 0); return; }
-      on.n += dt; on.sp += c.speed * dt; if (c.speed < 0.6) { on.stall += dt; const kk = (c.edge.ramp ? 'ramp ' : 'hw ') + (c.why || (c.blockedBy ? 'car' : '-')) + (c.blockedBy && c.blockedBy.edge ? '/' + (c.blockedBy.edge.ramp ? 'ramp' : c.blockedBy.edge.type) : ''); why[kk] = (why[kk] || 0) + dt; }
+      on.n += dt; on.sp += c.speed * dt; if (c.speed < 0.6) { on.stall += dt; const kk = (c.edge.ramp ? 'ramp ' : 'hw ') + (c.why || (c.blockedBy ? 'car' : '-')) + (c.blockedBy && c.blockedBy.edge ? '/' + (c.blockedBy.edge.ramp ? 'ramp' : c.blockedBy.edge.type) : ''); why[kk] = (why[kk] || 0) + dt;
+        if (process.env.WHY && !c.why && !c.blockedBy) { const jn = id => (tr.cars && city.roadEdges.some(e => e.ramp && (e.from === id || e.to === id))) ? 'ramp-node' : 'plain'; const kk2 = 'NOREASON ' + (c.edge.ramp ? 'ramp' : 'hw') + ' ' + c.edge.id + ' to:' + jn(c.to) + ' from:' + jn(c.from) + ' cause:' + c.cause + ' lane:' + c.laneIndex + '/' + c.lanes + ' hold:' + (c.hwJoin > 0 ? 'join' : '-') + ' avoid:' + (c.avoidObs ? 1 : 0); why[kk2] = (why[kk2] || 0) + dt; } }
       const pl = prevLane.get(i); if (c.edge.type === 'highway' && pl !== undefined && pl !== c.laneIndex) lc++; prevLane.set(i, c.laneIndex);
       const ps = prevSp.get(i); if (ps !== undefined && ps - c.speed > 0.45) hardBrake++; prevSp.set(i, c.speed);
       if (c.speed < 0.3 && c.crashTimer <= 0) { const v = (still.get(i) || 0) + dt; still.set(i, v); if (v > 25 && v - dt <= 25) { stuck++; if (bad.length < 12) bad.push('car ' + i + ' stuck >25 s on ' + (c.edge.ramp ? 'slip road ' : 'highway ') + c.edge.id + ' (' + c.why + ')'); } } else still.set(i, 0);
     });
   }
-  if (process.env.WHY) console.log(Object.entries(why).sort((a, b) => b[1] - a[1]).slice(0, 12).map(([k, v]) => k + ' ' + Math.round(v) + 's').join(' | '));
+  if (process.env.WHY) console.log(Object.entries(why).sort((a, b) => b[1] - a[1]).slice(0, 30).map(([k, v]) => k + ' ' + Math.round(v) + 's').join('\n'));
   const km = v => r1(v * 3.6 * 1.25);
   return { name: 'hwflow', count: 'highway ' + r1(hwSec.n / 60) + ' car-min at ' + km(hwSec.sp / Math.max(1, hwSec.n)) + ' km/h avg, stalled ' + r1(hwSec.stall) + ' s; slip roads ' + r1(rampSec.n / 60) + ' car-min at ' + km(rampSec.sp / Math.max(1, rampSec.n)) + ' km/h, stalled ' + r1(rampSec.stall) + ' s; ' + lc + ' lane changes, ' + hardBrake + ' hard-brake frames, ' + stuck + ' cars stuck', bad };
 }
