@@ -565,6 +565,7 @@ const transitScene = createTransitScene({ scene, transit, heightAt });
 const transitMarkers = all => {
   const out = [];
   if (world.mode !== 'city') return out;
+  if (airport && airport.gate) out.push({ x: airport.gate.px, z: airport.gate.pz, color: '#ffffff', label: '✈', big: true });   // the airport (Departures gate)
   if (transit.depot) out.push({ x: transit.depot.x, z: transit.depot.z, color: '#ffffff', label: '🚌', big: true });   // the bus depot (a white pin with a bus, so it is not mistaken for a bus stop)
   ((transit.metro && transit.metro.lines) || []).forEach(l => l.stations.forEach(s => out.push({ x: s.x, z: s.z, color: '#' + l.color.toString(16).padStart(6, '0'), label: 'M' })));
   transit.stands.forEach(s => { if (all || Math.hypot(s.x - car.x, s.z - car.z) < 500) out.push({ x: s.x, z: s.z, color: '#f2c200', label: 'T' }); });
@@ -986,7 +987,7 @@ function animate() {
     goldenGate.update(dt, nightK);
     interstate.update();
     port.update(dt, nightK);
-    airport.update(dt, nightK);
+    airport.update(dt, nightK, world.mode === 'city' ? camera : null);
     traffic.setGrip(env.grip);
     traffic.update(dt, hail.following() ? hail.proxy : car, world.onFoot && world.mode === 'city' ? world.focus() : null);
     if (traffic.walkerHit.on) world.shoveFoot(traffic.walkerHit.vx, traffic.walkerHit.vz);
