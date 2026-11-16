@@ -15,7 +15,7 @@ const coarse = typeof matchMedia !== 'undefined' && matchMedia('(pointer: coarse
 export const DEFAULT_SETTINGS = {
   traffic: 40, peds: 100, hour: 22, day: 0, dynWeather: true, clockRun: true, fog: 0, rain: false, snow: false, car: 'hatch', camMode: 'chase', camDist: 9.5, camHeight: 5.2, camInBack: 0.5, camInUp: 0.08,
   ao: coarse ? 'off' : 'low', bloom: true, tone: true, tex: coarse ? 1 : 2, fx: true, shadow: coarse ? 1024 : 2048, quality: coarse ? 'medium' : 'high',
-  taxi: true, sound: true, volume: 0.7, swapSticks: false, awake: true, res: coarse ? 0.75 : 1, view: coarse ? 0.7 : 1, fps: true
+  taxi: true, sound: true, volume: 0.7, volRadio: 1, volAmbient: 1, volEngine: 1, volWind: 1, swapSticks: false, awake: true, res: coarse ? 0.75 : 1, view: coarse ? 0.7 : 1, fps: true
 };
 
 const PRESETS = {
@@ -112,6 +112,10 @@ export function createMenu({ settings, limits, onChange, onOpenChange , ownedCar
       </div>
       <div class="toggles"><button class="toggle" data-t="swapSticks">🎮 Swap thumbsticks (on foot: camera left, move right)</button></div>
       <div class="row"><label>Volume</label><input type="range" data-k="volume" min="0" max="1" step="0.01"><output></output></div>
+      <div class="row"><label>📻 Radio</label><input type="range" data-k="volRadio" min="0" max="1" step="0.01"><output></output></div>
+      <div class="row"><label>🌧 Ambient</label><input type="range" data-k="volAmbient" min="0" max="1" step="0.01"><output></output></div>
+      <div class="row"><label>🏎 Engine</label><input type="range" data-k="volEngine" min="0" max="1" step="0.01"><output></output></div>
+      <div class="row"><label>💨 Wind</label><input type="range" data-k="volWind" min="0" max="1" step="0.01"><output></output></div>
       <div class="row" style="grid-template-columns:110px 1fr"><label>City</label>
         <div class="seg" id="citySeg"><button data-city="chicago">Chicago</button><button data-city="sf">San Francisco</button></div></div>
       </div>
@@ -152,7 +156,7 @@ export function createMenu({ settings, limits, onChange, onOpenChange , ownedCar
 
   const $ = s => root.querySelector(s);
   const outFmt = {
-    traffic: v => v, peds: v => v, hour: fmtHour, fog: v => Math.round(v * 100) + '%', volume: v => Math.round(v * 100) + '%'
+    traffic: v => v, peds: v => v, hour: fmtHour, fog: v => Math.round(v * 100) + '%', volume: v => Math.round(v * 100) + '%', volRadio: v => Math.round(v * 100) + '%', volAmbient: v => Math.round(v * 100) + '%', volEngine: v => Math.round(v * 100) + '%', volWind: v => Math.round(v * 100) + '%'
   };
   function refresh() {
     root.querySelectorAll('input[type=range]').forEach(inp => {

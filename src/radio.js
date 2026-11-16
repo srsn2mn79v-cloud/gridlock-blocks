@@ -7,21 +7,24 @@
 const midi = n => 440 * Math.pow(2, (n - 69) / 12);
 
 const SYNTH = [
-  { id: 'neon', name: 'Neon Drive', synth: 'neon', tag: 'all night, all neon', dj: { name: 'DJ Vega', pitch: 0.9, rate: 1.04,
+  { id: 'neon', name: 'Neon Drive', synth: 'neon', tag: 'all night, all neon', dj: { name: 'DJ Vega', gender: 'm', pitch: 0.78, rate: 1.1,
     greet: ['Hey night owls.', 'Good to have you out there.', 'Keep it between the lines, drivers.', 'Neon Drive, still rolling.', 'Hello night owls, DJ Vega here.', 'Stay safe out there.', 'Good to see you on the road tonight.',
       "Don't do anything I wouldn't do. Which, admittedly, leaves you plenty of room.", 'Headlights on, volume up.', 'Eyes on the road, ears on me.', 'Another song down, another block to go.', 'If you can hear me, you are doing it right.'],
     quips: ['Red means stop, green means go, and yellow means please do not floor it.', 'The city never sleeps, but you could at least blink between songs.', 'Remember, the horn is not a musical instrument. Mostly.', 'Somebody out there is doing ninety in a thirty. Not naming names. Okay, it is probably you.',
       'The lights are on, the streets are wet with neon, and you have got the best seat in the city.', 'If you are lost, congratulations, you are exploring.', 'Buckle up, hydrate, and keep your hands at ten and two. Or one hand on the wheel, if you are cool. Do not be cool.',
       'This one goes out to everyone stuck at a red light with nowhere to be.', 'Stay in your lane, drivers. Unless you are drifting. Then stay in the car park.'] } },
-  { id: 'lowkey', name: 'Low Key', synth: 'lowkey', tag: 'slow roads and soft lights', dj: { name: 'Maya', pitch: 1.12, rate: 0.93,
+  { id: 'lowkey', name: 'Low Key', synth: 'lowkey', tag: 'slow roads and soft lights', dj: { name: 'Maya', gender: 'f', pitch: 1.3, rate: 0.86,
     greet: ['Easy does it.', 'Take your time out there.', 'Nowhere to be, nothing to prove.', 'Low Key, keeping it mellow.', 'Hello again, lovely drivers.', 'Stay safe out there, okay?', 'So good to see you on the road tonight.', 'Keep it gentle on the pedals.', 'Windows down if you like.'],
     quips: ['Breathe in, breathe out, indicate.', 'Drive as if the road were made of glass, and the glass were made of something very soft.', 'The best parking spot is the one you do not have to fight for.', 'Sip your coffee, watch the lights go by.',
       'If the person in front of you is slow, they are probably enjoying the song too.', 'Keep a little space between you and the car ahead. Space is a kindness.', 'There is no rush hour in this studio.', 'Remember to look up once in a while. The sky is free.',
       'Whatever today was, the road is quiet now.'] } },
-  { id: 'cruise', name: 'Night Cruise FM', synth: 'cruise', tag: 'long roads, low lights', dj: { name: 'Cass', pitch: 0.82, rate: 0.9,
+  { id: 'cruise', name: 'Night Cruise FM', synth: 'cruise', tag: 'long roads, low lights', dj: { name: 'Cass', gender: 'f', pitch: 0.7, rate: 0.82,
     greet: ['Night Cruise FM.', 'Still with you out on the interstate.', 'Lean back. We have got a long way to go.', 'This is Cass, riding along.', 'Nothing but road ahead.', 'Set the cruise and stay a while.'],
     quips: ['Count the lamps if you like. I lost track around four hundred.', 'Somewhere up ahead there is a tunnel, and a different city on the other side of it.', 'Tail lights ahead, headlights behind, and you in the middle of it.',
       'If you see a rest stop, wave at it for me.', 'Keep it steady. The road is doing most of the work tonight.', 'Next exit: wherever you like.'] } },
+  { id: 'heavy', name: 'Bonecrusher FM', synth: 'heavy', tag: 'loud, ugly and proud', dj: { name: 'Razor', gender: 'm', pitch: 0.45, rate: 1.12,
+    greet: ['Shut up and listen.', 'Oh look, another driver who thinks they can drive.', 'Turn it up or get out.', 'Bonecrusher FM. Try to keep up.', 'You again? Fine.', 'Hands on the wheel, brain optional.', 'Razor here. Do not bother calling in.', 'Still alive out there? Disappointing.'],
+    quips: ['If you are going slow, get out of the left lane. I mean it.', 'Your driving is the reason I drink. Which is a lot.', 'That was a song. Maybe learn from it.', 'Nobody asked for your opinion on the weather. Neither did I, but here it is anyway.', 'Parallel parking? Sounds like a you problem.', 'I have seen better steering from a shopping cart.', 'Eyes on the road, you absolute disaster.', 'Crash and I will play a sad song. A very short one.', 'You call that a lane change? I call that an apology waiting to happen.', 'Quiet. Next track.'] } },
   { id: 'mix', name: 'Non-Stop Mix', synth: 'mix', tag: 'no talking, just music', dj: null }
 ];
 const PERSONAS = [{ pitch: 1.0, rate: 1.0 }, { pitch: 0.85, rate: 0.98 }, { pitch: 1.2, rate: 1.05 }, { pitch: 0.95, rate: 0.92 }];
@@ -86,6 +89,7 @@ export function createRadio({ audio, weather, settings, onChange }) {
     };
     const nz = (t0, dur, vol, ftype, f, q = 1) => { const sN = ctx.createBufferSource(); sN.buffer = noise; sN.loop = true; const b = ctx.createBiquadFilter(); b.type = ftype; b.frequency.value = f; b.Q.value = q; const g = ctx.createGain(); env(g, t0, 0.002, vol, dur); sN.connect(b); b.connect(g); g.connect(out); sN.start(t0, Math.random() * 0.5); sN.stop(t0 + dur + 0.05); };
     const kick = (t0, v = 0.9) => { const o = ctx.createOscillator(), g = ctx.createGain(); o.frequency.setValueAtTime(150, t0); o.frequency.exponentialRampToValueAtTime(48, t0 + 0.12); env(g, t0, 0.002, v, 0.26); o.connect(g); g.connect(out); o.start(t0); o.stop(t0 + 0.35); nz(t0, 0.02, v * 0.18, 'bandpass', 2600, 1); };      // the click on top is what a phone speaker plays
+    let dist = null; if (kind === 'heavy') { dist = ctx.createWaveShaper(); const cv = new Float32Array(1024); for (let i = 0; i < 1024; i++) { const x = i / 512 - 1; cv[i] = Math.tanh(x * 7) * 0.6; } dist.curve = cv; dist.oversample = '2x'; dist.connect(out); }
     const lpf = f => { const b = ctx.createBiquadFilter(); b.type = 'lowpass'; b.frequency.value = f; return b; };
     const send = (g, amt = 0.3) => { const pg = ctx.createGain(); pg.gain.value = amt; g.connect(pg); pg.connect(delay); };
     // keep the bass in E2..E3 (82-165 Hz): the song's own register, still audible
@@ -126,6 +130,12 @@ export function createRadio({ audio, weather, settings, onChange }) {
           if (B.kick && (s16 === 4 || s16 === 12)) { nz(tt, 0.34, 0.2, 'bandpass', 1500, 0.5); osc('triangle', 180, tt, 0.12, 0.1); }
           if (fillNow && s16 % 2 === 0) nz(tt, 0.1, 0.12, 'bandpass', 2000, 0.6);
           if (B.hats && s16 % 4 === 2) nz(tt, 0.05, 0.06, 'highpass', 8000);
+        } else if (style === 'heavy') {
+          if (B.kick !== false && (s16 % 2 === 0 || (bar % 4 === 3 && s16 >= 12))) kick(tt, s16 % 4 === 0 ? 0.95 : 0.7);
+          if (s16 === 4 || s16 === 12) { nz(tt, 0.2, 0.5, 'bandpass', 1900, 0.7); osc('triangle', 200, tt, 0.12, 0.3); }
+          if (fillNow && s16 % 2 === 1) nz(tt, 0.07, 0.3, 'bandpass', 2400, 0.7);
+          if (s16 % 2 === 0) nz(tt, 0.05, s16 % 4 === 0 ? 0.16 : 0.09, 'highpass', 8000);
+          if (s16 === 0 && (bar % 4 === 0)) nz(tt, 1.1, 0.2, 'highpass', 5200);                 // crash
         } else {
           if (B.kick && (s16 === 0 || s16 === 10)) kick(tt, 0.55);
           if (B.kick && (s16 === 4 || s16 === 12)) { nz(tt, 0.2, 0.17, 'bandpass', 1400, 0.6); osc('triangle', 170, tt, 0.12, 0.11); }
@@ -138,9 +148,17 @@ export function createRadio({ audio, weather, settings, onChange }) {
         if (B.bassLong) { if (s16 === 0) bass(tt, rb, 15, 0.3, 520); }
         else if (style === 'neon') { if (s16 % 2 === 0) bass(tt, rb + (s16 % 8 === 6 ? 12 : 0), 1.8, 0.3, 520 + 260 * Math.sin(step * 0.05)); }
         else if (style === 'cruise') { if (s16 % 2 === 0) bass(tt, rb, 1.8, 0.28, 420 + 200 * Math.sin(step * 0.02)); }
+        else if (style === 'heavy') { if (s16 % 2 === 0) bass(tt, rb, 1.6, 0.32, 380); }
         else {
           if (s16 === 0) bass(tt, rb, 6, 0.34, 460); if (s16 === 7) bass(tt, rb + 7, 3, 0.26, 460);
           if (s16 === 10) bass(tt, rb + 12 > 55 ? rb : rb + 12, 2, 0.24, 520); if (s16 === 14) bass(tt, nb - 1 < 40 ? nb : nb - 1, 2, 0.2, 460);       // an approach note into the next chord
+        }
+        if (style === 'heavy' && dist) {
+          // power chords through a hard clipper: a gallop in the verses, long open chords every other bar
+          const gtr = (m, dur, vol) => [0, 7, 12].forEach(iv => { const f = midi(bassNote(m) + 12 + iv); held('sawtooth', f, tt, dur, vol, 0.004, 0.05, dist, lpf(3400)); held('sawtooth', f * 1.006, tt, dur, vol * 0.6, 0.004, 0.05, dist, lpf(2600)); });
+          const gallop = [0, 3, 4, 6, 8, 11, 12, 14], chug = bar % 2 === 0 ? gallop.includes(s16) : (s16 % 2 === 0);
+          if (B.bassLong || bar % 8 === 7) { if (s16 === 0) gtr(root, sixteenth * 14, 0.05); }
+          else if (chug) gtr(s16 === 8 && bar % 4 === 1 ? nroot : root, sixteenth * 1.5, 0.06);
         }
         // ---- chords
         if (B.pad && s16 === 0) {
@@ -217,10 +235,17 @@ export function createRadio({ audio, weather, settings, onChange }) {
     if (kind === 'forecast') return `${greet} ${time} ${cur} ${o.text}${quip}`;
     return `${greet} ${time} ${cur}${now.kind === 'snow' ? ' Watch the roads, the ploughs are out.' : now.kind === 'rain' ? ' Slow down on the wet stuff.' : ''}${quip}`;
   }
+  const FEMALE = /female|woman|samantha|zira|susan|karen|victoria|hazel|aria|jenny|libby|sonia|moira|tessa|fiona|catherine|allison|ava|serena|kate|emma|amy|joanna|salli/i;
+  const MALE = /(^|[^a-z])male|daniel|david|mark|alex|fred|george|ryan|guy|james|oliver|tom|arthur|brian|matthew|joey|justin|ricky/i;
+  const assigned = new Map();
   function pickVoice(dj) {
     const vs = speechSynthesis.getVoices().filter(v => /^en/i.test(v.lang)); if (!vs.length) return null;
+    if (assigned.has(dj.name)) { const a = assigned.get(dj.name); if (vs.includes(a)) return a; }
     if (dj.voice) { const m = vs.find(v => v.name.toLowerCase().includes(dj.voice.toLowerCase())); if (m) return m; }
-    const key = (dj.name || '').split('').reduce((a, c) => a + c.charCodeAt(0), 0); return vs[key % vs.length];
+    const used = new Set(assigned.values()), want = dj.gender === 'f' ? FEMALE : dj.gender === 'm' ? MALE : null;
+    const key = (dj.name || '').split('').reduce((a, c) => a + c.charCodeAt(0), 0);
+    const pool = [vs.filter(v => !used.has(v) && want && want.test(v.name) && !(dj.gender === 'm' && FEMALE.test(v.name))), vs.filter(v => !used.has(v)), vs].find(a => a.length);
+    const v = pool[key % pool.length]; assigned.set(dj.name, v); return v;
   }
   // The host talks through speechSynthesis. Three things used to go wrong: (1) the music was ducked as soon as we asked, so when the
   // browser silently refused to speak (no user activation after a page reload / tunnel trip, no voices yet) the radio stayed quiet for

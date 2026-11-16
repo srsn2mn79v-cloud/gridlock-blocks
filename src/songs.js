@@ -53,9 +53,17 @@ export const SONGS = [
   S('Tunnel Under the Hills', 'cruise', 80, 'dorian', 'flute', [[47, 'm7'], [43, 'M7'], [50, 'M'], [45, 'M']], [[43, 'M7'], [45, 'M'], [47, 'm7'], [47, 'm7']], { feel: ['flow'], mins: 4.0 }),
   S('Last Exit Before Dawn', 'cruise', 86, 'major', 'epiano', [[48, 'M7'], [45, 'm7'], [41, 'M7'], [43, 'M']], [[41, 'M7'], [43, 'M'], [45, 'm7'], [48, 'M7']], { feel: ['flow', 'mid'], mins: 3.8 }),
   S('Weigh Station', 'cruise', 82, 'minpent', 'synth', [[43, 'm7'], [48, 'M7'], [40, 'M7'], [47, 'M']], [[48, 'M7'], [47, 'M'], [43, 'm7'], [43, 'm7']], { feel: ['flow'], mins: 3.8 }),
-  S('Two Lane Blacktop', 'cruise', 90, 'minor', 'synth', [[50, 'm7'], [43, 'M'], [48, 'M7'], [45, 'm7']], [[43, 'M'], [45, 'm7'], [50, 'm7'], [50, 'm7']], { feel: ['mid'], melody: false, mins: 3.4 })        // instrumental groove
+  S('Two Lane Blacktop', 'cruise', 90, 'minor', 'synth', [[50, 'm7'], [43, 'M'], [48, 'M7'], [45, 'm7']], [[43, 'M'], [45, 'm7'], [50, 'm7'], [50, 'm7']], { feel: ['mid'], melody: false, mins: 3.4 }),       // instrumental groove
+
+  // ---- Bonecrusher FM: heavy riffs, double kick, power chords (all riff songs, no lead)
+  S('Bonecrusher', 'heavy', 168, 'phrygian', 'synth', [[40, 'm'], [41, 'M'], [40, 'm'], [43, 'M']], [[43, 'M'], [41, 'M'], [40, 'm'], [40, 'm']], { melody: false, mins: 3.2 }),
+  S('Scrapyard Sermon', 'heavy', 152, 'minor', 'synth', [[38, 'm'], [34, 'M'], [41, 'M'], [36, 'M']], [[34, 'M'], [36, 'M'], [38, 'm'], [38, 'm']], { melody: false, mins: 3.4 }),
+  S('Rust Belt Riot', 'heavy', 176, 'minor', 'synth', [[45, 'm'], [43, 'M'], [41, 'M'], [43, 'M']], [[41, 'M'], [43, 'M'], [45, 'm'], [45, 'm']], { melody: false, mins: 3.0 }),
+  S('Black Ice Breakdown', 'heavy', 140, 'phrygian', 'synth', [[38, 'm'], [39, 'M'], [38, 'm'], [36, 'M']], [[36, 'M'], [39, 'M'], [38, 'm'], [38, 'm']], { melody: false, mins: 3.6 }),
+  S('Hammer the Horn', 'heavy', 160, 'minor', 'synth', [[43, 'm'], [39, 'M'], [46, 'M'], [41, 'M']], [[39, 'M'], [41, 'M'], [43, 'm'], [43, 'm']], { melody: false, mins: 3.3 }),
+  S('Total Loss', 'heavy', 184, 'phrygian', 'synth', [[40, 'm'], [41, 'M'], [45, 'm'], [40, 'm']], [[45, 'm'], [43, 'M'], [41, 'M'], [40, 'm']], { melody: false, mins: 2.9 })
 ];
-export const songsFor = style => (style === 'mix' ? SONGS : SONGS.filter(s => s.style === style));
+export const songsFor = style => (style === 'mix' ? SONGS.filter(s => s.style !== 'heavy') : SONGS.filter(s => s.style === style));
 
 // the pitches a melody may use: the song's scale around the tonic, between MIDI 62 and 88
 function pool(P) {

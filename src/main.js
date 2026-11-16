@@ -45,6 +45,7 @@ import { pointInPoly } from './chicago/geom.js';
 import { createMenu, loadSettings, saveSettings } from './menu.js';
 import { createWorld } from './world.js';
 import { createTaxi } from './taxi.js';
+import { createBusJob } from './busjob.js';
 import { createWeather } from './weather.js';
 import { createSeasons } from './seasons.js';
 import { createPlowFx } from './plowfx.js';
@@ -307,18 +308,28 @@ for (let i = 0; i < LAMP_POOL; i++) {
   scene.add(sp); scene.add(sp.target);
   lampPool.push(sp);
 }
-function updateLampLights(car) {
+// The pooled spotlights keep their lamp for as long as it stays in range, and a light only changes lamp once it has faded out. (Handing the lights out by
+// distance rank every frame made one jump from lamp to lamp as the order changed: a pool of light that popped on and off, or slid, on the road.)
+function updateLampLights(car, dt = 0.016) {
   for (const l of lampDefs) l.d = Math.hypot(l.pos.x - car.x, l.pos.z - car.z);
-  const near = lampDefs.filter(l => l.d < LAMP_RANGE).sort((a, b) => a.d - b.d).slice(0, LAMP_POOL);
-  lampPool.forEach((sp, i) => {
-    const l = near[i];
+  const taken = new Set(); lampPool.forEach(sp => { if (sp.userData.lamp && lampDefs.includes(sp.userData.lamp)) taken.add(sp.userData.lamp); else sp.userData.lamp = null; });
+  const wanted = lampDefs.filter(l => l.d < LAMP_RANGE).sort((a, b) => a.d - b.d).slice(0, LAMP_POOL), want = new Set(wanted);
+  const free = wanted.filter(l => !taken.has(l));
+  const fk = Math.min(1, dt * 7);
+  lampPool.forEach(sp => {
+    const u = sp.userData; if (u.k === undefined) u.k = 0;
+    // a lamp that dropped out of the nearest set is let go (fades out) once a nearer lamp is waiting for a light
+    if (u.lamp && !want.has(u.lamp) && (free.length || u.lamp.d > LAMP_RANGE)) u.leaving = true;
+    if (!u.lamp && free.length) { u.lamp = free.shift(); u.k = 0; u.leaving = false; }
+    if (u.leaving) { u.k -= u.k * fk + 0.002; if (u.k <= 0.01) { u.k = 0; u.lamp = null; u.leaving = false; sp.intensity = 0; return; } }
+    else if (u.lamp) u.k += (1 - u.k) * fk;
+    const l = u.lamp;
     if (!l) { sp.intensity = 0; return; }
     sp.position.copy(l.pos);
     sp.target.position.copy(l.target);
     sp.color.setHex(l.color || 0xffa033);
-    const distFade = Math.min(1, (LAMP_RANGE - l.d) / LAMP_FADE);
-    const rankFade = Math.min(1, (LAMP_POOL - i) / 3);
-    sp.intensity = LAMP_INTENSITY * Math.min(distFade, rankFade) * (l.always ? 1 : nightK);
+    const distFade = Math.max(0, Math.min(1, (LAMP_RANGE - l.d) / LAMP_FADE));
+    sp.intensity = LAMP_INTENSITY * Math.min(distFade, u.k) * (l.always ? 1 : nightK);
   });
 }
 
@@ -506,6 +517,9 @@ const seasons = createSeasons({ propGroup, env, scene });
 const weather = createWeather({ env, settings, save: () => saveSettings(settings), onApply: cur => seasons.apply(cur.season) });
 const plowFx = createPlowFx(scene);
 const taxi = createTaxi({ city, scene, heightAt, snowing: () => !!settings.snow });
+const bus = createBusJob({ transit, nodes: city.roadNodes, scene, taxi, toast: msg => world.toast(msg),
+  setBody: key => { car.setStyle(key); refreshCamOffset(); camRig.setMode(camRig.mode); world.applyMods(); },
+  restoreBody: () => { car.setStyle(settings.car); refreshCamOffset(); camRig.setMode(camRig.mode); world.applyMods(); } });
 let modalPause = false;
 const tunnels = createTunnels({ city, scene, transit, collisionWorld, parcels: parcelInstances, props: propInstances, cityHeight: heightAt, toast: msg => world.toast(msg) });
 tunnelPolys = tunnels.holes; setGarageHoles(null);
@@ -580,7 +594,7 @@ const transitMarkers = all => {
   return out;
 };
 const stationMarkers = (all) => (world.mode !== 'city' ? [] : (city.stations || []).filter(st => all || Math.hypot(st.x - car.x, st.z - car.z) < 260).map(st => ({ x: st.door.x, z: st.door.z, color: st.kind === 'hospital' ? '#ff4d4d' : st.kind === 'police' ? '#4a86ff' : st.kind === 'market' ? '#38d96a' : '#ff9a2e', label: st.kind === 'hospital' ? '✚' : st.kind === 'police' ? 'PD' : st.kind === 'market' ? '🛒' : 'FD' })));
-const mapExtras = (all) => { const tx = taxi.mapExtras(); return { route: races.route() || (tx && tx.route), markers: spreadMarkers((tx ? tx.markers : []).concat(world.mapMarkers(all), races.markers(), fuel.markers(), transitMarkers(all), stationMarkers(all))) }; };
+const mapExtras = (all) => { const tx = taxi.mapExtras() || bus.mapExtras(); return { route: races.route() || (tx && tx.route), markers: spreadMarkers((tx ? tx.markers : []).concat(world.mapMarkers(all), races.markers(), fuel.markers(), transitMarkers(all), stationMarkers(all))) }; };
 
 let autoLights = null;   // headlights follow night/day, but only when it actually crosses
 function syncLights() {
@@ -596,7 +610,7 @@ function applySetting(k, v) {
   else if (k === 'fog') env.setFog(v);
   else if (k === 'rain') env.setRain(v);
   else if (k === 'snow') env.setSnow(v);
-  else if (k === 'car') { car.setStyle(v); refreshCamOffset(); camRig.setMode(camRig.mode); world.applyMods(); taxi.setEnabled(false, car); }
+  else if (k === 'car') { bus.end(car, ' '); car.setStyle(v); refreshCamOffset(); camRig.setMode(camRig.mode); world.applyMods(); taxi.setEnabled(false, car); }
   else if (k === 'res') { resScale = Number(v) || 1; applyRatio(); renderer.setSize(innerWidth, innerHeight); gfx.resize(innerWidth, innerHeight); }
   else if (k === 'view') viewMul = Number(v) || 1;
   else if (k === 'camDist' || k === 'camHeight') refreshCamOffset();
@@ -604,6 +618,7 @@ function applySetting(k, v) {
   else if (k === 'sound') audio.setEnabled(v);
   else if (k === 'awake') wakeLock.sync();
   else if (k === 'volume') audio.setVolume(v);
+  else if (k === 'volRadio') audio.setMix({ radio: v }); else if (k === 'volAmbient') audio.setMix({ ambient: v }); else if (k === 'volEngine') audio.setMix({ engine: v }); else if (k === 'volWind') audio.setMix({ wind: v });
   else if (k === 'fps') fpsEl.style.display = v ? '' : 'none';
   else if (k === 'ao' || k === 'bloom' || k === 'tone' || k === 'tex' || k === 'fx') gfx.set(k, v);
   else if (k === 'quality') gfx.set('quality', v);
@@ -797,6 +812,7 @@ const unlockAudio = () => audio.unlock();
 ['pointerdown', 'pointerup', 'touchstart', 'touchend', 'click', 'keydown'].forEach(ev => addEventListener(ev, unlockAudio, { passive: true }));      // iPhone only accepts touchend / click / keydown; every touch retries until the context runs (also after a lock or call)
 addEventListener('pageshow', unlockAudio);
 audio.setEnabled(settings.sound !== false); audio.setVolume(settings.volume ?? 0.7);
+audio.setMix({ radio: settings.volRadio ?? 1, ambient: settings.volAmbient ?? 1, engine: settings.volEngine ?? 1, wind: settings.volWind ?? 1 });
 const HEAVY_TYPES = { bus: 2, truck: 2, van: 1, pickup: 1 };
 // Cab stands: stop the car (any car) on a painted TAXI bay for a moment to start - or end - a taxi shift.
 let standT = 0, standLock = false, standHint = null;
@@ -809,6 +825,7 @@ function standFrame(dt) {
   standT += dt;
   if (standT > 1.2) {
     standLock = true;
+    if (bus.active) { standLock = true; return; }
     const on = !taxi.active;
     taxi.setEnabled(on, car);
     world.toast(on ? 'Taxi shift started - passengers will call you' : 'Taxi shift ended');
@@ -1004,10 +1021,11 @@ function animate() {
     races.update(dt);
     fuel.update(dt); harbour.update(dt); hail.update(dt, !races.active());
     taxi.update(dt, car);
+    bus.update(dt, car, world.onFoot || world.mode !== 'city');
     standFrame(dt);
     updateTrafficLights();
     updateReflectors(focus);
-    updateLampLights(focus);
+    updateLampLights(focus, dt);
     sun.position.set(focus.x + env.sunOffset.x, env.sunOffset.y, focus.z + env.sunOffset.z);
     sun.target.position.set(focus.x, 0, focus.z);
 
@@ -1061,7 +1079,7 @@ function animate() {
   renderFrame();
   requestAnimationFrame(animate);
 }
-window.__game = { roadsGroup, tunnels, flight, seasons, wakeLock, interstate, cruise, airport, port, goldenGate, shopLots, drawbridge, boats, hail, camRig, interior, fuel, radio, weather, plowFx, puffs, gfx, transit, parkedCars, skids, audio, races, structures, world, renderer, taxi, input, destruction, collisionWorld, lampDefs, signs, propInstances, env, settings, menu, minimap, scene, camera, car, city, traffic, pedestrians, lampPool, reflectors, heightAt, offences: { get wrongWay() { return wrongWayOffences; } } };
+window.__game = { bus, roadsGroup, tunnels, flight, seasons, wakeLock, interstate, cruise, airport, port, goldenGate, shopLots, drawbridge, boats, hail, camRig, interior, fuel, radio, weather, plowFx, puffs, gfx, transit, parkedCars, skids, audio, races, structures, world, renderer, taxi, input, destruction, collisionWorld, lampDefs, signs, propInstances, env, settings, menu, minimap, scene, camera, car, city, traffic, pedestrians, lampPool, reflectors, heightAt, offences: { get wrongWay() { return wrongWayOffences; } } };
 // Arriving through the tunnel from another city (travel.js): come out of the inbound tube at the speed, time of day and radio station
 // the player went in with, then lift the tunnel off the screen once a few frames of the new city have been drawn.
 {

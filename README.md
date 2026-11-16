@@ -1001,3 +1001,10 @@ Portal sites are found at start-up (`tryPortal`): clear of buildings, props, roa
 
 
 Metro tunnels now run as smooth curves (centripetal Catmull-Rom through the stations, straight lead-ins at each station) laid as a rail bed: ballast, two tracks of sleepers and rails, side walkways with yellow edge lines, cable trays and a coloured band at stations. Everything repeated is instanced. The chase camera ignores buildings above while underground (they used to push it up through the roof).
+
+### Bus job, sound mix, heavy radio, side-view tunnel (latest)
+- **Bus job** (`src/busjob.js`): stop for a moment in the bus depot yard to start a shift (you get a city bus and the next bus line); drive to each blue-beam stop, stop for a second and the passengers pay; a full loop pays a bonus. Stop in the yard again (or press End) to hand the bus back. Taxi duty and bus shifts exclude each other.
+- **Sound mix**: Menu > sliders for Radio, Ambient, Engine and Wind next to the master Volume (`audio.setMix`).
+- **Radio**: every host now has a clearly different pitch/rate and their own voice (matched by gender hint, never shared); new station Bonecrusher FM (`style: 'heavy'` songs: distorted power chords, double kick) with a mean host, Razor.
+- **City change**: the loading screen is a side view of a car driving through a lit tunnel (pure CSS, `index.html`). The page still restarts for the other city, so the radio is quiet while it builds and resumes on arrival.
+- **Street lamps**: the pooled spotlights keep their lamp while it is in range and fade when handed over (no more popping), and the flat light pool under each lamp sits above the road surface so it is not clipped at the road edge.

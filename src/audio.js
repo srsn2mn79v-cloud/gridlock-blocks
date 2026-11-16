@@ -33,10 +33,15 @@ export function createAudio({ camera }) {
     revIn = ctx.createGain(); revOut = ctx.createGain(); revOut.gain.value = 0; conv = ctx.createConvolver(); setIR(1.8);
     revIn.connect(conv); conv.connect(revOut); revOut.connect(master);
     radioBus = ctx.createGain(); radioBus.gain.value = 1; radioLP = biquad('lowpass', 18000, 0.5); radioBus.connect(radioLP); radioLP.connect(master); radioSend = gain(0); radioLP.connect(radioSend); radioSend.connect(revIn);
-    build();
+    gEng = gain(1); gWind = gain(1); gAmb = gain(1); gRadio = gain(1);
+    [gEng, gWind, gAmb].forEach(n => n.connect(master));
+    radioLP.disconnect(); radioLP.connect(gRadio); gRadio.connect(master); gRadio.connect(radioSend);
+    build(); applyMix();
     ready = true;
     readyCbs.splice(0).forEach(f => f());
   }
+  let gEng = null, gWind = null, gAmb = null, gRadio = null; const mix = { radio: 1, ambient: 1, engine: 1, wind: 1 };
+  const applyMix = () => { if (!gEng) return; const t = ctx.currentTime; gEng.gain.setTargetAtTime(mix.engine, t, 0.05); gWind.gain.setTargetAtTime(mix.wind, t, 0.05); gAmb.gain.setTargetAtTime(mix.ambient, t, 0.05); gRadio.gain.setTargetAtTime(mix.radio, t, 0.05); };
   let revIn = null, revOut = null, conv = null, radioBus = null, radioLP = null, radioSend = null, irSec = 0; const readyCbs = [];
   function setIR(sec) {            // a synthetic room: decaying stereo noise
     if (irSec === sec) return; irSec = sec;
@@ -97,19 +102,19 @@ export function createAudio({ camera }) {
   let player = null, playerKind = null, traffic = [], layers = null, engSend = null;
   function build() {
     const L = layers = {};
-    const loop = (type, f, q) => { const s = noiseSrc(), b = biquad(type, f, q), g = gain(0); s.connect(b); b.connect(g); g.connect(master); return { s, b, g }; };
-    L.roll = loop('bandpass', 500, 0.7); L.rollHi = loop('highpass', 2500, 0.5); L.wind = loop('lowpass', 900, 0.4);
+    const loop = (type, f, q, dest = master) => { const s = noiseSrc(), b = biquad(type, f, q), g = gain(0); s.connect(b); b.connect(g); g.connect(dest); return { s, b, g }; };
+    L.roll = loop('bandpass', 500, 0.7); L.rollHi = loop('highpass', 2500, 0.5); L.wind = loop('lowpass', 900, 0.4, gWind);
     L.skid = loop('bandpass', 1500, 6); L.skid2 = loop('bandpass', 2400, 10); L.gravel = loop('lowpass', 700, 0.6);
-    L.rain = loop('highpass', 1400, 0.5); L.rainLo = loop('lowpass', 7000, 0.5); L.rainBody = loop('bandpass', 400, 0.6);
-    L.snow = loop('bandpass', 260, 0.5);
-    L.hum = loop('lowpass', 170, 0.5); L.bed = loop('bandpass', 420, 0.5); L.crowd = loop('bandpass', 1000, 0.7); L.crowd2 = loop('bandpass', 1800, 1.2);
-    L.tun = loop('lowpass', 260, 0.7); L.scrape = loop('bandpass', 2600, 1.5);
+    L.rain = loop('highpass', 1400, 0.5, gAmb); L.rainLo = loop('lowpass', 7000, 0.5, gAmb); L.rainBody = loop('bandpass', 400, 0.6, gAmb);
+    L.snow = loop('bandpass', 260, 0.5, gAmb);
+    L.hum = loop('lowpass', 170, 0.5, gAmb); L.bed = loop('bandpass', 420, 0.5, gAmb); L.crowd = loop('bandpass', 1000, 0.7, gAmb); L.crowd2 = loop('bandpass', 1800, 1.2, gAmb);
+    L.tun = loop('lowpass', 260, 0.7, gAmb); L.scrape = loop('bandpass', 2600, 1.5);
     [L.rain, L.rainLo, L.rainBody].forEach(l => l.g.connect(revIn));
   }
   function setPlayer(kind) {
     if (player && playerKind === kind) return;
     if (player) player.stop();
-    player = makeEngine(kind, master, false); playerKind = kind;
+    player = makeEngine(kind, gEng, false); playerKind = kind;
     engSend = engSend || gain(0); engSend.connect(revIn); player.outG.connect(engSend);
   }
   const T = (p, v, tc = 0.06) => p.g.gain.setTargetAtTime(v, ctx.currentTime, tc);
@@ -374,7 +379,7 @@ export function createAudio({ camera }) {
     for (let k = traffic.length - 1; k >= 0; k--) if (!keep.has(traffic[k].c)) { traffic[k].v.stop(); traffic.splice(k, 1); }
     want.forEach(w => {
       let t = traffic.find(q => q.c === w.c);
-      if (!t) { const kk = ENGINE_FOR[w.c.type] || 'i4'; t = { c: w.c, v: makeEngine(kk, master, true), kind: kk, rpm: 900 }; traffic.push(t); }
+      if (!t) { const kk = ENGINE_FOR[w.c.type] || 'i4'; t = { c: w.c, v: makeEngine(kk, gAmb, true), kind: kk, rpm: 900 }; traffic.push(t); }
       const c = w.c, E = t.v.E, vmax = Math.max(8, c.targetSpeed || 16), sp = c.knock || c.wreck ? 0 : c.speed || 0;
       const r = engineRpm2(t, E, sp, vmax, dt);
       const pos = c.mesh.position, pv = prevPos.get(c) || { x: pos.x, z: pos.z };
@@ -428,6 +433,7 @@ export function createAudio({ camera }) {
     },
     get running() { return !!ctx && ctx.state === 'running'; },
     setEnabled(v) { enabled = !!v; if (master) master.gain.setTargetAtTime(enabled ? volume : 0, ctx.currentTime, 0.05); },
+    setMix(m) { Object.assign(mix, m); applyMix(); },
     setVolume(v) { volume = Math.max(0, Math.min(1, v)); if (master && enabled) master.gain.setTargetAtTime(volume, ctx.currentTime, 0.05); },
     update, honk, crash, airBrake, tick, bell, get ready() { return ready; },
     // for the radio: the shared audio context, a bus that plays through the master (with the garage / tunnel echo) and a ready hook

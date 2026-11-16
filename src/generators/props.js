@@ -90,7 +90,8 @@ function lampHead(poleMat, mirror) {
   const targetAnchor = new THREE.Object3D();
   targetAnchor.position.set(0, 0, 4.4);
   const pool = createGroundGlow(SODIUM_COLOR, 13, 13);
-  pool.position.set(0, 0.03, 3.4);
+  pool.position.set(0, 0.14, 3.4);                       // above the road ribbon (it used to be cut off along the road's edge line)
+  pool.material.polygonOffsetFactor = -6; pool.material.polygonOffsetUnits = -12;
   setGlow(pool, 0.28);
   g.add(arm1, arm2, head, lens, spotAnchor, targetAnchor, pool);
   snowCap(g, 0.34, 0.07, 0.5, 0, 3.86, 0.85);
