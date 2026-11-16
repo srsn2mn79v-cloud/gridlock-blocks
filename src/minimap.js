@@ -202,7 +202,8 @@ export function createMinimap(city, roadsGroup) {
     if (e.code === 'KeyM' && !shopOpen && !document.querySelector('#menu.open, .menu.open')) setFull(!fullOpen);
     else if (e.code === 'Escape' && fullOpen) { setFull(false); escAt = performance.now(); }
   });
-  const setFull = v => { fullOpen = v; lastFull = 0; full.style.display = v ? 'block' : 'none'; if (!v) { pickCb = null; full.querySelector('.fmt').textContent = 'City map'; full.querySelector('.fmh').textContent = '· drag to move, scroll or pinch to zoom, M / Esc to close'; } };
+  const centreOnCar = () => { zoom = 3; cu = toU(car.x); cv = toV(car.z); clampView(); };
+  const setFull = v => { if (v && !fullOpen && !pickCb) centreOnCar(); fullOpen = v; lastFull = 0; full.style.display = v ? 'block' : 'none'; if (!v) { pickCb = null; full.querySelector('.fmt').textContent = 'City map'; full.querySelector('.fmh').textContent = '· drag to move, scroll or pinch to zoom, M / Esc to close'; } };
   el.addEventListener('click', () => setFull(true));
   const clampView = () => { zoom = Math.max(1, Math.min(8, zoom)); cu = Math.max(fullRect.x0, Math.min(fullRect.x0 + fullRect.w, cu)); cv = Math.max(fullRect.y0, Math.min(fullRect.y0 + fullRect.h, cv)); lastFull = 0; };
   const zoomAt = (k, sx, sy) => {       // zoom by factor k keeping the map point under (sx, sy) fixed
@@ -230,7 +231,7 @@ export function createMinimap(city, roadsGroup) {
   full.querySelector('.fmbtns').addEventListener('click', e => {
     const b = e.target.closest('button'); if (!b) return;
     if (b.dataset.z === 'in') zoomAt(1.5, view.cw / 2, view.cy); else if (b.dataset.z === 'out') zoomAt(1 / 1.5, view.cw / 2, view.cy);
-    else if (b.dataset.z === 'home') { zoom = 1; cu = fullRect.x0 + fullRect.w / 2; cv = fullRect.y0 + fullRect.h / 2; clampView(); } else setFull(false);
+    else if (b.dataset.z === 'home') { if (zoom === 3 && Math.abs(cu - toU(car.x)) < 2) { zoom = 1; cu = fullRect.x0 + fullRect.w / 2; cv = fullRect.y0 + fullRect.h / 2; clampView(); } else centreOnCar(); } else setFull(false);
   });
   // pick mode: the player taps a place on the map (used for hailing a cab)
   function pick(title, cb) { pickCb = cb; zoom = 1; cu = fullRect.x0 + fullRect.w / 2; cv = fullRect.y0 + fullRect.h / 2; full.querySelector('.fmt').textContent = title; full.querySelector('.fmh').textContent = '· tap the map to choose, ✕ to cancel'; full.style.cursor = 'crosshair'; setFull(true); }

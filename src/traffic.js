@@ -130,6 +130,20 @@ export function createTrafficSystem(cityData, scene, heightAt, count = 6, maxCou
   const events = [];   // sound cues for main.js to drain each frame ({t:'honk', x, z, type, seed, angry})
   const nodes = cityData.roadNodes || {};
   const edgesByNode = buildEdgesByNode(cityData.roadEdges || []);
+  // Interchange zones. A slip road is like the fourth lane of the carriageway: the right-hand lane along the stretch where it leaves (upstream) or joins (downstream) belongs to the
+  // cars using that slip road, so through traffic keeps to the other lanes there and a car coming up a slip road never has to cross anyone to get into its lane.
+  const AUX_LEN = 230, auxEdges = new Set();
+  {
+    const len = e => { const a = cityData.roadNodes[e.from], b = cityData.roadNodes[e.to]; return Math.hypot(b.x - a.x, b.z - a.z); };
+    const hwEdges = (cityData.roadEdges || []).filter(e => e.type === 'highway');
+    const into = {}, outof = {}; hwEdges.forEach(e => { (into[e.to] ||= []).push(e); (outof[e.from] ||= []).push(e); });
+    (cityData.roadEdges || []).filter(e => e.ramp).forEach(r => {
+      if (outof[r.from] || into[r.from]) { let node = r.from, d = 0; for (let g = 0; g < 12 && d < AUX_LEN; g++) { const up = (into[node] || [])[0]; if (!up) break; auxEdges.add(up.id); d += len(up); node = up.from; } }       // upstream of an exit
+      if (outof[r.to] || into[r.to]) { let node = r.to, d = 0; for (let g = 0; g < 12 && d < AUX_LEN; g++) { const dn = (outof[node] || [])[0]; if (!dn) break; auxEdges.add(dn.id); d += len(dn); node = dn.to; } }        // downstream of an entry
+    });
+    // EXPERIMENT (tools/check.mjs hwflow, env AUX=4): give those stretches a real fourth lane, to see what a wider carriageway would do for the flow
+    if (globalThis.__aux === 4) hwEdges.forEach(e => { if (auxEdges.has(e.id)) { e.lanes = 4; e.width = 17.9; } });
+  }
   const drivable = cityData.roadEdges || [];
   // Buses and trucks are too long to take a 9 m side street's corners, so they stay on avenues
   // and highways (spawn there, and prefer those roads at every junction).
@@ -701,6 +715,7 @@ export function createTrafficSystem(cityData, scene, heightAt, count = 6, maxCou
   }
 
   let lastPlayer = null;
+  const extraObs = [];                                                  // other solid bodies the traffic must see (woken parked cars), set from main.js
   const playerObs = { isPlayer: true, x: 0, z: 0, speed: 0, hdg: 0 };
   const walkerObs = { isPlayer: true, walker: true, x: 1e6, z: 1e6, speed: 0, hdg: 0, len: 0.9, wid: 0.9 };   // the player on foot: cars brake for them, and one that still hits them shoves them (walkerHit)
   let walkerPos = null; const walkerHit = { on: false, vx: 0, vz: 0 };
@@ -852,6 +867,7 @@ export function createTrafficSystem(cityData, scene, heightAt, count = 6, maxCou
       }
       const nb = car._nb = nearOf(car);
       let nbC = (playerCar && Math.abs(playerObs.x - car.mesh.position.x) < 70 && Math.abs(playerObs.z - car.mesh.position.z) < 70) ? nb.concat([playerObs]) : nb;
+      for (let i = 0; i < extraObs.length; i++) { const e = extraObs[i]; if (Math.abs(e.mesh.position.x - car.mesh.position.x) < 40 && Math.abs(e.mesh.position.z - car.mesh.position.z) < 40) nbC = nbC === nb ? nb.concat([e]) : nbC.concat([e]); }   // woken parked cars that were shoved about: solid for the traffic too
       if (walkerPos && Math.abs(walkerPos.x - car.mesh.position.x) < 40 && Math.abs(walkerPos.z - car.mesh.position.z) < 40) {
         nbC = nbC.concat([walkerObs]);
         // hit: a moving car whose body reaches the walker throws them along its direction of travel
@@ -1025,6 +1041,7 @@ export function createTrafficSystem(cityData, scene, heightAt, count = 6, maxCou
           } else if (car.passOff > 0 && now > (car.passUntil || 0) && now > (car.laneT || 0)) { car.passOff--; car.passUntil = now + 6000; }
           want = Math.max(0, car.homeLane - car.passOff);
         }
+        if (globalThis.__aux && n >= 3 && !exitNear && auxEdges.has(car.edge.id)) want = Math.min(want, right - 1);       // the right-hand lane here is the slip roads' lane
         if (car.hwJoin > 0) car.hwJoin -= Math.max(0, car.speed) * dt;
         if (want !== car.laneIndex && now > (car.laneT || 0) && !(car.hwJoin > 0)) {
           const step = want > car.laneIndex ? 1 : -1, tl = car.laneIndex + step;
@@ -1058,7 +1075,11 @@ export function createTrafficSystem(cityData, scene, heightAt, count = 6, maxCou
                  (obs.isPlayer ? obs.speed < 0.6 : (obs.crashTimer > 0 && obs.speed < 0.6)) && !car.why.match(/sig|stop|box/)) {
         const laneLat = laneLateral(car.width, car.lanes, car.laneIndex, car.oneWay);
         const halfW = car.width / 2 - 0.9;
-        const need = Math.max(0.8, 2.4 - Math.abs(obsLat));
+        let need = Math.max(0.8, 2.4 - Math.abs(obsLat));
+        if (obs.parkedCar) {            // a shoved parked car can lie across the lane: pass it by its real half width on that side, plus the car's own half width and a gap
+          const yy = obs.knock.yaw, ox = Math.sin(yy), oz = Math.cos(yy), dot = Math.abs(ox * ch + oz * sh), crs = Math.abs(ox * sh - oz * ch);
+          need = Math.max(0.8, car.wid / 2 + crs * obs.len / 2 + dot * obs.wid / 2 + 0.5 - Math.abs(obsLat));
+        }
         const dirs = obsLat >= 0 ? [-1, 1] : [1, -1];
         for (const dir of dirs) {
           const off = dir * need, tLat = laneLat + off;
@@ -1338,5 +1359,5 @@ export function createTrafficSystem(cityData, scene, heightAt, count = 6, maxCou
   function release(car, speed = 4) {
     car.active = true; car.mesh.visible = true; car.speed = speed; car.colliders.forEach(k => { k.blocksCar = true; });
   }
-  return { pathsConflict, setGrip(g) { gripNow = g; }, reserveLane, release, adopt, update, walkerHit, events, setClearZone, addRival, clearRivals, rivalPool, colliders: colliderList, cars, svcCars, setPlows, setCount, activeCount, maxCount, setSink(arr) { sink = arr; } };
+  return { pathsConflict, setGrip(g) { gripNow = g; }, reserveLane, release, adopt, update, walkerHit, events, setClearZone, addRival, clearRivals, rivalPool, colliders: colliderList, cars, svcCars, setPlows, setCount, activeCount, maxCount, setSink(arr) { sink = arr; }, extraObs };
 }

@@ -8,7 +8,7 @@ import { installSnowCap } from './surfaceShaders.js';
 
 const MASS = { wagon: 1400, suv: 2000, rally: 1200, roadster: 1150, supercar: 1350, hyper: 1450, hatch: 1050, sport: 1250, muscle: 1700, pickup: 2100, van: 2300, taxi: 1400 };
 
-export function createParkedCars({ scene, propInstances, collisionWorld, heightAt, events }) {
+export function createParkedCars({ scene, propInstances, collisionWorld, heightAt, events, traffic }) {
   const items = propInstances.filter(p => p.type === 'parkedcar' && p.rec);
   const cell = 24, grid = new Map();
   items.forEach(it => { const k = Math.floor(it.x / cell) + ',' + Math.floor(it.z / cell); (grid.get(k) || grid.set(k, []).get(k)).push(it); });
@@ -27,7 +27,7 @@ export function createParkedCars({ scene, propInstances, collisionWorld, heightA
     scene.add(mesh);
     const off = Math.max(0.6, d.len / 2 - 1.0);
     const colliders = [off, 0, -off].map(o => ({ kind: 'traffic', x: rec.x, z: rec.z, radius: 0.85, off: o, blocksCar: true, destructible: false, destroyed: false, ref: null }));
-    const o = { mesh, colliders, len: d.len, wid: d.wid, height: d.height || 1.5, mass: MASS[rec.style] || 1300, crashTimer: 0, hdg: 0,
+    const o = { mesh, colliders, len: d.len, wid: d.wid, height: d.height || 1.5, mass: MASS[rec.style] || 1300, crashTimer: 99, hdg: 0, active: true, speed: 0, parkedCar: true,
       knock: { x: rec.x, z: rec.z, y: rec.y || 0.02, yaw: rec.heading, vx: 0, vz: 0, vy: 0, wy: 0, wr: 0, wp: 0, roll: 0, pitch: 0, air: false, restRoll: 0, age: 0 } };
     o.getVelocity = () => ({ x: o.knock.vx, z: o.knock.vz });
     o.applyImpact = (vx, vz, spin, dv, sideSign) => {
@@ -37,7 +37,7 @@ export function createParkedCars({ scene, propInstances, collisionWorld, heightA
     };
     colliders.forEach(c => { c.ref = o; });
     collisionWorld.push(...colliders);
-    sync(o); awake.push(o);
+    sync(o); awake.push(o); if (traffic) traffic.extraObs.push(o);
   }
   function sync(o) {
     const k = o.knock, fx = Math.sin(k.yaw), fz = Math.cos(k.yaw);
@@ -45,7 +45,7 @@ export function createParkedCars({ scene, propInstances, collisionWorld, heightA
   }
   function step(o, dt) {
     const k = o.knock; k.age += dt;
-    const sp = Math.hypot(k.vx, k.vz);
+    const sp = Math.hypot(k.vx, k.vz); o.speed = sp;
     if (sp > 0.01) { const dec = Math.min(sp, 6 * dt); k.vx -= k.vx / sp * dec; k.vz -= k.vz / sp * dec; } else { k.vx = k.vz = 0; }
     if (sp < 0.01 && !k.air && Math.abs(k.wy) < 0.01 && Math.abs(k.vy) < 0.01 && Math.abs(k.roll - k.restRoll) < 0.005) return;   // asleep
     k.x += k.vx * dt; k.z += k.vz * dt; k.yaw += k.wy * dt; k.wy *= Math.exp(-1.8 * dt);

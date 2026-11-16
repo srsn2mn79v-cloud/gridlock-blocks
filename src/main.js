@@ -531,7 +531,7 @@ const shopLots = createShopLots({ scene, cityData: city, collisionWorld, heightA
     if (pts.some(p => Math.hypot(car.x - p.x, car.z - p.z) < 9)) return true;
     return traffic.cars.some(c => c.active && c.mesh.visible && !c.parked && pts.some((p, i) => Math.hypot(c.mesh.position.x - p.x, c.mesh.position.z - p.z) < (i ? 11 : 8)));
   } });
-const parkedCars = createParkedCars({ scene, propInstances, collisionWorld, heightAt, events: traffic.events });
+const parkedCars = createParkedCars({ scene, propInstances, collisionWorld, heightAt, events: traffic.events, traffic });
 const camGrid = new Map();
 collisionWorld.forEach(c => {
   if (c.kind !== 'parcel' || !c.blocksCar || c.ymax !== undefined || !c.footprint || c.garage) return;

@@ -695,6 +695,7 @@ async function checkBridgeWalls() {
         // a car on the deck, pressed against the parapet from the road side, must be stopped: try to drive it outward through the wall line
         const car = { x: A.x + ux * s - uz * (hw - 0.6) * side, z: A.z + uz * s + ux * (hw - 0.6) * side, y, speed: 14, heading: Math.atan2(-uz * -side, ux * -side) };
         const wall = par.filter(c => c.edgeId === e.id && Math.hypot(c.ex - x, c.ez - z) < 4);
+        if (st.onOtherRoad(e, x, z, y)) continue;      // another road's lanes (a slip road merging on) take the place of the barrier here
         tested++;
         if (!wall.length) { open++; if (bad.length < 40) bad.push('deck of edge ' + e.id + ' has no parapet on one side @' + r1(x) + ',' + r1(z) + ' (height ' + r1(y) + ')'); }
       }
@@ -730,7 +731,40 @@ async function checkObstacles() {
     if (inside) { leaked++; if (bad.length < 30) bad.push('a knocked car passed into a ' + (c.parapet ? 'parapet' : c.kind) + ' collider @' + r1(cx) + ',' + r1(cz)); }
   }
   if (!tested) bad.push('no colliders tested');
+  // every kind of prop the map places must either have a collider (propPhysics) or be on the list of things that are meant to be walk-through.
+  // (this is what missed the park lamps: the check above only tests colliders that exist, so a prop type with none was never looked at)
+  const { propPhysics } = await imp('src/physicsConfig.js');
+  const WALK_THROUGH = new Set(['awning', 'neonsign', 'bush', 'flowerbed', 'flowers', 'grass', 'crosswalk', 'manhole']);
+  const kinds = {}; (city.props || []).forEach(p => { kinds[p.type] = (kinds[p.type] || 0) + 1; });
+  const open = Object.keys(kinds).filter(k => !propPhysics[k] && k !== 'parkedcar' && !WALK_THROUGH.has(k));
+  open.forEach(k => bad.push('prop type "' + k + '" (' + kinds[k] + ' placed) has no collider: add it to propPhysics, or to WALK_THROUGH in this check if you can drive through it'));
   return { name: 'obstacles', count: tested + ' colliders hit by a knocked car, ' + leaked + ' got through', bad };
+}
+
+
+// ---- highway flow: how well does traffic move along the interstate and through its slip roads? (numbers, plus stuck cars as failures) ----------------------
+//   node tools/check.mjs hwflow [cars=500] [minutes=4]     env AUX=1 / AUX=4 try the merge-lane rules (3 lanes / a real fourth lane); the default is the plain behaviour
+async function checkHwFlow(cars = 500, minutes = 4) {
+  if (process.env.AUX) globalThis.__aux = +process.env.AUX;      // 1: the right-hand lane of an interchange zone is kept for slip road traffic (3 lanes); 4: same with a real fourth lane
+  const { createTrafficSystem } = await imp('src/traffic.js');
+  const { buildTransit, clearTransitSpots } = await imp('src/transit.js'); const transit = buildTransit(city); clearTransitSpots(city, transit);
+  const dt = 1 / 15, tr = createTrafficSystem(city, new THREE.Scene(), heightAt, cars, cars, transit);
+  const player = { x: 9999, z: 9999, y: 0, heading: 0, speed: 0 };
+  const hwSec = { n: 0, sp: 0, stall: 0 }, rampSec = { n: 0, sp: 0, stall: 0 }, still = new Map(); const why = {}; let lc = 0, stuck = 0, hardBrake = 0, near = 0; const bad = [], prevLane = new Map(), prevSp = new Map();
+  for (let k = 0; k < 15 * 60 * minutes; k++) {
+    T += dt * 1000; tr.update(dt, player);
+    tr.cars.forEach((c, i) => {
+      if (!c.active || !c.edge || c.knock) return;
+      const on = c.edge.type === 'highway' ? hwSec : c.edge.ramp ? rampSec : null; if (!on) { still.set(i, 0); return; }
+      on.n += dt; on.sp += c.speed * dt; if (c.speed < 0.6) { on.stall += dt; const kk = (c.edge.ramp ? 'ramp ' : 'hw ') + (c.why || (c.blockedBy ? 'car' : '-')) + (c.blockedBy && c.blockedBy.edge ? '/' + (c.blockedBy.edge.ramp ? 'ramp' : c.blockedBy.edge.type) : ''); why[kk] = (why[kk] || 0) + dt; }
+      const pl = prevLane.get(i); if (c.edge.type === 'highway' && pl !== undefined && pl !== c.laneIndex) lc++; prevLane.set(i, c.laneIndex);
+      const ps = prevSp.get(i); if (ps !== undefined && ps - c.speed > 0.45) hardBrake++; prevSp.set(i, c.speed);
+      if (c.speed < 0.3 && c.crashTimer <= 0) { const v = (still.get(i) || 0) + dt; still.set(i, v); if (v > 25 && v - dt <= 25) { stuck++; if (bad.length < 12) bad.push('car ' + i + ' stuck >25 s on ' + (c.edge.ramp ? 'slip road ' : 'highway ') + c.edge.id + ' (' + c.why + ')'); } } else still.set(i, 0);
+    });
+  }
+  if (process.env.WHY) console.log(Object.entries(why).sort((a, b) => b[1] - a[1]).slice(0, 12).map(([k, v]) => k + ' ' + Math.round(v) + 's').join(' | '));
+  const km = v => r1(v * 3.6 * 1.25);
+  return { name: 'hwflow', count: 'highway ' + r1(hwSec.n / 60) + ' car-min at ' + km(hwSec.sp / Math.max(1, hwSec.n)) + ' km/h avg, stalled ' + r1(hwSec.stall) + ' s; slip roads ' + r1(rampSec.n / 60) + ' car-min at ' + km(rampSec.sp / Math.max(1, rampSec.n)) + ' km/h, stalled ' + r1(rampSec.stall) + ' s; ' + lc + ' lane changes, ' + hardBrake + ' hard-brake frames, ' + stuck + ' cars stuck', bad };
 }
 
 // ---- every shop car park meets a street: lane, stop line and STOP sign are on clear ground ----------------------------------------------------------------------
@@ -917,7 +951,7 @@ async function checkSongs() {
   return { name: 'songs', count: SONGS.length + ' songs (' + styles.join('/') + ' per station), ' + SONGS.filter(s => !s.melody).length + ' instrumental grooves', bad };
 }
 
-const CHECKS = { songs: checkSongs,  stops: checkStops,  outroad: checkOutroad, transit: checkTransit, rivals: checkRivals, sidewalks: checkSidewalks, gas: checkGas, races: checkRaces, drift: checkDrift, covered: checkCovered,  signs: checkSigns, signfacing: checkSignFacing, lamps: checkLamps, buildings: checkBuildings, traffic: () => checkTraffic(+process.argv[3] || 40, +process.argv[4] || 5), markings: checkMarkings, bridges: checkBridges, solid: checkSolid, water: checkWater, rules: checkRules, driveways: checkDriveways, smooth: checkSmooth, mesh: checkMesh, pavement: checkPavement, connected: checkConnected, lots: checkLots, doors: checkDoors, pavementgaps: checkPavementGaps, riverbanks: checkRiverBanks, bridgewalls: checkBridgeWalls, obstacles: checkObstacles, lotgeo: checkLotGeo };
+const CHECKS = { songs: checkSongs,  stops: checkStops,  outroad: checkOutroad, transit: checkTransit, rivals: checkRivals, sidewalks: checkSidewalks, gas: checkGas, races: checkRaces, drift: checkDrift, covered: checkCovered,  signs: checkSigns, signfacing: checkSignFacing, lamps: checkLamps, buildings: checkBuildings, traffic: () => checkTraffic(+process.argv[3] || 40, +process.argv[4] || 5), markings: checkMarkings, bridges: checkBridges, solid: checkSolid, water: checkWater, rules: checkRules, driveways: checkDriveways, smooth: checkSmooth, mesh: checkMesh, pavement: checkPavement, connected: checkConnected, lots: checkLots, doors: checkDoors, pavementgaps: checkPavementGaps, riverbanks: checkRiverBanks, bridgewalls: checkBridgeWalls, obstacles: checkObstacles, hwflow: () => checkHwFlow(+process.argv[3] || 500, +process.argv[4] || 4), lotgeo: checkLotGeo };
 // groups: run several related checks at once
 const GROUPS = {
   placement: ['signs', 'signfacing', 'lamps', 'driveways', 'buildings', 'pavement', 'sidewalks', 'pavementgaps', 'lotgeo'],   // nothing stands where it shouldn't

@@ -23,6 +23,7 @@ export const propPhysics = {
   // clean, no extra penalty" behavior once it's going fast enough to break at all.
   light: { radius: 0.3, blocksCar: true, destructible: true, destroy: 'topple', debrisColor: 0xffd23f, speedPenalty: 0.3, response: 'redirect', mass: 220,
            fall: { len: 6.6, kind: 'drive', penalty: 0.1, lift: 0.22 } },
+  pathlight: { radius: 0.3, blocksCar: true, destructible: false, response: 'redirect', mass: 120 },   // the lamps in parks: a solid post
   bench: { radius: 0.9, blocksCar: true, destructible: true, destroy: 'topple', debrisColor: 0xa9825c, response: 'redirect', mass: 70,
            fall: { len: 1.6, kind: 'push', mass: 0.8, radius: 0.9, lift: 0.2 } },
   // Road signs: knocked over at modest speed; the car keeps ~88% of its speed through one.

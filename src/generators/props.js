@@ -570,7 +570,7 @@ export function buildProps(cityData) {
       instances.push({ id: 'prop' + i, type: 'parkedcar', x: p.x, z: p.z, mesh: new THREE.Group(), rec });
       return;
     }
-    if (p.type === 'pathlight') { pathLights.push(p); return; }
+    if (p.type === 'pathlight') { pathLights.push(p); instances.push({ id: 'prop' + i, type: 'pathlight', x: p.x, z: p.z, mesh: new THREE.Group() }); return; }
     if (p.type === 'neonsign') { neonSigns.push(p); return; }
     if (p.type === 'awning') { const am = awningMesh(p); am.position.set(p.x, p.y || 3, p.z); am.rotation.y = (p.rotation || 0) * Math.PI / 180; awnings.push(am); return; }
     const build = builders[p.type] || treeMesh;

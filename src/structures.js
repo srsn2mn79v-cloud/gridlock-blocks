@@ -41,6 +41,26 @@ export function buildStructures(city) {
     [cx - ux * hl + uz * hw, cz - uz * hl - ux * hw], [cx - ux * hl - uz * hw, cz - uz * hl + ux * hw]];
   const hwLine = city.hwLine || [];
 
+  // a barrier must not stand inside another road's deck: where a slip road merges onto a raised highway, each one's parapet would otherwise
+  // cut across the other's lanes. A grid of the road segments answers "is this point on another road at about this height?"
+  const GRID = 40, segGrid = new Map();
+  edges.forEach(e2 => {
+    if (e2.structure === 'tunnel') return;
+    const A2 = nodes[e2.from], B2 = nodes[e2.to], r = (e2.width || 9) / 2 + 1;
+    const x0 = Math.floor((Math.min(A2.x, B2.x) - r) / GRID), x1 = Math.floor((Math.max(A2.x, B2.x) + r) / GRID), z0 = Math.floor((Math.min(A2.z, B2.z) - r) / GRID), z1 = Math.floor((Math.max(A2.z, B2.z) + r) / GRID);
+    for (let a = x0; a <= x1; a++) for (let b = z0; b <= z1; b++) { const k = a + ',' + b; (segGrid.get(k) || segGrid.set(k, []).get(k)).push(e2); }
+  });
+  function onOtherRoad(e, x, z, y) {
+    const l = segGrid.get(Math.floor(x / GRID) + ',' + Math.floor(z / GRID)); if (!l) return false;
+    for (const e2 of l) {
+      if (e2 === e) continue;
+      const A2 = nodes[e2.from], B2 = nodes[e2.to], dx = B2.x - A2.x, dz = B2.z - A2.z, L2 = Math.hypot(dx, dz); if (L2 < 1) continue;
+      const t = Math.max(0, Math.min(1, ((x - A2.x) * dx + (z - A2.z) * dz) / (L2 * L2))), d = Math.hypot(x - (A2.x + dx * t), z - (A2.z + dz * t));
+      if (d < (e2.width || 9) / 2 - 0.5 && Math.abs(elevationAlongEdge(e2, t * L2, nodes, vc) - y) < 2.5) return true;
+    }
+    return false;
+  }
+
   edges.forEach(e => {
     if (e.structure === 'tunnel') return;
     const A = nodes[e.from], B = nodes[e.to];
@@ -78,13 +98,16 @@ export function buildStructures(city) {
       if (bridge) {
         if (my > 0.6) light.push(prism(prev, cur, -hw - 0.35, hw + 0.35, prev.y - 0.95, cur.y - 0.95, prev.y - 0.04, cur.y - 0.04));   // deck slab
         // crash barrier along both sides
-        if (my > 0.6) { dark.push(prism(prev, cur, hw - 0.1, hw + 0.35, prev.y, cur.y, prev.y + 0.75, cur.y + 0.75)); dark.push(prism(prev, cur, -hw - 0.35, -hw + 0.1, prev.y, cur.y, prev.y + 0.75, cur.y + 0.75)); }
+        if (my > 0.6) { const dxb = cur.x - prev.x, dzb = cur.z - prev.z, dlb = Math.hypot(dxb, dzb) || 1, mxb = (prev.x + cur.x) / 2, mzb = (prev.z + cur.z) / 2;
+          if (!onOtherRoad(e, mxb + dzb / dlb * (hw + 0.1), mzb - dxb / dlb * (hw + 0.1), my)) dark.push(prism(prev, cur, hw - 0.1, hw + 0.35, prev.y, cur.y, prev.y + 0.75, cur.y + 0.75));
+          if (!onOtherRoad(e, mxb - dzb / dlb * (hw + 0.1), mzb + dxb / dlb * (hw + 0.1), my)) dark.push(prism(prev, cur, -hw - 0.35, -hw + 0.1, prev.y, cur.y, prev.y + 0.75, cur.y + 0.75)); }
       }
       // parapet: a solid barrier along both edges of every raised deck, high enough that a car can neither drive through nor jump over it
       const sMid = len * (i - 0.5) / n, nearJunction = ((byNode[e.from] || []).length >= 3 && sMid < 18) || ((byNode[e.to] || []).length >= 3 && sMid > len - 18);      // a side street or slip road joins here: the barrier gives way
       if (my > 0.5 && !nearJunction) {
         const dx = cur.x - prev.x, dz = cur.z - prev.z, dl = Math.hypot(dx, dz) || 1, cx = (prev.x + cur.x) / 2, cz = (prev.z + cur.z) / 2;
         [1, -1].forEach(side => {
+          if (onOtherRoad(e, cx + dz / dl * side * (hw + 0.1), cz - dx / dl * side * (hw + 0.1), my)) return;       // another road's lanes are here: no barrier
           if (!bridge) { const l0 = side > 0 ? hw - 0.1 : -hw - 0.35, l1 = side > 0 ? hw + 0.35 : -hw + 0.1; dark.push(prism(prev, cur, l0, l1, prev.y, cur.y, prev.y + 0.75, cur.y + 0.75)); }
           if (i % 2 === 0 || i === n) {
             const lc = side * (hw + 0.12), px0 = cx + dz / dl * lc * 1, pz0 = cz - dx / dl * lc * 1;
@@ -95,6 +118,7 @@ export function buildStructures(city) {
       // solid sides while the deck is low
       if (my > WALL_MIN_Y && my < WALL_MAX_Y && !(bridge && my > 2.2 && false)) {
         [1, -1].forEach(side => {
+          { const dw = cur.x - prev.x, zw = cur.z - prev.z, lw = Math.hypot(dw, zw) || 1; if (onOtherRoad(e, (prev.x + cur.x) / 2 + zw / lw * side * (hw + 0.1), (prev.z + cur.z) / 2 - dw / lw * side * (hw + 0.1), my)) return; }
           const l0 = side > 0 ? hw - 0.15 : -hw - 0.55, l1 = side > 0 ? hw + 0.55 : -hw + 0.15;
           light.push(prism(prev, cur, l0, l1, 0, 0, Math.max(prev.y - 0.04, 0.05), Math.max(cur.y - 0.04, 0.05)));
           const cx = (prev.x + cur.x) / 2, cz = (prev.z + cur.z) / 2, sl = Math.hypot(cur.x - prev.x, cur.z - prev.z) / 2 + 0.2;
@@ -151,5 +175,5 @@ export function buildStructures(city) {
   addMerged(light, concrete); addMerged(dark, concreteDark);
   addMerged(rail, new THREE.MeshStandardMaterial({ color: 0xc4c8cc, roughness: 0.45, metalness: 0.7 })); addMerged(post, concreteDark);
   colliders.push(...railCol, ...parapets);
-  return { group, colliders, piers, walls, parapets };
+  return { group, colliders, piers, walls, parapets, onOtherRoad };
 }
