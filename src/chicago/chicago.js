@@ -197,7 +197,8 @@ export function buildChicago() {
   const blockedRects = [];        // [x0,z0,x1,z1] kept free of buildings (alleys)
   if (MAP.airport) {                // the runway and its apron: no buildings (a string of squares along the runway)
     const A = MAP.airport, a = T(A.rwy[0][0], A.rwy[0][1]), b = T(A.rwy[1][0], A.rwy[1][1]), L = Math.hypot(b[0] - a[0], b[1] - a[1]), R = (A.width || 26) / 2 + 70;
-    for (let d = -40; d <= L + 40; d += 30) { const x = a[0] + (b[0] - a[0]) / L * d, z = a[1] + (b[1] - a[1]) / L * d; blockedRects.push([x - R, z - R, x + R, z + R]); }
+    const ux = (b[0] - a[0]) / L, uz = (b[1] - a[1]) / L, sd = A.apronSide || 1, vx = -uz * sd, vz = ux * sd;      // v: towards the apron and the terminal
+    for (let d = -40; d <= L + 40; d += 30) { const x = a[0] + ux * d, z = a[1] + uz * d; blockedRects.push([x - R, z - R, x + R, z + R], [x + vx * 100 - 72, z + vz * 100 - 72, x + vx * 100 + 72, z + vz * 100 + 72]); }
   }
   const driveways = [];           // {x,z,hw}: where a forecourt / car park meets the street - no kerb, no parked cars, no props across it
   const shops = [];
