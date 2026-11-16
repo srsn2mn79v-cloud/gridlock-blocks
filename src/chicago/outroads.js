@@ -15,6 +15,6 @@ export const OUTROADS = {
   chicago: { to: 'sf', name: 'Interstate 80', exit: 'I-80 West', sign: 'SAN FRANCISCO', clover: 'Clover',
     pts: [[180.7, 817.1], [57.1, 817.6], [-60, 817.6], [-200, 805], [-380, 800], [-560, 860], [-700, 1000], [-790, 1180], [-830, 1380], [-800, 1580], [-760, 1700]] },
   // north from the top of the Marin loop, beyond the Golden Gate
-  sf: { to: 'chicago', name: 'Interstate 80', sign: 'CHICAGO', landfill: 70,
-    pts: [[329.8, 23], [338, -12], [362, -66], [384, -150], [386, -260], [386, -330], [360, -520], [330, -760], [350, -1000], [390, -1180], [386, -1300]] }
+  sf: { to: 'chicago', name: 'Interstate 80', sign: 'CHICAGO',
+    pts: [[366.6, -530.4], [370, -600], [392, -700], [410, -860], [396, -1040], [372, -1220], [384, -1400], [400, -1560], [396, -1700]] }
 };
