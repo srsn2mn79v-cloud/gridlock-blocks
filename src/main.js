@@ -1060,7 +1060,7 @@ function animate() {
   renderFrame();
   requestAnimationFrame(animate);
 }
-window.__game = { tunnels, flight, seasons, wakeLock, interstate, cruise, airport, port, goldenGate, shopLots, drawbridge, boats, hail, camRig, interior, fuel, radio, weather, plowFx, puffs, gfx, transit, parkedCars, skids, audio, races, structures, world, renderer, taxi, input, destruction, collisionWorld, lampDefs, signs, propInstances, env, settings, menu, minimap, scene, camera, car, city, traffic, pedestrians, lampPool, reflectors, heightAt, offences: { get wrongWay() { return wrongWayOffences; } } };
+window.__game = { roadsGroup, tunnels, flight, seasons, wakeLock, interstate, cruise, airport, port, goldenGate, shopLots, drawbridge, boats, hail, camRig, interior, fuel, radio, weather, plowFx, puffs, gfx, transit, parkedCars, skids, audio, races, structures, world, renderer, taxi, input, destruction, collisionWorld, lampDefs, signs, propInstances, env, settings, menu, minimap, scene, camera, car, city, traffic, pedestrians, lampPool, reflectors, heightAt, offences: { get wrongWay() { return wrongWayOffences; } } };
 // Arriving through the tunnel from another city (travel.js): come out of the inbound tube at the speed, time of day and radio station
 // the player went in with, then lift the tunnel off the screen once a few frames of the new city have been drawn.
 {
