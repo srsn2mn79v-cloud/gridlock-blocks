@@ -993,3 +993,8 @@ A four-seater sits on a private tie-down beside the runway (the side away from t
 Controls: **W/S** throttle, **↓** pulls the nose up (**↑** pushes it down), **A/D** (or ←/→) bank and turn, **Space** brakes on the ground, **F** parks and gets you back in your car once you are down and slow.
 Take-off needs about 21 u/s (~95 km/h); below ~18 u/s in the air the plane stalls and sinks. A hard landing, a steep bank or a nose-down touchdown wrecks it and puts it back on its tie-down.
 The car object rides along with the plane (hidden), so streaming, traffic and the map follow it; main.js skips car physics, collisions and the water check while flying. No collisions with buildings yet.
+
+## Underground tunnels (tunnels.js)
+Every metro line has a tunnel under the street through its stations (floor 9 u down, 10.5 u wide, lit, with a station name board and a coloured floor patch at each station), and up to six drive-in ramps ("portals", yellow ▼ on the map) are cut into free ground, or into a park / plaza floor, next to a road near a station. Drive down a ramp and follow the tunnel; it dead-ends at the end stations.
+It is not part of the road graph: no AI traffic or signals down there. The world's height function gives the ramp / tunnel floor (world.js hAt), the collision resolver treats the city above as absent for an underground car (EX_UNDER) while `constrain()` keeps it between the tunnel walls, and the water check ignores a car below -1.2 (so you can drive under the river).
+Portal sites are found at start-up (`tryPortal`): clear of buildings, props, roads, the bus depot and stops, and not over the line tunnel; the lot's floor mesh gets a hole when the ramp is in a park.

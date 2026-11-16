@@ -59,6 +59,7 @@ import { beginTravel, takeArrival, endTravel } from './travel.js';
 import { createPort } from './port.js';
 import { createAirport } from './airport.js';
 import { createFlight } from './flight.js';
+import { createTunnels } from './tunnels.js';
 import { createDrivetrain } from './drivetrain.js';
 import { isCovered } from './covered.js';
 import { createSkidMarks } from './skidmarks.js';
@@ -358,7 +359,8 @@ const ground = new THREE.Mesh(
   new THREE.MeshStandardMaterial({ color: 0x575c61, roughness: 0.95 })
 );
 const baseHoles = cuts.holes.slice();
-const setGarageHoles = polys => { ground.geometry.dispose(); ground.geometry = groundGeometry(GROUND, baseHoles.concat(polys.map(poly => ({ poly })))); };   // an owned apartment's garage ramp is cut into the ground
+let garagePolys = [], tunnelPolys = [];
+const setGarageHoles = polys => { if (polys) garagePolys = polys; ground.geometry.dispose(); ground.geometry = groundGeometry(GROUND, baseHoles.concat(garagePolys.concat(tunnelPolys).map(poly => ({ poly })))); };   // an owned apartment's garage ramp is cut into the ground
 ground.rotation.x = -Math.PI / 2;
 ground.receiveShadow = true;
 scene.add(ground);
@@ -445,7 +447,7 @@ const SINK_DURATION = 4.5;
 
 const deckParcels = (city.harbour ? city.harbour.decks : []);
 function isCarInWater() {
-  if (car.y > 0.7) return false;                       // on a bridge deck (the drawbridge's is 1.6 up; when its leaves are raised the road is gone and the car drops)
+  if (car.y > 0.7 || car.y < -1.2) return false;       // (below -1.2: in a metro tunnel under the water)                       // on a bridge deck (the drawbridge's is 1.6 up; when its leaves are raised the road is gone and the car drops)
   return waterParcels.some(w => pointInPolygon(car.x, car.z, w.footprint)) && !deckParcels.some(w => pointInPolygon(car.x, car.z, w));
 }
 
@@ -505,7 +507,9 @@ const weather = createWeather({ env, settings, save: () => saveSettings(settings
 const plowFx = createPlowFx(scene);
 const taxi = createTaxi({ city, scene, heightAt, snowing: () => !!settings.snow });
 let modalPause = false;
-const world = createWorld({ transit, setGarageHoles, city, scene, camera, car, input, heightAt, collisionWorld, parcelInstances, taxi, env, setModalPause: v => { modalPause = v; },
+const tunnels = createTunnels({ city, scene, transit, collisionWorld, parcels: parcelInstances, props: propInstances, cityHeight: heightAt, toast: msg => world.toast(msg) });
+tunnelPolys = tunnels.holes; setGarageHoles(null);
+const world = createWorld({ tunnels, transit, setGarageHoles, city, scene, camera, car, input, heightAt, collisionWorld, parcelInstances, taxi, env, setModalPause: v => { modalPause = v; },
   chooseCar: key => { settings.car = key; saveSettings(settings); applySetting('car', key); menu.refresh?.(); } });
 if (!world.ownedCars().includes(settings.car)) settings.car = 'hatch';
 const arena = createDriftTracks({ scene });
@@ -567,6 +571,7 @@ const transitMarkers = all => {
   const out = [];
   if (world.mode !== 'city') return out;
   if (airport && airport.gate) out.push({ x: airport.gate.px, z: airport.gate.pz, color: '#ffffff', label: '✈', big: true });   // the airport (Departures gate)
+  tunnels.portals.forEach(q => out.push({ x: q.x, z: q.z, color: '#ffcc00', label: '▼' }));
   if (transit.depot) out.push({ x: transit.depot.x, z: transit.depot.z, color: '#ffffff', label: '🚌', big: true });   // the bus depot (a white pin with a bus, so it is not mistaken for a bus stop)
   ((transit.metro && transit.metro.lines) || []).forEach(l => l.stations.forEach(s => out.push({ x: s.x, z: s.z, color: '#' + l.color.toString(16).padStart(6, '0'), label: 'M' })));
   transit.stands.forEach(s => { if (all || Math.hypot(s.x - car.x, s.z - car.z) < 500) out.push({ x: s.x, z: s.z, color: '#f2c200', label: 'T' }); });
@@ -1006,6 +1011,7 @@ function animate() {
     sun.target.position.set(focus.x, 0, focus.z);
 
     const destroyed = flight.active ? [] : pre.concat(resolveCarCollisions(car, collisionWorld, dt));
+    tunnels.constrain(car); tunnels.update(dt, car);
     car.group.position.set(car.x, car.y, car.z); // re-sync after any collision push-back
     destroyed.forEach(c => {
       const inst = c.instance, mesh = inst.mesh;
@@ -1054,7 +1060,7 @@ function animate() {
   renderFrame();
   requestAnimationFrame(animate);
 }
-window.__game = { flight, seasons, wakeLock, interstate, cruise, airport, port, goldenGate, shopLots, drawbridge, boats, hail, camRig, interior, fuel, radio, weather, plowFx, puffs, gfx, transit, parkedCars, skids, audio, races, structures, world, renderer, taxi, input, destruction, collisionWorld, lampDefs, signs, propInstances, env, settings, menu, minimap, scene, camera, car, city, traffic, pedestrians, lampPool, reflectors, heightAt, offences: { get wrongWay() { return wrongWayOffences; } } };
+window.__game = { tunnels, flight, seasons, wakeLock, interstate, cruise, airport, port, goldenGate, shopLots, drawbridge, boats, hail, camRig, interior, fuel, radio, weather, plowFx, puffs, gfx, transit, parkedCars, skids, audio, races, structures, world, renderer, taxi, input, destruction, collisionWorld, lampDefs, signs, propInstances, env, settings, menu, minimap, scene, camera, car, city, traffic, pedestrians, lampPool, reflectors, heightAt, offences: { get wrongWay() { return wrongWayOffences; } } };
 // Arriving through the tunnel from another city (travel.js): come out of the inbound tube at the speed, time of day and radio station
 // the player went in with, then lift the tunnel off the screen once a few frames of the new city have been drawn.
 {

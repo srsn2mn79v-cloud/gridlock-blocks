@@ -124,7 +124,7 @@ function arrowMarker(hex) {
   return g;
 }
 
-export function createWorld({ transit = null, setGarageHoles, city, scene, camera, car, input, heightAt: cityHeight, collisionWorld, parcelInstances, taxi, env, chooseCar, setModalPause }) {
+export function createWorld({ tunnels = null, transit = null, setGarageHoles, city, scene, camera, car, input, heightAt: cityHeight, collisionWorld, parcelInstances, taxi, env, chooseCar, setModalPause }) {
   const save = loadSave();
   const persist = () => { try { localStorage.setItem(SAVE_KEY, JSON.stringify(save)); } catch (e) { /* ignore */ } };
   if (!save.welcomed) { save.welcomed = true; if (taxi.getCash() < 300) taxi.addCash(300 - taxi.getCash()); persist(); }
@@ -156,6 +156,7 @@ export function createWorld({ transit = null, setGarageHoles, city, scene, camer
       const p = cur.toL(x, z), h = garageHeight(cur.g.lay, p.x, p.z);
       if (h != null) { hAt.kind = 'road'; return h; }
     }
+    if (tunnels) { const t = tunnels.height(x, z, refY); if (t != null) { hAt.kind = 'road'; return t; } }
     const r = cityHeight(x, z, refY); hAt.kind = cityHeight.kind; return r;
   }
   hAt.kind = 'road';
@@ -620,8 +621,10 @@ export function createWorld({ transit = null, setGarageHoles, city, scene, camer
     return false;
   }
   collisionWorld.exempt = null;
+  const EX_UNDER = (c, k) => !k.tunnelRim;                // in a metro tunnel the city above does not exist (the walls are the tunnel's own, see tunnels.js)
   function updateExempt() {
     if (mode === 'garage') { collisionWorld.exempt = EX_GARAGE; return; }
+    if (mode === 'city' && !onFoot && car.y < -1.2) { collisionWorld.exempt = EX_UNDER; return; }
     if (mode === 'city' && !onFoot) {
       for (const id in gates) {
         const G = gates[id]; if (G.open < 0.6) continue;
