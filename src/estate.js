@@ -406,28 +406,20 @@ export function buildGarage(n) {
 // ---------------------------------------------------------------------------------------------------------------------------
 export function buildGateMesh(a) {
   const g = new THREE.Group(), gt = a.gate;
-  // what you see when the door is up: a dark ramp going down into the building (painted as a receding tunnel)
-  const c0 = document.createElement('canvas'); c0.width = 128; c0.height = 128; const q = c0.getContext('2d');
-  q.fillStyle = '#07080a'; q.fillRect(0, 0, 128, 128);
-  q.fillStyle = '#16181c'; q.beginPath(); q.moveTo(0, 128); q.lineTo(128, 128); q.lineTo(86, 74); q.lineTo(42, 74); q.closePath(); q.fill();   // the ramp surface, going away
-  q.strokeStyle = '#d9c441'; q.lineWidth = 2; q.beginPath(); q.moveTo(64, 128); q.lineTo(64, 74); q.stroke();                                    // centre line
-  q.strokeStyle = '#3a3d42'; q.lineWidth = 3; q.beginPath(); q.moveTo(0, 128); q.lineTo(42, 74); q.moveTo(128, 128); q.lineTo(86, 74); q.stroke();
-  q.fillStyle = '#fff3c0'; [[64, 22, 18], [64, 40, 12], [64, 54, 8], [64, 64, 5]].forEach(([x, y, w]) => q.fillRect(x - w / 2, y, w, 2));      // ceiling lights
-  const grad = q.createLinearGradient(0, 0, 0, 128); grad.addColorStop(0, 'rgba(0,0,0,0.9)'); grad.addColorStop(0.5, 'rgba(0,0,0,0)'); q.fillStyle = grad; q.fillRect(0, 0, 128, 128);
-  const open = new THREE.Mesh(new THREE.PlaneGeometry(4.3, 3.1), new THREE.MeshBasicMaterial({ map: new THREE.CanvasTexture(c0) })); open.position.set(0, 1.55, 0.2); g.add(open);
-  const frame = new THREE.Mesh(new THREE.BoxGeometry(5.0, 3.5, 0.35), M(0x2c2f34)); frame.position.set(0, 1.75, 0.0);
-  const hole = new THREE.Mesh(new THREE.BoxGeometry(4.3, 3.1, 0.4), M(0x2c2f34)); hole.visible = false;
-  g.add(frame);
-  // hazard stripes along the sill and the posts, so it reads as a vehicle entrance
-  for (let i = 0; i < 9; i++) { const st = new THREE.Mesh(new THREE.BoxGeometry(0.5, 0.12, 0.06), M(i % 2 ? 0x15161a : 0xf2c500)); st.position.set(-2.0 + i * 0.5, 0.06, 0.4); g.add(st); }
-  const slab = new THREE.Mesh(new THREE.BoxGeometry(4.3, 3.1, 0.12), M(0x4b6f9a, { metalness: 0.5, roughness: 0.4 })); slab.position.set(0, 1.55, 0.3);
+  // The opening is as wide as the ramp behind it (RAMP.W = 9) and 3.3 u high: you look straight down the real ramp, there is no picture in the doorway any more.
+  const OW = RAMP.W + 1.0, OH = 3.3;
+  [-1, 1].forEach(sd => { const post = new THREE.Mesh(new THREE.BoxGeometry(0.9, OH + 0.9, 0.6), M(0x2c2f34)); post.position.set(sd * (OW / 2 + 0.45), (OH + 0.9) / 2, 0.15); g.add(post); });
+  const lintel = new THREE.Mesh(new THREE.BoxGeometry(OW + 1.8, 0.9, 0.7), M(0x2c2f34)); lintel.position.set(0, OH + 0.45, 0.15); g.add(lintel);
+  // hazard stripes along the sill, so it reads as a vehicle entrance
+  for (let i = 0; i < 18; i++) { const st = new THREE.Mesh(new THREE.BoxGeometry(0.5, 0.1, 0.5), M(i % 2 ? 0x15161a : 0xf2c500)); st.position.set(-OW / 2 + 0.25 + i * 0.5, 0.05, 0.9); g.add(st); }
+  // the roller door: a slab with ribs that rolls up into the lintel
+  const slab = new THREE.Mesh(new THREE.BoxGeometry(OW, OH, 0.12), M(0x4b6f9a, { metalness: 0.5, roughness: 0.4 })); slab.position.set(0, OH / 2, 0.3);
   const door = new THREE.Group(); door.add(slab);
-  for (let i = 0; i < 6; i++) { const rib = new THREE.Mesh(new THREE.BoxGeometry(4.3, 0.06, 0.06), M(0xdfe6ee)); rib.position.set(0, 0.35 + i * 0.5, 0.37); door.add(rib); }
-  g.add(door); g.userData.door = door;
-  const hood = new THREE.Mesh(new THREE.BoxGeometry(5.3, 0.25, 0.9), M(0x2c2f34)); hood.position.set(0, 3.55, 0.45); g.add(hood);
-  const sign = new THREE.Mesh(new THREE.BoxGeometry(0.9, 0.9, 0.1), M(0x1b6fe0, { emissive: 0x1b6fe0, emissiveIntensity: 0.9 })); sign.position.set(0, 4.3, 0.35); g.add(sign);
+  for (let i = 0; i < 7; i++) { const rib = new THREE.Mesh(new THREE.BoxGeometry(OW, 0.06, 0.06), M(0xdfe6ee)); rib.position.set(0, 0.3 + i * 0.5, 0.37); door.add(rib); }
+  g.add(door); g.userData.door = door; g.userData.doorH = OH;
+  const sign = new THREE.Mesh(new THREE.BoxGeometry(1.2, 1.2, 0.1), M(0x1b6fe0, { emissive: 0x1b6fe0, emissiveIntensity: 0.9 })); sign.position.set(0, OH + 1.9, 0.35); g.add(sign);
   const c = document.createElement('canvas'); c.width = c.height = 64; const x = c.getContext('2d'); x.fillStyle = '#fff'; x.font = 'bold 50px system-ui'; x.textAlign = 'center'; x.textBaseline = 'middle'; x.fillText('P', 32, 36);
-  const tex = new THREE.CanvasTexture(c); const p = new THREE.Mesh(new THREE.PlaneGeometry(0.8, 0.8), new THREE.MeshBasicMaterial({ map: tex, transparent: true })); p.position.set(0, 4.3, 0.41); g.add(p);
+  const tex = new THREE.CanvasTexture(c); const p = new THREE.Mesh(new THREE.PlaneGeometry(1.0, 1.0), new THREE.MeshBasicMaterial({ map: tex, transparent: true })); p.position.set(0, OH + 1.9, 0.41); g.add(p);
   g.rotation.y = Math.atan2(gt.nx, gt.nz);        // local +z = out of the wall, to the street
   g.position.set(gt.x, 0.02, gt.z);
   return g;

@@ -615,7 +615,7 @@ export function createWorld({ transit = null, setGarageHoles, city, scene, camer
     for (const id in gates) {
       const G = gates[id]; if (G.open < 0.6) continue;
       const g = G.t.data.gate, rx = x - g.x, rz = z - g.z, along = rx * g.nx + rz * g.nz, lat = rx * g.ux + rz * g.uz;
-      if (along > -3 && along < 6 && Math.abs(lat) < 2.3) return true;
+      if (along > -3 && along < 6 && Math.abs(lat) < 4.4) return true;
     }
     return false;
   }
@@ -626,7 +626,7 @@ export function createWorld({ transit = null, setGarageHoles, city, scene, camer
       for (const id in gates) {
         const G = gates[id]; if (G.open < 0.6) continue;
         const g = G.t.data.gate, rx = car.x - g.x, rz = car.z - g.z, along = rx * g.nx + rz * g.nz;
-        if (along > -6 && along < 8 && Math.abs(rx * g.ux + rz * g.uz) < 4) { collisionWorld.exempt = EX_GATE; return; }
+        if (along > -6 && along < 8 && Math.abs(rx * g.ux + rz * g.uz) < 6) { collisionWorld.exempt = EX_GATE; return; }
       }
     }
     collisionWorld.exempt = null;
@@ -707,9 +707,9 @@ export function createWorld({ transit = null, setGarageHoles, city, scene, camer
       const rx = px - g.x, rz = pz - g.z, along = rx * g.nx + rz * g.nz, lat = rx * g.ux + rz * g.uz;
       const want = (along > -2 && along < 14 && Math.abs(lat) < 6.5) ? 1 : 0;
       G.open += Math.sign(want - G.open) * Math.min(Math.abs(want - G.open), dt * 1.4);
-      G.mesh.userData.door.position.y = G.open * 3.1;
+      G.mesh.userData.door.position.y = G.open * (G.mesh.userData.doorH + 0.2);
       // through the open door and in: the garage takes over where you stand (no fade, no jump)
-      if (!modal && !trans && G.open > 0.6 && -along > 0.8 && -along < 5 && Math.abs(lat) < 2.5 && !(blockedFn && blockedFn())) { toGarage(a, onFoot ? 'foot' : 'car'); return; }
+      if (!modal && !trans && G.open > 0.6 && -along > 0.8 && -along < 5 && Math.abs(lat) < 4.0 && !(blockedFn && blockedFn())) { toGarage(a, onFoot ? 'foot' : 'car'); return; }
     }
   }
 
