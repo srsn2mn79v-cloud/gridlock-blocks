@@ -135,6 +135,7 @@ export function createTrafficSystem(cityData, scene, heightAt, count = 6, maxCou
   const HWR = () => (globalThis.__hw === undefined ? HW_DEFAULT : globalThis.__hw);
   const entryRamps = HWR() ? auxLayout(cityData.roadNodes, cityData.roadEdges || [], HWR()).entryRamps : new Set();
   if (globalThis.__hw) widenInterchanges(cityData.roadNodes, cityData.roadEdges || [], globalThis.__hw);       // (the experiment widens them here; the game does it when the map is built)
+  const isHw = e => e.type === 'highway' || !!e.interstate;
   const inAux = car => car.edge.lanes === 4 && car.edge.type === 'highway';
   const drivable = cityData.roadEdges || [];
   // Buses and trucks are too long to take a 9 m side street's corners, so they stay on avenues
@@ -297,7 +298,7 @@ export function createTrafficSystem(cityData, scene, heightAt, count = 6, maxCou
       if (k === 0 && next) { ramps = next.ramp ? [next] : []; rest = next.ramp ? [] : [next]; }
       else { const o = hwOptions(node, from); ramps = o.filter(e => e.ramp); rest = o.filter(e => !e.ramp); if (ramps.length && rest.length && !wantsExit(car, node)) ramps = []; else if (ramps.length && !rest.length) ramps = ramps.slice(0, 1); }
       if (ramps.length) { car._ex = { dist: d, right: turnSign(from, node, ramps[0]) >= 0 }; break; }
-      next = rest.find(e => e.type === 'highway'); if (!next) break;
+      next = rest.find(e => isHw(e)); if (!next) break;
       d += edgeLen(next); from = node; node = otherEnd(next, node);
       if (k === 0) next = null;
     }
@@ -307,7 +308,7 @@ export function createTrafficSystem(cityData, scene, heightAt, count = 6, maxCou
     const n = Math.max(1, car.lanes || 1);
     if (n <= 1) return 0;
     if (car.line) return n - 1;                       // bus lines hug the kerb so they can serve the stops
-    if (car.edge && car.edge.type === 'highway') {
+    if (car.edge && isHw(car.edge)) {
       if (car.prevType === 'highway' && car.laneIndex != null) return Math.min(n - 1, car.laneIndex);
       if (car.spawnHere) return Math.min(n - 1, n - 1 - Math.floor(Math.pow(car.laneBias === undefined ? Math.random() : car.laneBias, 1.3) * n));
       return n - 1;       // joining from a ramp: the right-hand lane, then over to its own lane
@@ -562,7 +563,7 @@ export function createTrafficSystem(cityData, scene, heightAt, count = 6, maxCou
     const through = options.filter(e => (edgesByNode[otherEnd(e, nodeId)] || []).length > 1);
     if (through.length) options = through;
     let pool = options.length ? options : connected;
-    if (car && car.edge && car.edge.type === 'highway' && pool.some(e => e.ramp) && pool.some(e => !e.ramp)) {
+    if (car && car.edge && isHw(car.edge) && pool.some(e => e.ramp) && pool.some(e => !e.ramp)) {
       const ex = wantsExit(car, nodeId); pool = pool.filter(e => ex ? e.ramp : !e.ramp);
     }
     return pool.length ? pool[Math.floor(Math.random() * pool.length)] : null;
@@ -913,7 +914,7 @@ export function createTrafficSystem(cityData, scene, heightAt, count = 6, maxCou
       // curvature: slow for bends
       { const cc = conn ? conn.cap : curveCap(car.path, here.idx, car.s, car.speed); if (cc < desiredSpeed) { desiredSpeed = cc; cause = conn ? 'junction-curve' : 'curve'; } }
       // A slip road merging into / leaving the interstate is a merge, not a turn: nobody slows to walking pace for it
-      const hwMerge = car.nextEdge && (edgesByNode[car.to] || []).every(o => o.type === 'highway' || o.ramp) && (car.edge.type === 'highway' || car.edge.ramp) && (car.nextEdge.type === 'highway' || car.nextEdge.ramp) && turnAngleOf(car) < 0.7;
+      const hwMerge = car.nextEdge && (edgesByNode[car.to] || []).every(o => isHw(o) || o.ramp) && (isHw(car.edge) || car.edge.ramp) && (isHw(car.nextEdge) || car.nextEdge.ramp) && turnAngleOf(car) < 0.7;
       if (!conn && car.nextEdge && !hwMerge && (edgesByNode[car.to] || []).length >= 3 && turnAngleOf(car) > 0.12) {
         const cap = Math.max(3.5, Math.sqrt(LAT_ACC * (3 + clrOf(car) * 0.8)));
         { const tc = cap + Math.max(0, distToNode - clrOf(car)) * 1.5; if (tc < desiredSpeed) { desiredSpeed = tc; cause = 'turn'; } }
@@ -1011,7 +1012,7 @@ export function createTrafficSystem(cityData, scene, heightAt, count = 6, maxCou
         else if (rel < -0.3) hit = al < 1.4;
         else hit = ahead < 5.5 + (car.len - 3.4) * 0.4 && al < 1.7;
         if (!hit) continue;
-        if (car.laneFrom != null && car.edge.type === 'highway' && ahead < (car.len + oLen) / 2 + 2.5 && al > 0.5) {   // beside us in the middle of a lane change: go back, don't stand on the brakes
+        if (car.laneFrom != null && isHw(car.edge) && ahead < (car.len + oLen) / 2 + 2.5 && al > 0.5) {   // beside us in the middle of a lane change: go back, don't stand on the brakes
           if (car.laneIndex !== car.laneFrom) { car.laneIndex = car.laneFrom; car.laneT = now + 5000; }
           continue;
         }
@@ -1019,7 +1020,7 @@ export function createTrafficSystem(cityData, scene, heightAt, count = 6, maxCou
         if (d < nearest) { nearest = d; obs = o; obsLat = lat; }
       }
       car.blockedBy = obs && !obs.isPlayer ? obs : (obs ? playerObs : null);
-      if (!globalThis.__noHw && !car.conn && car.edge.type === 'highway' && car.lanes > 1 && !car.avoidObs) {
+      if (!globalThis.__noHw && !car.conn && isHw(car.edge) && car.lanes > 1 && !car.avoidObs) {
         const HR = HWR(), n = car.lanes, right = n - 1, ex = hwExit(car, now), exitNear = ex && ex.dist < (HR ? HR.exitFar : EXIT_LOOK), urgent = HR && ex && ex.dist < HR.exitNear;
         if (car.passOff === undefined) car.passOff = 0;
         if (car.homeLane === undefined || car.homeLane > right) car.homeLane = Math.min(right, car.laneIndex);

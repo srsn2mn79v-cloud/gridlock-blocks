@@ -3,12 +3,15 @@
 // river or the interstate, and a tidy-up pass (tiny edges merged, dead ends removed).
 import { dist, distToSeg, segInter, nearestOnPoly } from './geom.js';
 
+const HWC = new Set(['hwEnd', 'hwEnd2', 'hwMid']);      // the arterial-class ends of the interstate
 export const CLASSES = {
   // widths in world units (1 u = 1.25 m). Interstate: 3.6 m lanes + 3 m shoulders. City roads: 3.5 m lanes (a 3 m lane is legal but too tight for the game's
   // car collision size and steering), residential 2 x 3.6 m. Express road adds a 1.6 u central divider.
   // lane 3 m (hw 3.6 m + 3 m shoulders), 1 u = 1.25 m; speedLimit in km/h
   hw:   { type: 'highway', width: 13.4, lanes: 3, sidewalks: false, oneWay: true, speedLimit: 120, maxGrade: 0.06 },
   hwEnd: { type: 'avenue', width: 8.4, lanes: 3, sidewalks: false, oneWay: true, speedLimit: 70, maxGrade: 0.06 },   // where the interstate ends: one half of the arterial it flows into
+  hwEnd2: { type: 'avenue', width: 5.6, lanes: 2, sidewalks: false, oneWay: true, speedLimit: 64, maxGrade: 0.06 },   // the last 0.25 mile of the interstate: 2 lanes, 40 mph, an arterial road
+  hwMid: { type: 'avenue', width: 8.4, lanes: 3, sidewalks: false, oneWay: true, speedLimit: 80, maxGrade: 0.06 },    // the 0.25 mile before that: 3 lanes, 50 mph
   six:  { type: 'avenue',  width: 18.4,   lanes: 3, speedLimit: 120, maxGrade: 0.06 },   // express road (orange)
   four: { type: 'avenue',  width: 16.8, lanes: 3, speedLimit: 70,  maxGrade: 0.06 },   // main arterial (yellow)
   two:  { type: 'local',   width: 8.4,    lanes: 1, speedLimit: 50,  maxGrade: 0.15 },   // residential (black)
@@ -55,7 +58,7 @@ export function buildNetwork(lines, barriers, opts = {}) {
     if (!L.drawbridge && !L.lowBridge)
     barriers.forEach(B => {
       if (L.structs && L.structs.length) return;
-      if (B.kind === 'highway' && (L.cls === 'hw' || L.cls === 'hwEnd') && !L.crossHW) return;   // crossHW: another interstate that bridges this one (the road out of town)
+      if (B.kind === 'highway' && (L.cls === 'hw' || HWC.has(L.cls)) && !L.crossHW) return;   // crossHW: another interstate that bridges this one (the road out of town)
       if (B.line === L) return;
       if (L.noBridge === B.kind) return;
       for (let i = 1; i < L.v.length; i++) {
@@ -116,12 +119,12 @@ export function buildNetwork(lines, barriers, opts = {}) {
       const E = L.v[ei];
       // a slip road must end ON the carriageway it serves (when the highway vertex it was drawn to was swallowed by a bridge, it would dangle):
       // it looks further for it, at the ground-level part of a highway only; a street looks 7 u
-      if (isRamp && lines.some(M => M !== L && (M.cls === 'hw' || M.cls === 'hwEnd') && M.v.some(q => Math.hypot(q.x - E.x, q.z - E.z) < 2.5 && q.elev < 0.6 && !q.deck))) return;   // already meets a highway vertex
+      if (isRamp && lines.some(M => M !== L && (M.cls === 'hw' || HWC.has(M.cls)) && M.v.some(q => Math.hypot(q.x - E.x, q.z - E.z) < 2.5 && q.elev < 0.6 && !q.deck))) return;   // already meets a highway vertex
       let best = null;
       const reach = isRamp ? 45 : 7;
       lines.forEach(M => {
         if (M === L || M.noJoin || M.v.length < 2) return;
-        if (isRamp && M.cls !== 'hw' && M.cls !== 'hwEnd') return;
+        if (isRamp && M.cls !== 'hw' && !HWC.has(M.cls)) return;
         for (let j = 1; j < M.v.length; j++) {
           if (M.v[j - 1].deck && M.v[j].deck) continue;                 // never onto the level part of a bridge deck
           const r = distToSeg(E.x, E.z, M.v[j - 1].x, M.v[j - 1].z, M.v[j].x, M.v[j].z);
@@ -217,7 +220,7 @@ export function buildNetwork(lines, barriers, opts = {}) {
       const l = dist([a.x, a.z], [b.x, b.z]);
       const minLen = opts.minEdge || 13;
       if (l >= minLen || a.deck || b.deck || a.keep || b.keep) continue;
-      if (e.line.cls === 'hw' || e.line.cls === 'hwEnd' || e.line.cls === 'ramp') continue;
+      if (e.line.cls === 'hw' || HWC.has(e.line.cls) || e.line.cls === 'ramp') continue;
       // contract b into a (keep the node with more connections)
       const da = nodeEdges(e.from).length, db = nodeEdges(e.to).length;
       const [kp, rm] = da >= db ? [e.from, e.to] : [e.to, e.from];
@@ -236,7 +239,7 @@ export function buildNetwork(lines, barriers, opts = {}) {
     }
   }
   // remove sliver junctions: of two streets leaving a junction within ~30 degrees of each other, drop the lesser one
-  const RANK = { hw: 9, hwEnd: 9, six: 5, four: 4, two: 2, ramp: 8 };
+  const RANK = { hw: 9, hwEnd: 9, hwEnd2: 9, hwMid: 9, six: 5, four: 4, two: 2, ramp: 8 };
   for (let pass = 0; pass < 6; pass++) {
     let removed = false;
     const by = {};
@@ -247,7 +250,7 @@ export function buildNetwork(lines, barriers, opts = {}) {
       const ang = e => { const o = nodes[e.from == id ? e.to : e.from]; return Math.atan2(o.z - nodes[id].z, o.x - nodes[id].x); };
       for (let i = 0; i < es.length; i++) for (let j = i + 1; j < es.length; j++) {
         const A = es[i], B = es[j]; if (A.dead || B.dead) continue;
-        if (A.line.cls === 'ramp' || B.line.cls === 'ramp' || A.line.cls === 'hw' || B.line.cls === 'hw' || A.line.cls === 'hwEnd' || B.line.cls === 'hwEnd') continue;
+        if (A.line.cls === 'ramp' || B.line.cls === 'ramp' || A.line.cls === 'hw' || B.line.cls === 'hw' || HWC.has(A.line.cls) || HWC.has(B.line.cls)) continue;
         let d = Math.abs(ang(A) - ang(B)); d = Math.min(d, 2 * Math.PI - d);
         if (d < 0.52) {
           const lenOf = e => dist([nodes[e.from].x, nodes[e.from].z], [nodes[e.to].x, nodes[e.to].z]);

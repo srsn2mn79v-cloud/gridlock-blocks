@@ -17,10 +17,11 @@ export function auxLayout(nodes, edges, R = HW_DEFAULT) {
   });
   return { aux, entryRamps };
 }
-export function widenInterchanges(nodes, edges, R = HW_DEFAULT) {
+export function widenInterchanges(nodes, edges, R = HW_DEFAULT, ends = []) {
   if (!R || !R.lanes4) return 0;
   const { aux } = auxLayout(nodes, edges, R); let n = 0;
   const raised = Object.values(nodes).filter(q => (q.elevation || 0) >= 0.25), nearRaised = id => raised.some(q => Math.hypot(q.x - nodes[id].x, q.z - nodes[id].z) < 70);       // not where a ramp climbs onto a bridge
-  edges.forEach(e => { if (aux.has(e.id) && e.lanes === 3 && (e.structure || 'surface') === 'surface' && !nearRaised(e.from) && !nearRaised(e.to) && Math.max(nodes[e.from].elevation || 0, nodes[e.to].elevation || 0) < 0.25) { e.lanes = 4; e.width = AUX_WIDTH; n++; } });
+  const nearEnd = id => ends.some(q => Math.hypot(q[0] - nodes[id].x, q[1] - nodes[id].z) < 780);       // the carriageways are still coming together near the ends of the interstate
+  edges.forEach(e => { if (aux.has(e.id) && e.lanes === 3 && (e.structure || 'surface') === 'surface' && !nearRaised(e.from) && !nearRaised(e.to) && !nearEnd(e.from) && !nearEnd(e.to) && Math.max(nodes[e.from].elevation || 0, nodes[e.to].elevation || 0) < 0.25) { e.lanes = 4; e.width = AUX_WIDTH; n++; } });
   return n;
 }

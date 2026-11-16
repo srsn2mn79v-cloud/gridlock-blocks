@@ -760,6 +760,7 @@ async function checkHwFlow(cars = 500, minutes = 4) {
       if (!c.active || !c.edge || c.knock) return;
       const on = c.edge.type === 'highway' ? hwSec : c.edge.ramp ? rampSec : null; if (!on) { still.set(i, 0); return; }
       on.n += dt; on.sp += c.speed * dt; if (c.speed < 0.6) { on.stall += dt; const kk = (c.edge.ramp ? 'ramp ' : 'hw ') + (c.why || (c.blockedBy ? 'car' : '-')) + (c.blockedBy && c.blockedBy.edge ? '/' + (c.blockedBy.edge.ramp ? 'ramp' : c.blockedBy.edge.type) : ''); why[kk] = (why[kk] || 0) + dt;
+        if (process.env.WHY && c.edge.ramp) { const k3 = 'RAMPEDGE ' + c.edge.id + ' -> ' + city.roadEdges.filter(e => (e.from === c.to || e.to === c.to) && e !== c.edge).map(e => (e.ramp ? 'ramp' : e.type) + e.width).join('+') + ' why:' + (c.why || '-'); why[k3] = (why[k3] || 0) + dt; }
         if (process.env.WHY && !c.why && !c.blockedBy) { const jn = id => (tr.cars && city.roadEdges.some(e => e.ramp && (e.from === id || e.to === id))) ? 'ramp-node' : 'plain'; const kk2 = 'NOREASON ' + (c.edge.ramp ? 'ramp' : 'hw') + ' ' + c.edge.id + ' to:' + jn(c.to) + ' from:' + jn(c.from) + ' cause:' + c.cause + ' lane:' + c.laneIndex + '/' + c.lanes + ' hold:' + (c.hwJoin > 0 ? 'join' : '-') + ' avoid:' + (c.avoidObs ? 1 : 0); why[kk2] = (why[kk2] || 0) + dt; } }
       const pl = prevLane.get(i); if (c.edge.type === 'highway' && pl !== undefined && pl !== c.laneIndex) lc++; prevLane.set(i, c.laneIndex);
       const ps = prevSp.get(i); if (ps !== undefined && ps - c.speed > 0.45) hardBrake++; prevSp.set(i, c.speed);

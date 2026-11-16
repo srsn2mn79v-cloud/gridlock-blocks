@@ -57,13 +57,14 @@ export function buildChicago() {
     if (e.deckEdge && e.line.name === 'Golden Gate Bridge') o.landmark = 'goldengate';
     if (c.lanes) o.lanes = c.lanes;
     o.speedLimit = c.speedLimit;
-    if (e.line.cls === 'hw' || e.line.cls === 'ramp') o.sidewalks = false;
+    if (e.line.cls === 'hw' || e.line.cls === 'hwEnd2' || e.line.cls === 'hwMid' || e.line.cls === 'ramp') o.sidewalks = false;
     if (e.line.cls === 'ramp') { o.oneWay = true; o.ramp = true; o.lanes = 1; }
-    if (e.line.cls === 'hw' || e.line.cls === 'hwEnd') o.oneWay = true;
+    if (e.line.cls === 'hw' || e.line.cls === 'hwEnd' || e.line.cls === 'hwEnd2' || e.line.cls === 'hwMid') o.oneWay = true;
     o.cls = e.line.cls;
+    if (c.type === 'highway' || e.line.cls === 'hwEnd2' || e.line.cls === 'hwMid') o.interstate = true;       // interstate-class for the traffic: lane choice, exits, merging (the two end sections are arterial-class roads)
     return o;
   });
-  widenInterchanges(nodes, edges, globalThis.__hw);                    // the extra interchange lane (hwLanes.js)
+  widenInterchanges(nodes, edges, globalThis.__hw, R.H.length >= 2 ? [R.H[0], R.H[R.H.length - 1]] : []);                    // the extra interchange lane (hwLanes.js)
   const byNode = buildEdgesByNode(edges);
   const other = (e, id) => (e.from === id ? e.to : e.from);
 
@@ -566,7 +567,7 @@ export function buildChicago() {
   const propOK = (x, z, minGap, list) => !list.some(p => Math.abs(p.x - x) < minGap && Math.abs(p.z - z) < minGap && dist([p.x, p.z], [x, z]) < minGap);
   const lampList = [];
   edges.forEach(e => {
-    if (e.cls === 'hw' || e.cls === 'hwEnd' || e.cls === 'ramp' || e.structure === 'bridge' || e.structure === 'tunnel') return;
+    if (e.cls === 'hw' || e.cls === 'hwEnd' || e.cls === 'hwEnd2' || e.cls === 'hwMid' || e.cls === 'ramp' || e.structure === 'bridge' || e.structure === 'tunnel') return;
     const spacing = e.cls === 'six' ? 26 : e.cls === 'four' ? 28 : e.cls === 'two' ? 30 : 0;   // a regular pattern: a lamp every ~32-38 m, alternating sides, so the whole street is lit
     if (!spacing) return;
     const a = nodes[e.from], b = nodes[e.to], len = Math.hypot(b.x - a.x, b.z - a.z);

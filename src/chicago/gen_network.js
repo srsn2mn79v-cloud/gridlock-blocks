@@ -13,7 +13,13 @@ export function generateRoads() {
   let H = hasHW ? spline(TP(HIGHWAY_PX), 75) : [];
   const cityPt = T(X0, Y0);
   const citySide = hasHW ? nearestOnPoly(cityPt[0], cityPt[1], H).side : 1;
-  const CAR_OFF = 11.5;      // each carriageway (3 lanes) is centred this far from the median line
+  const CAR_OFF = 11.5;
+  // the ends of the interstate: 2 lanes (5.6 u wide, 40 mph) for the last END_2 units, 3 lanes (8.4 u, 50 mph) up to END_3, then the full carriageway. Offsets are from the median line.
+  const END_2 = 322, END_3 = 644, END_FULL = 764;      // 1 u = 1.25 m: 0.25 mile, 0.5 mile, and where the carriageway has reached its full offset
+  const END_BREAKS = [12, 36, 90, 160, 240, END_2, 400, 480, 560, END_3, 704, END_FULL];
+  const smooth = k => k * k * (3 - 2 * k);
+  const offAtH = total => s => { const e = Math.min(s, total - s);
+    return e <= 12 ? 4.2 * smooth(e / 12) : e <= END_2 ? 4.2 : e <= END_3 ? 4.2 + 4.2 * smooth((e - END_2) / (END_3 - END_2)) : e < END_FULL ? 8.4 + (CAR_OFF - 8.4) * smooth((e - END_3) / (END_FULL - END_3)) : CAR_OFF; };      // each carriageway (3 lanes) is centred this far from the median line
   const hwBarrier = { kind: 'highway', half: 19, pts: H };
 
   // ---- the streets: every traced line of the map ------------------------------------------------------------------------------
@@ -236,23 +242,23 @@ export function generateRoads() {
   if (hasHW) {
     const total = polyLen(H), sv = new Set([0, total]);
     let acc = 0; for (let i = 1; i < H.length; i++) { acc += dist(H[i - 1], H[i]); sv.add(acc); }
-    [12, 36, 60, 90, 120].forEach(d => { sv.add(d); sv.add(total - d); });
+    END_BREAKS.forEach(d => { sv.add(d); sv.add(total - d); });
     const sl = [...sv].filter(v => v >= 0 && v <= total).sort((a, b) => a - b).filter((v, i, a) => i === 0 || v - a[i - 1] > 1.5);
-    // The two carriageways never overlap: they come together as the two halves of the arterial they end in (3 lanes each, 8.4 u wide,
-    // centred 4.2 u from the middle) and only widen to full interstate width (centred CAR_OFF) once they are clear of each other.
-    // offset from the median line: 0 -> 4.2 over the last 12 u, 4.2 -> 8.4 up to 60 u (the narrow 'hwEnd' road, half an arterial), 8.4 -> CAR_OFF by 120 u.
-    const sm = k => k * k * (3 - 2 * k);
-    const offAt = s => { const e = Math.min(s, total - s); return e <= 12 ? 4.2 * sm(e / 12) : e <= 60 ? 4.2 + 4.2 * sm((e - 12) / 48) : e < 120 ? 8.4 + (CAR_OFF - 8.4) * sm((e - 60) / 60) : CAR_OFF; };
+    // The two carriageways never overlap: they come together as the two halves of the arterial they end in, and widen step by step (see END_PROFILE):
+    // 2 lanes at 40 mph for the last 0.25 mile, 3 lanes at 50 mph for the 0.25 mile before that, then the interstate (3 lanes, full width, offset CAR_OFF).
+    const offAt = offAtH(total);
     const make = f => sl.map(s => { const h = hwPoint(s), l = offAt(s) * f; return [h.x + h.rx * l, h.z + h.rz * l]; });
     const fw = make(1), bw = make(-1).reverse();
     // cut each carriageway into end pieces (narrow arterial class) and the interstate proper
     const cutLine = (id, pts, flip) => {
-      const n = pts.length, idx = i => flip ? n - 1 - i : i;        // vertex i of the list in path order
-      const sAt = i => sl[idx(i)];
-      const first = pts.findIndex((p, i) => (flip ? total - sAt(i) : sAt(i)) >= 60), lastIdx = (() => { let k = n - 1; while (k > 0 && (flip ? total - sAt(k) : sAt(k)) > total - 60) k--; return k; })();
-      lines.push({ id: id + 'a', cls: 'hwEnd', pts: pts.slice(0, first + 1), keepEnds: true, oneWay: true, name: 'Interstate' });
-      lines.push({ id, cls: 'hw', pts: pts.slice(first, lastIdx + 1), keepEnds: true, oneWay: true, name: 'Interstate' });
-      lines.push({ id: id + 'b', cls: 'hwEnd', pts: pts.slice(lastIdx), keepEnds: true, oneWay: true, name: 'Interstate' });
+      const n = pts.length, ss = pts.map((p, i) => (flip ? total - sl[n - 1 - i] : sl[i]));          // arclength along the path of each vertex
+      const at = d => { const i = ss.findIndex(v => v >= d - 0.5); return i < 0 ? n - 1 : i; };
+      const k1 = at(END_2), k2 = at(END_3), k3 = at(total - END_3), k4 = at(total - END_2);
+      lines.push({ id: id + 'a', cls: 'hwEnd2', pts: pts.slice(0, k1 + 1), keepEnds: true, oneWay: true, name: 'Interstate' });
+      lines.push({ id: id + 'c', cls: 'hwMid', pts: pts.slice(k1, k2 + 1), keepEnds: true, oneWay: true, name: 'Interstate' });
+      lines.push({ id, cls: 'hw', pts: pts.slice(k2, k3 + 1), keepEnds: true, oneWay: true, name: 'Interstate' });
+      lines.push({ id: id + 'd', cls: 'hwMid', pts: pts.slice(k3, k4 + 1), keepEnds: true, oneWay: true, name: 'Interstate' });
+      lines.push({ id: id + 'b', cls: 'hwEnd2', pts: pts.slice(k4), keepEnds: true, oneWay: true, name: 'Interstate' });
     };
     cutLine('HWF', fw, false); cutLine('HWB', bw, true);
   }
@@ -262,7 +268,7 @@ export function generateRoads() {
       const { f, kind } = r, ex = kind === 'exit', { ia, sg, s0, xh } = r.plan, LL = 23, HM = xh >= 210 ? 90 : 60, PAR = Math.max(0, xh - 40 - HM);
       const at = (x, l) => { const h = hwPoint(s0 + sg * x); return [h.x + h.rx * f * l, h.z + h.rz * f * l]; };
       const sm = k => k * k * (3 - 2 * k), out = [];
-      for (let x = 0; x <= 40; x += 10) out.push(at(x, CAR_OFF + (LL - CAR_OFF) * sm(x / 40)));     // leaves the carriageway as a 4th lane ...
+      const offH = offAtH(polyLen(H)); for (let x = 0; x <= 40; x += 10) { const o0 = offH(s0 + sg * x); out.push(at(x, o0 + (LL - o0) * sm(x / 40))); }     // leaves the carriageway as a 4th lane ...
       if (PAR > 0) out.push(at(40 + PAR / 2, LL), at(40 + PAR, LL));                                  // ... runs alongside (up to 80 u) ...
       const P0 = out[out.length - 1], P1 = r[ia], tg = hwPoint(s0 + sg * (40 + PAR));
       const T0 = [(tg.rz) * f * sg, -(tg.rx) * f * sg], ta = [r[Math.min(r.length - 1, ia + 5)][0] - P1[0], r[Math.min(r.length - 1, ia + 5)][1] - P1[1]], tl = Math.hypot(ta[0], ta[1]) || 1, ch = dist(P0, P1) * 0.7;
