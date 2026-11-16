@@ -58,6 +58,7 @@ import { createCruise } from './cruise.js';
 import { beginTravel, takeArrival, endTravel } from './travel.js';
 import { createPort } from './port.js';
 import { createAirport } from './airport.js';
+import { createFlight } from './flight.js';
 import { createDrivetrain } from './drivetrain.js';
 import { isCovered } from './covered.js';
 import { createSkidMarks } from './skidmarks.js';
@@ -520,7 +521,7 @@ const fuel = createFuel({ city, scene, heightAt, car, world, active: () => !race
 collisionWorld.push(...fuel.colliders);
 const hail = createHail({ city, scene, heightAt: world.heightAt, world, camera, minimap, toast: msg => world.toast(msg) });
 world.setDestinations(() => races.plan.map(r => ({ name: r.name + ' (class ' + r.cls + ')', group: 'Races', sub: ({ drag: 'Drag', drift: 'Drift', circuit: 'Circuit', sprint: 'Sprint' })[r.kind], x: r.start.x - Math.sin(r.start.heading) * 14, z: r.start.z - Math.cos(r.start.heading) * 14, h: r.start.heading })));
-world.setBlocked(() => races.active() || races.offering() || hail.busy());
+world.setBlocked(() => races.active() || races.offering() || hail.busy() || flight.active);
 world.setRaceInfo(() => races.plan);
 world.setSleepHook(h => weather.advance(h));
 // walls the chase camera must not sit inside: building footprints (bucketed) and, in a garage, its concrete
@@ -777,6 +778,7 @@ const boats = createBoats({ city, scene, drawbridge });
 const goldenGate = createGoldenGate({ city, scene });
 const port = createPort({ city, scene, collisionWorld });
 const airport = createAirport({ city, scene, car, toast: msg => world.toast(msg), collisionWorld });
+const flight = createFlight({ scene, camera, car, world, input, toast: msg => world.toast(msg), airport, heightAt: (x, z, y) => world.heightAt(x, z, y) });
 // cruise control (C), and the road out of town: its tunnel takes the player to the next city (interstate.js, travel.js)
 const cruise = createCruise({ car, input, world, toast: msg => world.toast(msg), kmh: u => u * KMH_PER_U });
 const interstate = createInterstate({ city, scene, car, heightAt, onEnter: io => {
@@ -853,7 +855,7 @@ function audioFrame(dt) {
     if (inside) interior.update(dt, { kmh: Math.hypot(car.vx || 0, car.vz || 0) * KMH_PER_U, maxKmh: car.maxSpeed * KMH_PER_U, rpm: rev.r, gear: rev.gear, fuel: fuel.level(),
       blinkL: car.blinkers.frontLeft.material.emissiveIntensity > 0.5, blinkR: car.blinkers.frontRight.material.emissiveIntensity > 0.5, lights: !!input.lightsOn, lit: !!input.lightsOn || env.nightK > 0.5 });
   }
-  dash.style.display = world.onFoot ? 'none' : 'block';
+  dash.style.display = world.onFoot || flight.active ? 'none' : 'block';
   const ev = traffic.events.splice(0);
   ev.forEach(e => e.t === 'crash' ? audio.crash(e.x, e.z, e.power) : e.t === 'hiss' ? audio.airBrake && audio.airBrake(e.x, e.z) : audio.honk(e.x, e.z, HEAVY_TYPES[e.type] || 0, null, e.seed));
   const x = camera.position.x;
@@ -979,8 +981,8 @@ function animate() {
     const pre = [];
     for (let i = 0; i < steps; i++) {
       world.beforeCar(dt / steps);
-      car.update(dt / steps, (world.onFoot || races.frozen()) ? world.parkedInput(input) : input, world.heightAt);
-      if (steps > 1) pre.push(...resolveCarCollisions(car, collisionWorld, dt / steps));
+      car.update(dt / steps, (world.onFoot || flight.active || races.frozen()) ? world.parkedInput(input) : input, world.heightAt);
+      if (steps > 1 && !flight.active) pre.push(...resolveCarCollisions(car, collisionWorld, dt / steps));
     }
     drawbridge.update(dt, camera);
     boats.update(dt, world.focus());
@@ -988,6 +990,7 @@ function animate() {
     interstate.update();
     port.update(dt, nightK);
     airport.update(dt, nightK, world.mode === 'city' ? camera : null);
+    flight.update(dt);
     traffic.setGrip(env.grip);
     traffic.update(dt, hail.following() ? hail.proxy : car, world.onFoot && world.mode === 'city' ? world.focus() : null);
     if (traffic.walkerHit.on) world.shoveFoot(traffic.walkerHit.vx, traffic.walkerHit.vz);
@@ -1002,7 +1005,7 @@ function animate() {
     sun.position.set(focus.x + env.sunOffset.x, env.sunOffset.y, focus.z + env.sunOffset.z);
     sun.target.position.set(focus.x, 0, focus.z);
 
-    const destroyed = pre.concat(resolveCarCollisions(car, collisionWorld, dt));
+    const destroyed = flight.active ? [] : pre.concat(resolveCarCollisions(car, collisionWorld, dt));
     car.group.position.set(car.x, car.y, car.z); // re-sync after any collision push-back
     destroyed.forEach(c => {
       const inst = c.instance, mesh = inst.mesh;
@@ -1034,7 +1037,7 @@ function animate() {
     shopLots.update(dt, car, env.hour);
     updateWrongWay();
 
-    if (isCarInWater()) {
+    if (!flight.active && isCarInWater()) {
       races.abort('Race over - you fell in the water');
       sinking = true;
       sinkTimer = 0;
@@ -1045,13 +1048,13 @@ function animate() {
     speedEl.textContent = Math.round(Math.hypot(car.vx, car.vz) * KMH_PER_U) + ' km/h · ' + (world.carClassInfo ? world.carClassInfo().cls : '') + (car.grip < 0.8 ? (car.grip < 0.55 ? ' ❄ icy' : ' 💧 wet') : '');
   }
 
-  if (!window.__freeCam) { if (hail.cabCam()) hail.updateCamera(dt); else if (world.onFoot) world.updateCamera(dt); else camRig.update(dt, camBlocked); }
+  if (!window.__freeCam) { if (flight.active) flight.updateCamera(dt); else if (hail.cabCam()) hail.updateCamera(dt); else if (world.onFoot) world.updateCamera(dt); else camRig.update(dt, camBlocked); }
   minimap.update(focus, [], mapExtras(false));
   fxFrame(dt);
   renderFrame();
   requestAnimationFrame(animate);
 }
-window.__game = { seasons, wakeLock, interstate, cruise, airport, port, goldenGate, shopLots, drawbridge, boats, hail, camRig, interior, fuel, radio, weather, plowFx, puffs, gfx, transit, parkedCars, skids, audio, races, structures, world, renderer, taxi, input, destruction, collisionWorld, lampDefs, signs, propInstances, env, settings, menu, minimap, scene, camera, car, city, traffic, pedestrians, lampPool, reflectors, heightAt, offences: { get wrongWay() { return wrongWayOffences; } } };
+window.__game = { flight, seasons, wakeLock, interstate, cruise, airport, port, goldenGate, shopLots, drawbridge, boats, hail, camRig, interior, fuel, radio, weather, plowFx, puffs, gfx, transit, parkedCars, skids, audio, races, structures, world, renderer, taxi, input, destruction, collisionWorld, lampDefs, signs, propInstances, env, settings, menu, minimap, scene, camera, car, city, traffic, pedestrians, lampPool, reflectors, heightAt, offences: { get wrongWay() { return wrongWayOffences; } } };
 // Arriving through the tunnel from another city (travel.js): come out of the inbound tube at the speed, time of day and radio station
 // the player went in with, then lift the tunnel off the screen once a few frames of the new city have been drawn.
 {

@@ -987,3 +987,9 @@ Street furniture, parked cars and neon signs are batched/streamed (`src/propBatc
 - The road out of town (OUT) keeps its old 60 u ends; the cloverleaf sits right at its start.
 - Slip roads already flow into main arterials (16.8 u) or the interstate ends; nothing changed there.
 - hwflow, 3 seeds x 300 cars x 3 min: highway stalls about 540 s (was 685 s before this round), 2 cars stuck on average, 82.7 km/h; slip road stalls vary 750-1940 s per seed, mostly the cloverleaf loops of the road out of town.
+
+## Easter egg: the private plane (flight.js)
+A four-seater sits on a private tie-down beside the runway (the side away from the terminal), with a small "PRIVATE · N1250" sign. Drive up, stop and press **F** (or tap the ✈ button on touch) to board.
+Controls: **W/S** throttle, **↓** pulls the nose up (**↑** pushes it down), **A/D** (or ←/→) bank and turn, **Space** brakes on the ground, **F** parks and gets you back in your car once you are down and slow.
+Take-off needs about 21 u/s (~95 km/h); below ~18 u/s in the air the plane stalls and sinks. A hard landing, a steep bank or a nose-down touchdown wrecks it and puts it back on its tie-down.
+The car object rides along with the plane (hidden), so streaming, traffic and the map follow it; main.js skips car physics, collisions and the water check while flying. No collisions with buildings yet.
