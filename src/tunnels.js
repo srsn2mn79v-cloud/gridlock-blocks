@@ -124,22 +124,22 @@ export function createTunnels({ city, scene, transit, collisionWorld, parcels = 
     [-1, 1].forEach(sd => platforms.push({ S, sd, ax: S.x - tx * PLH + nx * sd * (PL0 + PL1) / 2, az: S.z - tz * PLH + nz * sd * (PL0 + PL1) / 2, dx: tx, dz: tz, len: 2 * PLH, hw: (PL1 - PL0) / 2, mx: S.x + nx * sd * (PL0 + PL1) / 2, mz: S.z + nz * sd * (PL0 + PL1) / 2 }));
     let best = null;
     const segDist = (x, z) => { let d = 1e9; nearSegs(x, z).forEach(q => { d = Math.min(d, distSeg(q, x, z)); }); return d; };
-    for (let r = 8; r <= 80; r += 4) for (let a = 0; a < 16; a++) {
-      const px = S.x + Math.cos(a * Math.PI / 8) * r, pz = S.z + Math.sin(a * Math.PI / 8) * r;
-      const rd = roadNear(px, pz); if (rd && rd.d < 3) continue;
+    for (let r = 8; r <= 130; r += 4) for (let a = 0; a < 20; a++) {
+      const px = S.x + Math.cos(a * Math.PI / 10) * r, pz = S.z + Math.sin(a * Math.PI / 10) * r;
+      const rd = roadNear(px, pz); if (rd && rd.d < 2.2) continue;
       if (lotAt(px, pz) !== null || propHit(px, pz, 1) || stairs.some(q => Math.hypot(q.px - px, q.pz - pz) < 14)) continue;
       const vx = S.x - px, vz = S.z - pz, vl = Math.hypot(vx, vz);
       for (let k = 0; k < 16; k++) {
-        const th = k * Math.PI / 8, dx = Math.cos(th), dz = Math.sin(th); if ((dx * vx + dz * vz) / vl < 0.3) continue;
+        const th = k * Math.PI / 8, dx = Math.cos(th), dz = Math.sin(th); if ((dx * vx + dz * vz) / vl < -0.1) continue;
         const fx = px + dx * SL, fz = pz + dz * SL, side = Math.sign((fx - S.x) * nx + (fz - S.z) * nz) || 1;
-        const ex = S.x + nx * side * 4.9, ez = S.z + nz * side * 4.9, cl = Math.hypot(ex - fx, ez - fz); if (cl < 3 || cl > 90) continue;
-        const cx = (ex - fx) / cl, cz = (ez - fz) / cl, al = dx * cx + dz * cz; if (al < 0.8 || Math.abs(cx * nx + cz * nz) < 0.5) continue;
+        const ex = S.x + nx * side * 4.9, ez = S.z + nz * side * 4.9, cl = Math.hypot(ex - fx, ez - fz); if (cl < 3 || cl > 140) continue;
+        const cx = (ex - fx) / cl, cz = (ez - fz) / cl, al = dx * cx + dz * cz; if (al < 0.6 || Math.abs(cx * nx + cz * nz) < 0.5) continue;
         const score = r + cl * 0.3 + (1 - al) * 40; if (best && score >= best.score) continue;
         let ok = true;
         for (let u = 0; u <= SL && ok; u += 2.5) for (const lat of [-3.4, 0, 3.4]) {
           const x = px + dx * u - dz * lat, z = pz + dz * u + dx * lat;
           if (lotAt(x, z) !== null || propHit(x, z, 0.7) || nearKeep(x, z) && u > 0) { ok = false; break; }
-          const q = roadNear(x, z); if (q && q.d < 3) { ok = false; break; }
+          const q = roadNear(x, z); if (q && q.d < 2.2) { ok = false; break; }
           if (Math.abs(cityHeight(x, z, 0) - cityHeight(px, pz, 0)) > 0.35) { ok = false; break; }
           if (u > 2 && (segDist(x, z) < W / 2 + 3.2 || ramps.some(rp => distSeg(rp.rampSeg, x, z) < W / 2 + 3.6))) { ok = false; break; }
         }
