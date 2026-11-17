@@ -156,8 +156,9 @@ export function createTunnels({ city, scene, transit, collisionWorld, parcels = 
   stairs.forEach(t => {         // the shaft's mouth is a hole in the ground plane, with a kerb along both sides (a car cannot drive into it)
     const o = (u, l) => [t.px + t.dx * u - t.dz * l, t.pz + t.dz * u + t.dx * l];
     holes.push([[0.05, -1], [SHAFT_OPEN, -1], [SHAFT_OPEN, 1], [0.05, 1]].map(([u, sd]) => o(u, sd * 2.6)));
-    [-1, 1].forEach(sd => collisionWorld.push({ kind: 'parcel', instance: null, tunnelRim: true, footprint: [o(2, sd * 3.05 - 0.4), o(SHAFT_OPEN + 0.4, sd * 3.05 - 0.4), o(SHAFT_OPEN + 0.4, sd * 3.05 + 0.4), o(2, sd * 3.05 + 0.4)], blocksCar: true, destructible: false, response: 'bounce', destroyed: false }));
+    [-1, 1].forEach(sd => collisionWorld.push({ kind: 'parcel', instance: null, tunnelRim: true, footprint: [o(-0.6, sd * 3.05 - 0.4), o(SHAFT_OPEN + 0.4, sd * 3.05 - 0.4), o(SHAFT_OPEN + 0.4, sd * 3.05 + 0.4), o(-0.6, sd * 3.05 + 0.4)], blocksCar: true, destructible: false, response: 'bounce', destroyed: false }));
   });
+  stairs.forEach(t => { [-3, -1.5, 0, 1.5, 3].forEach(lat => { const x = t.px - t.dx * 0.6 - t.dz * lat, z = t.pz - t.dz * 0.6 + t.dx * lat; collisionWorld.push({ kind: 'prop', x, z, radius: 0.32, blocksCar: true, destructible: false, response: 'bounce', destroyed: false, tunnelRim: true }); (t.bol = t.bol || []).push([x, z]); }); });      // bollards across the mouth: a pedestrian fits between them, a car does not
   const stairY = (t, u) => -DOWN * Math.max(0, Math.min(1, u / SL));
   const api = {
     segs, ramps, holes, portals: ramps.map(p => ({ x: p.x + p.dx * 3, z: p.z + p.dz * 3, h: Math.atan2(p.dx, p.dz) })), stations: stationsAt, active: false,
@@ -234,7 +235,8 @@ export function createTunnels({ city, scene, transit, collisionWorld, parcels = 
       if (u >= SHAFT_OPEN) { const q = P3(u + 0.5, 0), y = -DOWN * (u + 0.5) / SL + 3.2; bxi(ceilM2, 1.08, 0.3, 5.0, q[0], y + 0.15, q[1], ry); if (u % 5 === 0) bxi(lampM, 1.2, 0.08, 0.8, q[0], y - 0.04, q[1], ry); }
     }
     { const q = P3(SHAFT_OPEN, 0), y = -DOWN * SHAFT_OPEN / SL + 3.2; bxi(wallM, 0.4, -y + 0.1, 5.0, q[0], y / 2 + 0.05, q[1], ry); }          // the face of the roof at the edge of the opening
-    for (let u = 2; u < SHAFT_OPEN; u += 1.9) [-1, 1].forEach(sd => { const q = P3(u + 0.95, sd * 3.05); bxi(rimM, 1.85, 0.7, 0.8, q[0], 0.35, q[1], ry); });
+    (t.bol || []).forEach(q => bxi(B(0xf0c020), 0.4, 1.0, 0.4, q[0], 0.5, q[1], ry));
+    for (let u = 0; u < SHAFT_OPEN; u += 1.9) [-1, 1].forEach(sd => { const q = P3(u + 0.95, sd * 3.05); bxi(rimM, 1.85, 0.7, 0.8, q[0], 0.35, q[1], ry); });
     // the two escalators (the right-hand one goes down), tilted to the slope
     const grp = new THREE.Group(); grp.position.set(t.px, 0, t.pz); grp.rotation.y = th; g.add(grp);
     const pitch = new THREE.Group(); pitch.rotation.x = Math.atan2(DOWN, SL); grp.add(pitch);
