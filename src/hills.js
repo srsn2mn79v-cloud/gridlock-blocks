@@ -13,7 +13,7 @@ function raw(x, z) { let s = 0; for (let i = 0; i < H.length; i++) { const h = H
 export function hillAt(x, z) { if (!hills.on) return 0; const s = raw(x, z) - BASE; return s > 0 ? s : 0; }
 // slope along a heading (forward = (sin h, cos h)): rise per unit of run
 export function hillSlope(x, z, heading) { if (!hills.on) return 0; const sx = Math.sin(heading), sz = Math.cos(heading); return (hillAt(x + sx * 1.5, z + sz * 1.5) - hillAt(x - sx * 1.5, z - sz * 1.5)) / 3; }
-const nearHills = (x0, z0, x1, z1) => H.some(h => { const r = 3.5 / Math.sqrt(h.k), cx = Math.max(x0, Math.min(x1, h.x)), cz = Math.max(z0, Math.min(z1, h.z)); return (cx - h.x) ** 2 + (cz - h.z) ** 2 < r * r; });
+const nearHills = (x0, z0, x1, z1) => H.some(h => { const r = 2.4 / Math.sqrt(h.k), cx = Math.max(x0, Math.min(x1, h.x)), cz = Math.max(z0, Math.min(z1, h.z)); return (cx - h.x) ** 2 + (cz - h.z) ** 2 < r * r; });
 
 // list: [{ x, z, r, h }] in world units. Call before any material is compiled.
 export function installHills(list) {
@@ -37,9 +37,12 @@ let lights = [], lightScan = 0;
 export function renderLifted(scene, camera, draw) {
   if (!hills.on) { draw(); return; }
   scene.matrixWorldAutoUpdate = false; scene.updateMatrixWorld();
-  if (--lightScan <= 0) { lightScan = 90; lights = []; scene.traverse(o => { if (o.isSpotLight || o.isPointLight) lights.push(o); }); }
+  if (--lightScan <= 0) { lightScan = 90; lights = []; scene.traverse(o => { if (o.isSpotLight || o.isPointLight || (o.isDirectionalLight && o.castShadow)) lights.push(o); }); }
   for (const l of lights) {
     if (!l.visible || l.intensity <= 0) continue;
+    if (l.isDirectionalLight) {      // the sun: its shadow box follows the ground it is aimed at
+      if (!l.target) continue; if (!l.target.parent) l.target.updateMatrixWorld(); const t = l.target.matrixWorld.elements, up = hillAt(t[12], t[14]); t[13] += up; l.matrixWorld.elements[13] += up; continue;
+    }
     const e = l.matrixWorld.elements; e[13] += hillAt(e[12], e[14]);
     if (l.isSpotLight && l.target) { const t = l.target.matrixWorld.elements; if (!l.target.parent) l.target.updateMatrixWorld(); t[13] += hillAt(t[12], t[14]); }
   }
@@ -52,13 +55,14 @@ export function renderLifted(scene, camera, draw) {
 }
 
 // ---- bending flat geometry: split near-level triangles in hill country until no edge is longer than maxEdge ----------------------
-export function tessellateScene(root, maxEdge = 8) {
+export function tessellateScene(root, maxEdge = 12) {
   if (!hills.on) return 0;
   let added = 0; root.updateMatrixWorld(true);
   root.traverse(o => { if (o.isMesh && !o.isInstancedMesh && !o.isBatchedMesh && !o.isSkinnedMesh && o.geometry && o.geometry.attributes.position && !o.userData.noHillSplit) added += tessellate(o, maxEdge); });
   return added;
 }
 function tessellate(mesh, L) {
+  if (mesh.geometry.userData.hillSplit) return 0; mesh.geometry.userData.hillSplit = true;       // shared geometries are split once
   const g = mesh.geometry, pos = g.attributes.position, m = mesh.matrixWorld.elements;
   if (!g.boundingBox) g.computeBoundingBox();
   const bb = g.boundingBox.clone().applyMatrix4(mesh.matrixWorld);

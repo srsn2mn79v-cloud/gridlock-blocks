@@ -18,7 +18,7 @@ import { createFuel } from './fuel.js';
 import { createHarbour } from './harbour.js';
 import { createHail } from './hail.js';
 import { districtAt, fromWorld, MAP, HILLS } from './chicago/map.js';
-import { installHills, hills, hillSlope, tessellateScene } from './hills.js';
+import { installHills, hills, hillSlope, hillAt, tessellateScene } from './hills.js';
 installHills(HILLS);      // before any material is compiled: the hills are written into the shaders
 import { Car } from './car.js';
 import { createInput } from './input.js';
@@ -1096,7 +1096,7 @@ function animate() {
   renderFrame();
   requestAnimationFrame(animate);
 }
-window.__game = { bus, roadsGroup, tunnels, flight, seasons, wakeLock, interstate, cruise, airport, port, goldenGate, shopLots, drawbridge, boats, hail, camRig, interior, fuel, radio, weather, plowFx, puffs, gfx, transit, parkedCars, skids, audio, races, structures, world, renderer, taxi, input, destruction, collisionWorld, lampDefs, signs, propInstances, env, settings, menu, minimap, scene, camera, car, city, traffic, pedestrians, lampPool, reflectors, heightAt, offences: { get wrongWay() { return wrongWayOffences; } } };
+window.__game = { hills, hillAt, bus, roadsGroup, tunnels, flight, seasons, wakeLock, interstate, cruise, airport, port, goldenGate, shopLots, drawbridge, boats, hail, camRig, interior, fuel, radio, weather, plowFx, puffs, gfx, transit, parkedCars, skids, audio, races, structures, world, renderer, taxi, input, destruction, collisionWorld, lampDefs, signs, propInstances, env, settings, menu, minimap, scene, camera, car, city, traffic, pedestrians, lampPool, reflectors, heightAt, offences: { get wrongWay() { return wrongWayOffences; } } };
 // Arriving through the tunnel from another city (travel.js): come out of the inbound tube at the speed, time of day and radio station
 // the player went in with, then lift the tunnel off the screen once a few frames of the new city have been drawn.
 {
