@@ -5,6 +5,7 @@
 // along the slope, and flat geometry is cut into small triangles where there are hills so that it bends with them.
 import * as THREE from 'three';
 
+const LOW = 1.5;                       // geometry below this (flat-world height) is ground-level and has to bend with the hills
 const BASE = 0.6;                      // subtracted from the sum, so the height is exactly 0 away from the hills (the shore, the bridges)
 let H = [];                            // { x, z, k (1 / r^2), h }
 export const hills = { on: false };
@@ -68,6 +69,12 @@ function tessellate(mesh, L) {
   const bb = g.boundingBox.clone().applyMatrix4(mesh.matrixWorld);
   if (!nearHills(bb.min.x, bb.min.z, bb.max.x, bb.max.z)) return 0;
   if (Object.values(g.attributes).some(a => a.isInterleavedBufferAttribute) || g.morphAttributes && Object.keys(g.morphAttributes).length) return 0;
+  // a first look without copying anything: is there a low, level triangle with a long edge at all? (most meshes: no)
+  { const A = pos.array, I = g.index && g.index.array, n = I ? I.length : pos.count, L2q = L * L; let need = false;
+    const px = i => m[0] * A[i * 3] + m[4] * A[i * 3 + 1] + m[8] * A[i * 3 + 2] + m[12], py = i => m[1] * A[i * 3] + m[5] * A[i * 3 + 1] + m[9] * A[i * 3 + 2] + m[13], pz = i => m[2] * A[i * 3] + m[6] * A[i * 3 + 1] + m[10] * A[i * 3 + 2] + m[14];
+    for (let t = 0; t + 2 < n && !need; t += 3) { const a = I ? I[t] : t, b = I ? I[t + 1] : t + 1, c = I ? I[t + 2] : t + 2; if (py(a) > LOW || py(b) > LOW || py(c) > LOW) continue;
+      const ax = px(a), az = pz(a), bx = px(b), bz = pz(b), cx = px(c), cz = pz(c); if ((ax - bx) ** 2 + (az - bz) ** 2 > L2q || (bx - cx) ** 2 + (bz - cz) ** 2 > L2q || (cx - ax) ** 2 + (cz - az) ** 2 > L2q) need = true; }
+    if (!need) return 0; }
   const names = Object.keys(g.attributes), sizes = names.map(n => g.attributes[n].itemSize), data = names.map(n => Array.from(g.attributes[n].array)), norm = names.map(n => g.attributes[n].normalized);
   const pi = names.indexOf('position'), P = data[pi];
   let idx = g.index ? Array.from(g.index.array) : Array.from({ length: pos.count }, (_, i) => i);
@@ -86,7 +93,7 @@ function tessellate(mesh, L) {
     while (stack.length) {
       const c = stack.pop(), b = stack.pop(), a = stack.pop();
       const ab = e2(a, b), bc = e2(b, c), ca = e2(c, a), mx = Math.max(ab, bc, ca);
-      let split = mx > L2;
+      let split = mx > L2 && Y[a] <= LOW && Y[b] <= LOW && Y[c] <= LOW;      // only what lies on the ground: roofs and decks shear fine as they are
       if (split) {
         // only near-level faces (walls stay as they are), and only where there is a hill
         const ux = X[b] - X[a], uy = Y[b] - Y[a], uz = Z[b] - Z[a], vx = X[c] - X[a], vy = Y[c] - Y[a], vz = Z[c] - Z[a];
