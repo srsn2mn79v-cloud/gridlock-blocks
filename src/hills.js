@@ -34,11 +34,22 @@ export function installHills(list) {
 
 // ---- drawing a frame: lift the camera and the lights, draw, put the camera back -------------------------------------------------
 const _p = new THREE.Vector3(), _q = new THREE.Quaternion(), _d = new THREE.Vector3(), _f = new THREE.Vector3();
-let lights = [], lightScan = 0;
+let lights = [], lightScan = 0, cullables = [];
+const _c = new THREE.Vector3();
+// Objects keep their flat positions for frustum culling while the vertex shader lifts them, and the camera is lifted too: anything near the camera on a hill would be
+// culled as if it were under it (the car and props vanish high up). So while the camera is lifted, nothing within reach of it is culled by the frustum.
+function uncull(camera, on) {
+  const cx = camera.position.x, cz = camera.position.z;
+  for (const o of cullables) {
+    if (!on) { o.frustumCulled = true; continue; }
+    const e = o.matrixWorld.elements; _c.set(e[12], 0, e[14]); let r = 0, g = o.geometry; if (g) { if (!g.boundingSphere) g.computeBoundingSphere(); r = (g.boundingSphere ? g.boundingSphere.radius : 0) * 1; }
+    o.frustumCulled = !(Math.hypot(_c.x - cx, _c.z - cz) < r + 700);
+  }
+}
 export function renderLifted(scene, camera, draw) {
   if (!hills.on) { draw(); return; }
   scene.matrixWorldAutoUpdate = false; scene.updateMatrixWorld();
-  if (--lightScan <= 0) { lightScan = 90; lights = []; scene.traverse(o => { if (o.isSpotLight || o.isPointLight || (o.isDirectionalLight && o.castShadow)) lights.push(o); }); }
+  if (--lightScan <= 0) { lightScan = 90; lights = []; cullables = []; scene.traverse(o => { if (o.isSpotLight || o.isPointLight || (o.isDirectionalLight && o.castShadow)) lights.push(o); else if ((o.isMesh || o.isSprite || o.isPoints || o.isLine) && o.frustumCulled) cullables.push(o); }); }
   for (const l of lights) {
     if (!l.visible || l.intensity <= 0) continue;
     if (l.isDirectionalLight) {      // the sun: its shadow box follows the ground it is aimed at
@@ -49,9 +60,11 @@ export function renderLifted(scene, camera, draw) {
   }
   _p.copy(camera.position); _q.copy(camera.quaternion);
   camera.getWorldDirection(_d); _f.copy(_p).addScaledVector(_d, 14);
-  camera.position.y += hillAt(_p.x, _p.z); _f.y += hillAt(_f.x, _f.z);
+  const H = hillAt(_p.x, _p.z); camera.position.y += H; _f.y += hillAt(_f.x, _f.z);
   camera.lookAt(_f); camera.updateMatrixWorld();
+  const lifted = H > 1.2; if (lifted) uncull(camera, true);
   draw();
+  if (lifted) uncull(camera, false);
   camera.position.copy(_p); camera.quaternion.copy(_q); camera.updateMatrixWorld();
 }
 

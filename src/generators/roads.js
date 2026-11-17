@@ -5,6 +5,7 @@ import {
   elevationAlongEdge, curveElevationAt, dist, intersectionClearance, buildBanks, edgeBank, cornerBanks
 } from '../roadMath.js';
 import { hasSidewalks } from '../sidewalks.js';
+import { TAPER_MAX, LANE_W, AUX_WIDTH, edgeWidthAt } from '../hwLanes.js';
 import { findSignalForApproach } from '../signals.js';
 import { createGroundGlow } from '../glow.js';
 import { computeStopApproaches, stopKey } from '../junctionRules.js';
@@ -111,6 +112,17 @@ function orientAlongGrade(mesh, ax, ay, az, bx, by, bz, perpX, perpZ) {
 // also why every road type ends up with *some* markings, where before only
 // local/avenue did.
 let markEdge = null;      // the road whose paint is being queued (see the paint queue further down)
+let mergeArrowMat = null;
+function addMergeArrow(group, x, z, y, h) {
+  if (!mergeArrowMat) {
+    const c = document.createElement('canvas'); c.width = 96; c.height = 256; const g = c.getContext('2d');
+    if (g && g.fillRect) { g.clearRect(0, 0, 96, 256); g.fillStyle = '#f2f2ee'; g.beginPath(); g.moveTo(34, 256); g.lineTo(34, 150); g.lineTo(58, 96); g.lineTo(58, 70); g.lineTo(40, 70); g.lineTo(60, 8); g.lineTo(80, 70); g.lineTo(70, 70); g.lineTo(70, 100); g.lineTo(46, 156); g.lineTo(46, 256); g.closePath(); g.fill(); }
+    const tex = new THREE.CanvasTexture(c); tex.colorSpace = THREE.SRGBColorSpace; tex.anisotropy = 4;
+    mergeArrowMat = new THREE.MeshBasicMaterial({ map: tex, transparent: true, depthWrite: false, polygonOffset: true, polygonOffsetFactor: -4, polygonOffsetUnits: -8 });
+  }
+  const geo = new THREE.PlaneGeometry(2.1, 5.6); geo.rotateX(-Math.PI / 2);
+  const m = new THREE.Mesh(geo, mergeArrowMat); m.position.set(x, y + 0.01, z); m.rotation.y = -h - Math.PI / 2; group.add(m);
+}
 function addLine(group, a, b, heading, perpX, perpZ, offset, segLen, dashed, mat, ph) {
   const ay = a.y + (a.bank ? offset * Math.sin(a.bank) : 0), by = b.y + (b.bank ? offset * Math.sin(b.bank) : 0);   // banked corners: paint follows the tilted surface
   const ax = a.x + perpX * offset, az = a.z + perpZ * offset;
@@ -229,8 +241,8 @@ function addLaneMarkings(group, points, widthOrArray, type, lanes, oneWay) {
       // All lanes carry the same direction — no yellow opposing-direction divider at
       // all, just evenly-spaced dashed white dividers between every lane (n=1 draws
       // none, same as a plain single-lane one-way street) plus solid shoulder lines.
-      const laneW = w / n;
-      for (let li = 1; li < n; li++) P(-w / 2 + li * laneW, true, 'white', 4);
+      const aux = type === 'highway' && n === 4, laneW = aux ? LANE_W : w / n;      // the interchange lane is the extra one: the lines of the other three keep a normal lane width while it narrows
+      for (let li = 1; li < n; li++) { if (aux && li === 3 && w < AUX_WIDTH - 0.05) continue; P(-w / 2 + li * laneW, true, 'white', 4); }       // and no divider on the lane while it merges
       [1, -1].forEach(side => { const edge = w / 2 - 0.35; if (edge > 0) P(side * edge, false, 'white', 4); });
     } else {
       // Two-way: a dashed yellow centerline splits the opposing directions, then
@@ -442,10 +454,19 @@ export function buildRoads(cityData) {
 
     // the extra lane of an interchange widens gradually: where this highway edge (4 lanes) meets a narrower one, the pavement flares out over TAPER units
     let ribW = e.width;
-    if (e.type === 'highway' && !e.ramp && e.lanes === 4) {
-      const narrow = id => (edgesByNode[id] || []).find(o => o !== e && o.type === 'highway' && !o.ramp && o.lanes < e.lanes);
-      const n0 = narrow(e.from), n1 = narrow(e.to), TAPER = Math.min(40, fullLen * 0.45);
-      if (n0 || n1) ribW = pts.map((q, i) => { const sPos = sStart + (runLen * i) / sampleCount; let w = e.width; const flare = (d, o) => { if (d < TAPER) w = Math.min(w, o.width + (e.width - o.width) * (d / TAPER) ** 2 * (3 - 2 * d / TAPER)); }; if (n0) flare(sPos, n0); if (n1) flare(fullLen - sPos, n1); return w; });
+    if (e.type === 'highway' && !e.ramp && e.oneWay) {
+      const isHw = o => o !== e && !o.ramp && o.oneWay && (o.type === 'highway' || o.interstate);
+      const narrower = (o, w) => o.type === 'highway' ? o.lanes < w.lanes : o.width < w.width - 0.3;
+      const elen = o => Math.hypot(nodes[o.to].x - nodes[o.from].x, nodes[o.to].z - nodes[o.from].z);
+      // walk the run of edges with this lane count down- and upstream: the taper is measured from the end of the whole run, so it can be long even when its edges are short
+      const walk = (down) => { let cur = e, d = 0, nb = null, node = down ? e.to : e.from, endNode = node;
+        for (let k = 0; k < 14; k++) { node = down ? cur.to : cur.from; endNode = node;
+          const cand = (edgesByNode[node] || []).filter(o => o !== cur && isHw(o) && (down ? o.from === node : o.to === node));
+          const same = cand.find(o => o.type === 'highway' && o.lanes === e.lanes), nr = cand.find(o => narrower(o, e));
+          if (same) { cur = same; d += elen(same); continue; } if (nr) nb = nr; break; }
+        return { d, nb, endNode }; };
+      const dn = walk(true), up = walk(false), run = up.d + fullLen + dn.d, TAPER = Math.min(TAPER_MAX, run * 0.48);
+      if (dn.nb || up.nb) { e.flare = { n0: up.nb ? up.nb.width : 0, n1: dn.nb ? dn.nb.width : 0, d0: up.d, d1: dn.d, T: TAPER, endNode: dn.endNode }; ribW = pts.map((q, i) => edgeWidthAt(e, sStart + (runLen * i) / sampleCount, fullLen)); }
     }
     if (!e.drawbridge) group.add(buildRibbon(pts, ribW, color, pts.map(p => p.bank), LIFT_BY_TYPE[e.type] ?? ROAD_LIFT));      // the drawbridge's two leaves (drawbridge.js) are its road surface
     (group.userData.mapPaths ||= []).push({ type: e.type, width: e.width, structure: e.structure, minY: Math.min(...pts.map(p => p.y)), pts: pts.map(p => [p.x, p.z]) });
@@ -480,6 +501,7 @@ export function buildRoads(cityData) {
         const t = s / fullLen;
         const bk = edgeBank(e, s, fullLen, bankFor);
         markPts.push({
+          s,
           x: a.x + (b.x - a.x) * t,
           z: a.z + (b.z - a.z) * t,
           y: elevationAlongEdge(e, s, nodes, vcByNode) + (e.width / 2) * Math.abs(Math.sin(bk)),
@@ -488,7 +510,13 @@ export function buildRoads(cityData) {
       }
       let mp = markPts;
       if (e.ramp) { const ex = e.width * 0.5; const k0 = mp.findIndex(q => !onHwPaving(q.x, q.z, ex)); let k1 = -1; mp.forEach((q, i) => { if (!onHwPaving(q.x, q.z, ex)) k1 = i; }); mp = k0 < 0 ? [] : mp.slice(k0, k1 + 1); }
-      if (mp.length >= 2) addLaneMarkings(group, mp, e.width, e.type, e.lanes, e.oneWay);
+      if (mp.length >= 2) addLaneMarkings(group, mp, e.flare && !e.ramp ? mp.map(q => edgeWidthAt(e, q.s, fullLen)) : e.width, e.type, e.lanes, e.oneWay);
+      // a lane that ends here (the interchange lane running on after an entry, not one that leaves as an exit): lane-reduction arrows before the taper
+      if (e.flare && e.flare.n1 && e.lanes === 4 && !e.ramp && !(edgesByNode[e.flare.endNode] || []).some(o => o.ramp && o.from === e.flare.endNode)) [24, 70].forEach(back => {
+        const sA = e.flare.d1 + fullLen - e.flare.T - back; if (sA < clearStart + 4 || sA > clearEnd - 4) return;
+        const t = sA / fullLen, h = Math.atan2(b.z - a.z, b.x - a.x), off = 1.5 * LANE_W, px = Math.sin(h), pz = -Math.cos(h);
+        addMergeArrow(group, a.x + (b.x - a.x) * t + px * off, a.z + (b.z - a.z) * t + pz * off, elevationAlongEdge(e, sA, nodes, vcByNode) + LANE_LIFT, h);
+      });
     }
 
     // Crosswalks at the clearance line on each approach that meets a true intersection —

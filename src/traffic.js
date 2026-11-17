@@ -17,7 +17,7 @@
 // the road instead of its lane, and made the "something's ahead of me" check look at
 // the wrong cone entirely.
 import * as THREE from 'three';
-import { HW_DEFAULT, auxLayout, widenInterchanges } from './hwLanes.js';
+import { HW_DEFAULT, auxLayout, widenInterchanges, edgeWidthAt, LANE_W } from './hwLanes.js';
 import { mergeGeometries } from 'three/examples/jsm/utils/BufferGeometryUtils.js';
 import { buildEdgesByNode, intersectionClearance, buildHorizontalCurve } from './roadMath.js';
 import { findSignalForApproach, phaseAt } from './signals.js';
@@ -264,8 +264,10 @@ export function createTrafficSystem(cityData, scene, heightAt, count = 6, maxCou
   function laneLateral(width, lanes, laneIndex, oneWay) {
     const n = Math.max(1, lanes || 1);
     const i = Math.min(Math.max(0, laneIndex || 0), n - 1);
+    if (oneWay && n === 4 && width > 13.5) return i < 3 ? -width / 2 + (i + 0.5) * LANE_W : 1.5 * LANE_W;      // the interchange lane: the other three keep a normal width, it takes what is left
     return oneWay ? -width / 2 + (i + 0.5) * (width / n) : (i + 0.5) * ((width / 2) / n);
   }
+  const widthOf = car => (car.edge && car.edge.flare && car.path ? edgeWidthAt(car.edge, car.s, car.path.length) : car.width);      // the pavement width under the car (it tapers where the extra lane ends)
   function offsetVec(heading, lateral) {
     return { x: -Math.sin(heading) * lateral, z: Math.cos(heading) * lateral };
   }
@@ -350,7 +352,7 @@ export function createTrafficSystem(cityData, scene, heightAt, count = 6, maxCou
     car.nextEdge = pickNextEdge(car.to, car.from, car);
     car.laneIndex = chooseLaneIndex(car); car.spawnHere = false; car.homeLane = car.laneIndex; car.laneFrom = null;
     if (false) { car.passOff = 1 + (car.lanes > 2 && Math.random() < 0.3 ? 1 : 0); car.laneIndex = Math.max(0, car.lanes - 1 - car.passOff); car.passUntil = performance.now() + 3000 + Math.random() * 9000; }
-    car.lat = laneLateral(car.width, car.lanes, car.laneIndex, car.oneWay);
+    car.lat = laneLateral(widthOf(car), car.lanes, car.laneIndex, car.oneWay);
     car.visualHeading = undefined;
     car.avoidOff = 0; car.avoidObs = null; car.conn = null; car.ghost = 0; car.blockedT = 0; car.waitT = 0;
     car.why = ''; car.blockedBy = null; car.hdg = undefined; car.knock = null; car.wreck = false;
@@ -1073,7 +1075,7 @@ export function createTrafficSystem(cityData, scene, heightAt, count = 6, maxCou
                  !(distToNode < 130 && (sig || (car.edge && stopSet.has(stopKey(car.to, car.edge.id))))) &&          // a queue at a signal or stop sign: wait in line, never pull out and pass
                  !(car.edge && car.edge.type !== 'highway' && car.lanes <= 1 && distToNode < 130 && isJunction) &&
                  (obs.isPlayer ? obs.speed < 0.6 : (obs.crashTimer > 0 && obs.speed < 0.6)) && !car.why.match(/sig|stop|box/)) {
-        const laneLat = laneLateral(car.width, car.lanes, car.laneIndex, car.oneWay);
+        const laneLat = laneLateral(widthOf(car), car.lanes, car.laneIndex, car.oneWay);
         const halfW = car.width / 2 - 0.9;
         let need = Math.max(0.8, 2.4 - Math.abs(obsLat));
         if (obs.parkedCar) {            // a shoved parked car can lie across the lane: pass it by its real half width on that side, plus the car's own half width and a gap
@@ -1173,7 +1175,7 @@ export function createTrafficSystem(cityData, scene, heightAt, count = 6, maxCou
       }
 
       // Slide toward the wanted lane (plus any detour round an obstacle).
-      const wantLat = laneLateral(car.width, car.lanes, car.laneIndex, car.oneWay) + car.avoidOff;
+      const wantLat = laneLateral(widthOf(car), car.lanes, car.laneIndex, car.oneWay) + car.avoidOff;
       const maxLat = (car.avoidObs ? 3.0 : 2.5) * dt;
       const prevLat = car.lat;
       let pos, x, z;
@@ -1350,7 +1352,7 @@ export function createTrafficSystem(cityData, scene, heightAt, count = 6, maxCou
     else car = spawnOn(edge, reversed, { type: 'sedan', color });
     const tp = Math.max(0, Math.min(l, (x - a.x) * ux + (z - a.z) * uz));
     car.s = Math.min(Math.max(0, reversed ? l - tp : tp), Math.max(0, car.path.length - 2));
-    car.laneIndex = Math.max(0, (car.lanes || 1) - 1); car.homeLane = car.laneIndex; car.lat = laneLateral(car.width, car.lanes, car.laneIndex, car.oneWay);
+    car.laneIndex = Math.max(0, (car.lanes || 1) - 1); car.homeLane = car.laneIndex; car.lat = laneLateral(widthOf(car), car.lanes, car.laneIndex, car.oneWay);
     car.active = false; car.mesh.visible = false; car.colliders.forEach(k => { k.blocksCar = false; k.x = 1e6; k.z = 1e6; });
     adopted.push(car);
     const p = sampleAt(car.path, car.s), o = offsetVec(p.heading, car.lat);

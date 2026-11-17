@@ -280,6 +280,38 @@ function addGantries(city, heightAt, group, instances, distToRoad) {
   });
 }
 
+
+// ---- warning / guide boards for the interstate's lane drops and its end: yellow lane-reduction diamond + plate, 'FREEWAY ENDS', 'END FREEWAY', 'SIGNAL AHEAD' ------------------
+const _hwTex = {};
+function hwBoardTex(key, w, h, draw) { return (_hwTex[key] ||= labelTexture(draw, w, h)); }
+function hwBoardMat(tex) { const m = new THREE.MeshStandardMaterial({ map: tex, emissive: 0x333333, emissiveMap: tex, roughness: 0.5 }); m.userData.snow = { plaster: true }; return m; }
+function plate(g, key, lines, y, bg, fg, wd = 1.9) {
+  const ht = 0.3 + lines.length * 0.3, tex = hwBoardTex(key, 256, 32 + lines.length * 40, (c, w, h) => {
+    c.fillStyle = bg; c.fillRect(0, 0, w, h); c.strokeStyle = fg; c.lineWidth = 5; c.strokeRect(4, 4, w - 8, h - 8);
+    c.fillStyle = fg; c.textAlign = 'center'; c.textBaseline = 'middle'; c.font = 'bold 34px sans-serif'; lines.forEach((t, i) => c.fillText(t, w / 2, 16 + 36 + i * 38, w - 24));
+  });
+  const m = new THREE.Mesh(new THREE.BoxGeometry(wd, ht, 0.04), [backMatHw, backMatHw, backMatHw, backMatHw, hwBoardMat(tex), backMatHw]); m.position.set(0, y, 0.04); m.castShadow = true; g.add(m); return ht;
+}
+const backMatHw = new THREE.MeshStandardMaterial({ color: 0x9a9da0, roughness: 0.6, metalness: 0.3 });
+function diamond(g, key, symbol, y) {
+  const tex = hwBoardTex(key, 128, 128, (c, w, h) => { c.fillStyle = '#f7c400'; c.beginPath(); c.moveTo(w / 2, 2); c.lineTo(w - 2, h / 2); c.lineTo(w / 2, h - 2); c.lineTo(2, h / 2); c.closePath(); c.fill(); c.strokeStyle = '#111'; c.lineWidth = 4; c.stroke(); symbol(c, w, h); });
+  const m = new THREE.Mesh(new THREE.BoxGeometry(1.5, 1.5, 0.04), [backMatHw, backMatHw, backMatHw, backMatHw, new THREE.MeshStandardMaterial({ map: tex, emissive: 0x333333, emissiveMap: tex, roughness: 0.5, transparent: true, alphaTest: 0.4 }), backMatHw]);
+  m.position.set(0, y, 0.04); m.castShadow = true; g.add(m);
+}
+function hwBoard(kind, text) {
+  const g = new THREE.Group(), post = new THREE.Mesh(new THREE.CylinderGeometry(0.06, 0.06, 3.4, 6), postMat); post.position.y = 1.7; post.castShadow = true; g.add(post);
+  if (kind === 'lane') {      // the lane on the left of the carriageway ends: two lanes, the left one bending into the right one
+    diamond(g, 'lane', (c, w, h) => { c.strokeStyle = '#111'; c.lineWidth = 5; c.beginPath(); c.moveTo(48, 100); c.lineTo(48, 56); c.lineTo(66, 30); c.stroke(); c.beginPath(); c.moveTo(82, 100); c.lineTo(82, 30); c.stroke(); c.beginPath(); c.moveTo(48, 56); c.bezierCurveTo(48, 40, 82, 60, 82, 44); c.stroke(); }, 2.6);
+    plate(g, 'lane-p' + text, ['LEFT LANE', 'ENDS'], 1.55, '#f7c400', '#111', 1.5); plate(g, 'lane-d' + text, [text], 0.95, '#f7c400', '#111', 1.5);
+  } else if (kind === 'ends') { plate(g, 'ends' + text, ['FREEWAY', 'ENDS', text], 2.3, '#f7c400', '#111', 2.2); }
+  else if (kind === 'green') { plate(g, 'green', ['END', 'FREEWAY'], 2.4, '#0b6b3a', '#fff', 2.4); }
+  else if (kind === 'signal') {
+    diamond(g, 'signal', (c, w, h) => { c.fillStyle = '#111'; c.fillRect(48, 28, 32, 72); [['#d02020', 44], ['#f0c020', 64], ['#20a040', 84]].forEach(([col, yy]) => { c.fillStyle = col; c.beginPath(); c.arc(64, yy, 9, 0, 7); c.fill(); }); }, 2.5);
+    plate(g, 'signal-p', ['SIGNAL', 'AHEAD'], 1.5, '#f7c400', '#111', 1.5);
+  }
+  return g;
+}
+
 export function buildSigns(city, heightAt, mapPaths) {
   const solid = (city.parcels || []).filter(p => p.type === 'building' || p.type === 'water');
   const inSolid = (x, z) => solid.some(p => pointInPolygon(x, z, p.footprint));
@@ -353,6 +385,28 @@ export function buildSigns(city, heightAt, mapPaths) {
       }
     });
   });
+
+  // --- interstate lane drops and the end of the freeway ------------------------------------------------------------------
+  { const hwOf = id => (byNode[id] || []).filter(o => o.type === 'highway' && !o.ramp);
+    const upstream = e => (byNode[e.from] || []).find(o => o !== e && o.to === e.from && !o.ramp && (o.type === 'highway' || o.interstate));
+    const along = (e, sOn) => { for (let k = 0; k < 8 && e; k++) { const A = nodes[e.from], B = nodes[e.to], L = Math.hypot(B.x - A.x, B.z - A.z); if (sOn >= 0) { const u = { x: (B.x - A.x) / L, z: (B.z - A.z) / L }; return { e, x: A.x + u.x * sOn, z: A.z + u.z * sOn, u }; } e = upstream(e); if (e) { const A2 = nodes[e.from], B2 = nodes[e.to]; sOn += Math.hypot(B2.x - A2.x, B2.z - A2.z); } } return null; };
+    const put = (e, sOn, mesh) => { const p = along(e, sOn); if (!p) return; const right = { x: -p.u.z, z: p.u.x }; const lat = p.e.width / 2 + 2.2;
+      let x = p.x + right.x * lat, z = p.z + right.z * lat;
+      for (let k = 0; k < 6 && (distToRoad(x, z) < MARGIN || inSolid(x, z)); k++) { x += right.x * 0.8; z += right.z * 0.8; }
+      if (distToRoad(x, z) < MARGIN || distToRoad(x, z) > 10 || inSolid(x, z)) return;
+      add(place(mesh, x, heightAt(x, z), z, p.u), x, z); };
+    city.roadEdges.forEach(e => {
+      if (e.type === 'highway' && e.lanes === 4 && e.flare && e.flare.n1 && e.flare.d1 === 0 && !(byNode[e.to] || []).some(o => o.ramp && o.from === e.to)) {      // the extra lane ends here (an entry's lane running on): advance signs 1/4 mile and 1000 ft before the taper
+        const len = Math.hypot(nodes[e.to].x - nodes[e.from].x, nodes[e.to].z - nodes[e.from].z), t0 = len - e.flare.T;
+        put(e, t0 - 330, hwBoard('lane', '1/4 MILE')); put(e, t0 - 120, hwBoard('lane', '500 FT'));
+      }
+      if (e.interstate && e.type === 'avenue' && e.oneWay) {
+        const up = upstream(e); if (!up) return;
+        const len = Math.hypot(nodes[e.to].x - nodes[e.from].x, nodes[e.to].z - nodes[e.from].z);
+        if (up.type === 'highway' && e.speedLimit === 80) put(e, 20 - 150, hwBoard('ends', '1/2 MILE'));      // the freeway starts stepping down to its arterial end
+        if (up.speedLimit === 80 && e.speedLimit === 64) { put(e, 14, hwBoard('green')); put(e, Math.min(len - 12, 70), hwBoard('signal')); }
+      }
+    }); }
   addGantries(city, heightAt, group, instances, distToRoad);
   return { group, instances };
 }

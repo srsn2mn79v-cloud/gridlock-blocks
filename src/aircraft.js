@@ -18,33 +18,71 @@ const sprite = (color, size, x, y, z) => {
   s.scale.set(size, size, 1); s.position.set(x, y, z); return s;
 };
 
+// Modelled on a Boeing 737-800 (dimensions from the type's published data): 39.5 m long, 34.3 m span, 12.5 m tall, fuselage 3.8 m across, wings swept ~25 deg with
+// blended winglets, two underslung CFM56 engines, a swept T-less tail, tricycle gear with twin wheels. Built in metres inside a group scaled 1.19 (1 u = 1.25 m, and the old
+// model was a little longer than the real thing; the wheels sit 3.2 u below the centre as the airport expects).
 // long axis along +x (nose at +x), +y up, +z to the right of the pilot.  userData: gear, lights {nav, strobe, beacon, landing}, trail
+const planform = (pts, thick, dih = 0, mirror = false) => {         // a flat swept surface from (x, z) outline points (z >= 0), extruded `thick` up, with dihedral
+  const sh = new THREE.Shape(pts.map(([x, z]) => new THREE.Vector2(x, -z)));
+  const geo = new THREE.ExtrudeGeometry(sh, { depth: thick, bevelEnabled: false }); geo.rotateX(-Math.PI / 2);
+  const pa = geo.attributes.position; for (let i = 0; i < pa.count; i++) pa.setY(pa.getY(i), pa.getY(i) + Math.abs(pa.getZ(i)) * dih);
+  geo.computeVertexNormals(); void mirror; return geo;
+};
 export function planeMesh(body = 0xf2f3f4, accent = 0x2a6db8, scale = 1) {
-  const g = new THREE.Group(), M = (c, o = {}) => new THREE.MeshStandardMaterial(Object.assign({ color: c, roughness: 0.5, metalness: 0.2 }, o));
-  const fus = new THREE.Mesh(new THREE.CylinderGeometry(2.4, 2.4, 30, 14), M(body)); fus.rotation.z = Math.PI / 2; g.add(fus);
-  const nose = new THREE.Mesh(new THREE.SphereGeometry(2.4, 14, 10, 0, Math.PI * 2, 0, Math.PI / 2), M(body)); nose.rotation.z = -Math.PI / 2; nose.position.x = 15; nose.scale.set(1.5, 1, 1); g.add(nose);
-  const tail = new THREE.Mesh(new THREE.CylinderGeometry(2.4, 0.7, 9, 12), M(body)); tail.rotation.z = Math.PI / 2; tail.position.x = -19; g.add(tail);
-  const cock = new THREE.Mesh(new THREE.BoxGeometry(1.6, 0.7, 3.2), M(0x1e2a36)); cock.position.set(16.2, 0.9, 0); g.add(cock);
-  const stripe = new THREE.Mesh(new THREE.CylinderGeometry(2.43, 2.43, 22, 14, 1, true), M(accent)); stripe.rotation.z = Math.PI / 2; stripe.position.x = -1; g.add(stripe);
-  const wingGeo = new THREE.BoxGeometry(6, 0.5, 17);
-  [1, -1].forEach(s => {
-    const w = new THREE.Mesh(wingGeo, M(0xd9dde0)); w.position.set(-1, -1, s * 10); w.rotation.y = -s * 0.5; g.add(w);
-    const en = new THREE.Mesh(new THREE.CylinderGeometry(1.1, 1.1, 4, 10), M(0x9aa3ab)); en.rotation.z = Math.PI / 2; en.position.set(1.8, -2.2, s * 8.6); g.add(en);
-    const st = new THREE.Mesh(new THREE.BoxGeometry(3.5, 0.4, 8), M(0xd9dde0)); st.position.set(-20.5, 0.8, s * 4.5); st.rotation.y = -s * 0.4; g.add(st);
+  const g = new THREE.Group(), A = new THREE.Group(); A.scale.setScalar(1.19); g.add(A);
+  const M = (c, o = {}) => new THREE.MeshStandardMaterial(Object.assign({ color: c, roughness: 0.45, metalness: 0.15 }, o));
+  const white = M(body), grey = M(0xc6ccd2), dark = M(0x1b2530, { roughness: 0.3 }), accentM = M(accent), tyre = M(0x16181a, { roughness: 0.9, metalness: 0 }), metal = M(0x7b838b, { metalness: 0.5 });
+  // fuselage: a lathe profile (radius, position along the axis), tail swept up
+  const prof = [[0.1, -19.7], [0.45, -18.5], [0.95, -16.6], [1.45, -14.2], [1.8, -11.4], [1.88, -8.5], [1.88, 11], [1.84, 13.2], [1.68, 15.4], [1.4, 17.2], [1.0, 18.5], [0.55, 19.4], [0.05, 19.85]];
+  const fg = new THREE.LatheGeometry(prof.map(([r, x]) => new THREE.Vector2(r, x)), 28); fg.rotateZ(-Math.PI / 2);
+  { const pa = fg.attributes.position, col = []; const cb = new THREE.Color(body), ca = new THREE.Color(accent), cg = new THREE.Color(0xb9c0c7);
+    for (let i = 0; i < pa.count; i++) { const x = pa.getX(i), y = pa.getY(i); if (x < -9) pa.setY(i, y + (-9 - x) * 0.085);
+      const c = y < -1.05 ? cg : (x < -12.5 && y > -0.3 ? ca : cb); col.push(c.r, c.g, c.b); }
+    fg.setAttribute('color', new THREE.Float32BufferAttribute(col, 3)); fg.computeVertexNormals(); }
+  A.add(new THREE.Mesh(fg, new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 0.4, metalness: 0.15 })));
+  // cheat line and cabin windows (a painted strip each side), cockpit glass
+  const wc = document.createElement('canvas'); wc.width = 512; wc.height = 32; const wx = wc.getContext('2d');
+  if (wx && wx.fillRect) { wx.clearRect(0, 0, 512, 32); wx.fillStyle = '#' + new THREE.Color(accent).getHexString(); wx.fillRect(0, 21, 512, 5); wx.fillStyle = '#1b2a3a'; for (let i = 0; i < 38; i++) { wx.beginPath(); wx.roundRect ? wx.roundRect(8 + i * 13, 5, 7, 10, 2) : wx.rect(8 + i * 13, 5, 7, 10); wx.fill(); } }
+  const wtex = new THREE.CanvasTexture(wc); wtex.colorSpace = THREE.SRGBColorSpace;
+  [1, -1].forEach(sd => { const w = new THREE.Mesh(new THREE.PlaneGeometry(26, 1.65), new THREE.MeshBasicMaterial({ map: wtex, transparent: true, polygonOffset: true, polygonOffsetFactor: -2, polygonOffsetUnits: -2 })); w.position.set(-0.7, 0.55, sd * 1.82); w.lookAt(w.position.x, w.position.y + 0.24, w.position.z + sd); A.add(w); });
+  [1, -1].forEach(sd => { const c = new THREE.Mesh(new THREE.BoxGeometry(1.3, 0.55, 0.9), dark); c.position.set(17.15, 0.62, sd * 0.78); c.rotation.set(0, sd * -0.55, 0); c.scale.set(1, 1, 0.9); A.add(c); });
+  { const c = new THREE.Mesh(new THREE.BoxGeometry(0.7, 0.55, 1.5), dark); c.position.set(17.6, 0.68, 0); A.add(c); }
+  // wings (right side, mirrored): root chord 6.9 m, tip 1.6 m, ~25 deg sweep, a kink in the trailing edge; winglets
+  const wingPts = [[2.0, 0], [-6.4, 17.1], [-8.0, 17.1], [-5.2, 6.2], [-8.6, 0]];
+  const wingGeo = planform(wingPts, 0.34, 0.055), wingletShape = new THREE.Shape([new THREE.Vector2(-6.4, 0), new THREE.Vector2(-8.0, 0), new THREE.Vector2(-8.9, 2.5), new THREE.Vector2(-8.3, 2.5)]);
+  const wingletGeo = new THREE.ExtrudeGeometry(wingletShape, { depth: 0.1, bevelEnabled: false });
+  [1, -1].forEach(sd => {
+    const w = new THREE.Mesh(wingGeo, white); w.position.set(0, -1.35, 0); w.scale.z = sd; A.add(w);
+    const tipY = -1.35 + 17.1 * 0.055; const wl = new THREE.Mesh(wingletGeo, white); wl.position.set(0, tipY + 0.2, sd * 17.1 - 0.05); wl.rotation.x = sd * 0.14; A.add(wl);
+    const flap = new THREE.Mesh(new THREE.BoxGeometry(2.2, 0.08, 6.5), grey); flap.position.set(-6.5, -1.12 + 6 * 0.055, sd * 6.3); flap.rotation.y = sd * 0.16; A.add(flap);
+    // engine: nacelle (lathe, open intake with a dark fan face), pylon, exhaust cone
+    const np = [[0.8, 2.3], [0.98, 2.2], [1.02, 1.1], [0.96, -0.9], [0.8, -1.9], [0.5, -2.5]], ng = new THREE.LatheGeometry(np.map(([r, x]) => new THREE.Vector2(r, x)), 18); ng.rotateZ(-Math.PI / 2);
+    const nac = new THREE.Mesh(ng, grey); nac.position.set(3.2, -2.05, sd * 5.2); A.add(nac);
+    const lip = new THREE.Mesh(new THREE.TorusGeometry(0.9, 0.09, 6, 18), accentM); lip.rotation.y = Math.PI / 2; lip.position.set(5.5, -2.05, sd * 5.2); A.add(lip);
+    const fan = new THREE.Mesh(new THREE.CircleGeometry(0.78, 16), dark); fan.rotation.y = Math.PI / 2; fan.position.set(5.35, -2.05, sd * 5.2); A.add(fan);
+    const cone = new THREE.Mesh(new THREE.ConeGeometry(0.3, 0.7, 8), metal); cone.rotation.z = Math.PI / 2; cone.position.set(5.05, -2.05, sd * 5.2); A.add(cone);
+    const pyl = new THREE.Mesh(new THREE.BoxGeometry(3.6, 0.9, 0.2), white); pyl.position.set(2.6, -1.55, sd * 5.2); A.add(pyl);
+    // tailplane
+    const st = new THREE.Mesh(planform([[-14.6, 0], [-18.6, 7.2], [-19.9, 7.2], [-17.9, 0]], 0.2, 0.07), white); st.position.set(0, 0.85, 0); st.scale.z = sd; A.add(st);
   });
-  const fin = new THREE.Mesh(new THREE.BoxGeometry(5, 8, 0.5), M(accent)); fin.position.set(-20, 5, 0); fin.rotation.z = -0.35; g.add(fin);
-  const gear = new THREE.Group(); g.add(gear);
-  [[11, 0], [-3, 3.2], [-3, -3.2]].forEach(([x, z]) => {
-    const wh = new THREE.Mesh(new THREE.CylinderGeometry(0.9, 0.9, 0.7, 10), M(0x1b1d20)); wh.rotation.x = Math.PI / 2; wh.position.set(x, -3.1, z); gear.add(wh);
-    const strut = new THREE.Mesh(new THREE.BoxGeometry(0.25, 1.6, 0.25), M(0x6b7075)); strut.position.set(x, -2.3, z); gear.add(strut);
+  // fin
+  { const fs = new THREE.Shape([new THREE.Vector2(-12.0, 0.9), new THREE.Vector2(-17.2, 8.0), new THREE.Vector2(-19.8, 8.0), new THREE.Vector2(-19.8, 0.9)]);
+    const fin = new THREE.Mesh(new THREE.ExtrudeGeometry(fs, { depth: 0.3, bevelEnabled: false }), accentM); fin.position.set(0, 0.9, -0.15); A.add(fin);
+    const cap = new THREE.Mesh(new THREE.BoxGeometry(2.6, 0.2, 0.34), white); cap.position.set(-18.5, 8.05, 0); A.add(cap); }
+  // gear: nose (twin wheels) and two main bogies (twin wheels each); wheel bottoms 2.69 m below the centre
+  const gear = new THREE.Group(); A.add(gear);
+  [[14.4, 0, 0.95], [-1.2, 2.9, 1.5], [-1.2, -2.9, 1.5]].forEach(([x, z, top]) => {
+    const strut = new THREE.Mesh(new THREE.BoxGeometry(0.22, 2.69 - 0.55 - top + 0.2, 0.22), metal); strut.position.set(x, -((2.69 - 0.55) + top) / 2 - 0.05, z); gear.add(strut);
+    [-1, 1].forEach(k => { const wh = new THREE.Mesh(new THREE.CylinderGeometry(0.55, 0.55, 0.38, 12), tyre); wh.rotation.x = Math.PI / 2; wh.position.set(x, -2.14, z + k * 0.3); gear.add(wh); });
   });
-  // lights: green right wing tip, red left, white strobes on the tips and tail, a red beacon on top, a landing light in the nose
+  // lights: green right wing tip, red left, white strobes on the tips and tail, red beacons top and bottom, a landing light in the nose
   const nav = new THREE.Group(), strobe = new THREE.Group(), beacon = new THREE.Group(), landing = new THREE.Group();
-  nav.add(sprite(0x22ff66, 3.2, -5.1, -0.8, 17.6), sprite(0xff2a2a, 3.2, -5.1, -0.8, -17.6));
-  strobe.add(sprite(0xffffff, 4.5, -5.2, -0.8, 17.7), sprite(0xffffff, 4.5, -5.2, -0.8, -17.7), sprite(0xffffff, 4, -23.5, 8.6, 0));
-  beacon.add(sprite(0xff3322, 3.4, 1, 2.8, 0), sprite(0xff3322, 3.4, 1, -2.8, 0));
-  landing.add(sprite(0xfff4d8, 7, 19, -1.2, 0));
-  [nav, strobe, beacon, landing].forEach(x => { x.visible = false; g.add(x); });
+  const tipY = -1.35 + 17.1 * 0.055 + 0.2;
+  nav.add(sprite(0x22ff66, 2.6, -7.2, tipY, 17.2), sprite(0xff2a2a, 2.6, -7.2, tipY, -17.2));
+  strobe.add(sprite(0xffffff, 3.6, -7.9, tipY, 17.3), sprite(0xffffff, 3.6, -7.9, tipY, -17.3), sprite(0xffffff, 3.2, -20.2, 0.9, 0));
+  beacon.add(sprite(0xff3322, 2.8, 1, 1.95, 0), sprite(0xff3322, 2.8, 1, -1.95, 0));
+  landing.add(sprite(0xfff4d8, 6, 15.0, -1.5, 0));
+  [nav, strobe, beacon, landing].forEach(x => { x.visible = false; A.add(x); });
   // a contrail for cruising flights: a long ribbon behind the plane, faded to nothing at the far end
   const c = document.createElement('canvas'); c.width = 128; c.height = 8; const q = c.getContext('2d');
   if (q && q.createLinearGradient) { const gr = q.createLinearGradient(0, 0, 128, 0); gr.addColorStop(0, 'rgba(255,255,255,0.8)'); gr.addColorStop(0.15, 'rgba(255,255,255,0.55)'); gr.addColorStop(1, 'rgba(255,255,255,0)'); q.fillStyle = gr; q.fillRect(0, 0, 128, 8); }

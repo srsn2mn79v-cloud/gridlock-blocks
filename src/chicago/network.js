@@ -10,7 +10,7 @@ export const CLASSES = {
   // lane 3 m (hw 3.6 m + 3 m shoulders), 1 u = 1.25 m; speedLimit in km/h
   hw:   { type: 'highway', width: 13.4, lanes: 3, sidewalks: false, oneWay: true, speedLimit: 120, maxGrade: 0.06 },
   hwEnd: { type: 'avenue', width: 8.4, lanes: 3, sidewalks: false, oneWay: true, speedLimit: 70, maxGrade: 0.06 },   // where the interstate ends: one half of the arterial it flows into
-  hwEnd2: { type: 'avenue', width: 5.6, lanes: 2, sidewalks: false, oneWay: true, speedLimit: 64, maxGrade: 0.06 },   // the last 0.25 mile of the interstate: 2 lanes, 40 mph, an arterial road
+  hwEnd2: { type: 'avenue', width: 8.4, lanes: 3, sidewalks: false, oneWay: true, speedLimit: 64, maxGrade: 0.06 },   // the last 0.25 mile of the interstate: still 3 lanes (no drop to 2), 40 mph, an arterial road
   hwMid: { type: 'avenue', width: 8.4, lanes: 3, sidewalks: false, oneWay: true, speedLimit: 80, maxGrade: 0.06 },    // the 0.25 mile before that: 3 lanes, 50 mph
   six:  { type: 'avenue',  width: 18.4,   lanes: 3, speedLimit: 120, maxGrade: 0.06 },   // express road (orange)
   four: { type: 'avenue',  width: 16.8, lanes: 3, speedLimit: 70,  maxGrade: 0.06 },   // main arterial (yellow)

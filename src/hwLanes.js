@@ -25,3 +25,13 @@ export function widenInterchanges(nodes, edges, R = HW_DEFAULT, ends = []) {
   edges.forEach(e => { if (aux.has(e.id) && e.lanes === 3 && (e.structure || 'surface') === 'surface' && !nearRaised(e.from) && !nearRaised(e.to) && !nearEnd(e.from) && !nearEnd(e.to) && Math.max(nodes[e.from].elevation || 0, nodes[e.to].elevation || 0) < 0.25) { e.lanes = 4; e.width = AUX_WIDTH; n++; } });
   return n;
 }
+
+// The extra lane widens / narrows over TAPER_MAX units (MUTCD-style long taper): e.flare = { n0, n1, T } holds the widths of the narrower highway edges it meets at its two ends.
+export const TAPER_MAX = 170, BASE_WIDTH = 13.4, LANE_W = BASE_WIDTH / 3;
+export function edgeWidthAt(e, s, len) {
+  const f = e.flare; if (!f) return e.width;
+  let w = e.width;
+  const fl = (d, o) => { if (d < f.T) { const k = Math.max(0, d) / f.T; w = Math.min(w, o + (e.width - o) * k * k * (3 - 2 * k)); } };
+  if (f.n0) fl((f.d0 || 0) + s, f.n0); if (f.n1) fl((f.d1 || 0) + len - s, f.n1);       // d0 / d1: how far the run of same-width edges extends before / after this one
+  return w;
+}
