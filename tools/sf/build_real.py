@@ -38,56 +38,69 @@ M = lambda t, o=0: (M0[0] + MD[0] * t + MP[0] * o, M0[1] + MD[1] * t + MP[1] * o
 MKT_END = M(98)                                             # Market / Van Ness
 
 GG_PLAZA = (152, 152)
+# NOTE on spacing: the road rules want junctions at least 80 u (12.3 screenshot px) apart, and ordinary streets may not cross the freeway
+# (only an interchange street bridges it), so every line below is placed with that in mind.
 road('four', [GG_PLAZA, (149, 60), (141, -95), (141, -150)], 'Golden Gate Bridge')
 road('two', [(141, -150), (147, -166), (149, -184), (141, -204), (133, -184), (135, -166), (141, -150)], 'Marin Loop')
 road('four', [GG_PLAZA, (170, 140), (195, 131), (215, 130)], 'Presidio Parkway')
-road('four', [(215, 130), (336, 130)], 'Lombard Street')
-CA1 = [GG_PLAZA, (156, 162), (161, 176), (162, 190), (158, 228), (156, 252), (156, 352), (156, 385), (160, 420), (172, 455), (182, 500)]
-road('four', CA1, 'Park Presidio')
-road('four', [(50, 180), (50, 400), (62, 440), (88, 472), (100, 500)], 'Great Highway')
-road('four', [(100, 500), (182, 500), (245, 500), (320, 500), (416, 500), (428, 500)], 'Geneva Avenue')
-road('four', [(50, 205), (215, 205), (305, 201), (354, 198)], 'Geary Boulevard')
-road('four', [(50, 228), (305, 228), (327, 228)], 'Fulton Street')
-road('four', [(50, 252), (212, 252), (226, 246), (243, 240), (315, 240)], 'Lincoln Way')
-road('two', [(82, 190), (215, 188), (240, 179), (305, 176), (392, 172)], 'California Street')
-road('two', [(215, 152), (380, 152)], 'Broadway')
+road('four', [(215, 130), (351.3, 130)], 'Lombard Street')
+road('four', [GG_PLAZA, (156, 162), (161, 176), (162, 190), (158, 228), (156, 252), (156, 352), (156, 385), (160, 420), (172, 455), (182, 500)], 'Park Presidio')
+road('four', [(50, 190), (50, 400), (62, 440), (88, 472), (100, 500)], 'Great Highway')
+road('four', [(100, 500), (182, 500), (245, 500), (320, 500), (372, 500)], 'Geneva Avenue')
+road('four', [(50, 205), (215, 205), (305, 201), (331.8, 199.8)], 'Geary Boulevard')
+road('four', [(50, 228), (306.3, 228)], 'Fulton Street')
+road('four', [(50, 252), (212, 252), (226, 248), (243, 244.5), (278, 244.5)], 'Lincoln Way')
+road('two', [(50, 190), (215, 188), (240, 179), (305, 176), (351.3, 174)], 'California Street')
+road('two', [(215, 152), (370.3, 152)], 'Broadway')
 road('four', [(95, 252), (95, 385)], 'Sunset Boulevard')
 road('four', [(50, 385), (156, 385)], 'Sloat Boulevard')
-VN = [(305, 108), (305, 201), MKT_END]
-road('four', VN, 'Van Ness Avenue')
+road('two', [(196, 252), (196, 345)], 'Seventh Avenue')
+road('two', [(156, 352), (50, 352)], 'Vicente Street')
+road('two', [(215, 130), (215, 253.5)], 'Lyon Street')
+road('four', [(305, 101), (305, 250.5)], 'Van Ness Avenue')
 road('four', [M(-3), MKT_END, (265, 278), (240, 300), (215, 330), (196, 345), (175, 352), (156, 352)], 'Market Street')
-road('four', [(255, 110), (255, 240), (261, 262), (265, 278)], 'Divisadero Street')
-road('two', [(278, 108), (278, 240)], 'Fillmore Street')
-road('two', [(232, 130), (232, 243)], 'Presidio Avenue')
-road('four', [(318, 104), (362, 170)], 'Columbus Avenue')
-EMB = [(215, 124), (255, 120), (280, 112), (300, 104), (330, 101), (352, 114), (368, 138), (382, 160), (390, 176), (396, 200), (399, 226), (402, 250), (404, 268)]
-THIRD = [(404, 268), (404, 300), (410, 330), (420, 360), (422, 400), (420, 440), (421, 470), (428, 500)]
+road('four', [(255, 130), (255, 244.5), (261, 262), (265, 278), (268, 300), (268, 331.3)], 'Divisadero Street')
+road('two', [(278, 130), (278, 244.5)], 'Fillmore Street')
+road('two', [(232, 130), (232, 248.5)], 'Presidio Avenue')
+EMB = [(215, 130), (235, 122), (255, 120), (280, 112), (300, 104), (330, 101), (352, 114), (368, 138), (382, 160), (390, 176), (396, 200), (399, 226), (402, 250), (404, 268)]
+THIRD = [(404, 268), (404, 300), (410, 330), (420, 360), (421.6, 392), (420.5, 430)]
 road('four', EMB, 'The Embarcadero')
 road('four', THIRD, 'Third Street')
-MISSION = [MKT_END, (322, 268), (320, 300), (319, 330), (318, 345), (305, 380), (291, 405), (262, 455), (245, 500)]
-road('four', MISSION, 'Mission Street')
-road('two', [(266, 268), (404, 268)], '16th Street')
-road('two', [(268, 300), (404, 300)], '24th Street')
-road('four', [(345, 268), (346, 330)], 'Potrero Avenue')
-road('six', [(410, 330), (404, 352), (392, 366), (372, 376), (340, 380), (300, 388), (262, 400), (228, 420), (200, 450), (186, 480), (182, 500)], 'Interstate 280')
-road('two', [(320, 345), (320, 500)], 'San Jose Avenue')
-road('two', [(256, 465), (372, 468)], 'Geneva Cutoff')
-road('two', [(420, 360), (445, 356), (455, 372), (441, 394), (422, 400)], 'Hunters Point Loop')
+MISSION_S = [M(112, 16), (321, 268), (320, 300), (319, 330), (318, 345), (305, 380), (291, 405), (262, 455), (245, 500)]
+road('two', [(277, 268), (404, 268)], '16th Street')
+road('two', [(268, 300), (349.3, 300)], '24th Street')
+road('four', [(348, 268), (348, 330)], 'Potrero Avenue')
+road('four', [(319, 330), (348, 330)], 'Cesar Chavez Street')
+road('two', [(215, 330), (319, 330)], 'Clipper Street')
+road('two', [(389.5, 268), (389.5, 330), (410, 330)], 'Pennsylvania Avenue')
+road('two', [(50, 330), (197.3, 330)], 'Taraval Street')
+road('two', [(294, 268), (294, 360)], 'Dolores Street')
+road('two', [(240, 300), (240, 414.5)], "O'Shaughnessy Boulevard")
+road('two', [(240, 360), (294, 360)], '30th Street')
+road('two', [(169, 450), (200, 450), (266.5, 450)], 'Ocean Avenue')
+road('two', [(215, 450), (215, 500)], 'Junipero Serra Boulevard')
+road('two', [(320, 405), (320, 500)], 'San Jose Avenue')
+road('four', [(291, 405), (320, 405), (372, 405)], 'Silver Avenue')
+road('two', [(372, 405), (372, 500)], 'Bayshore Boulevard')
+road('two', [(256, 465), (373.3, 468)], 'Geneva Cutoff')
+road('two', [(345, 466), (345, 501.3)], 'Mansell Street')
+road('two', [(420, 360), (445, 356), (458, 375), (446, 418), (420.5, 430)], 'Hunters Point Loop')
 
-# ---- US 101: the city's freeway, from 16th Street down the east side to the county line; two diamond interchanges
-HIGHWAY = [(358, 268), (363, 285), (365, 305), (367, 330), (372, 345), (385, 372), (397, 405), (402, 440), (404, 470), (406, 500), (410, 545), (420, 580), (426, 600)]
-def diamond(label, cx, cy, hdx, hdy, west_hook, cls='four', j=17, r=30):
+# ---- US 101: the city's freeway, from 16th Street down the east side and on to the airport. Interstate 280 crosses it at the Alemany
+# interchange and runs out south-west; (a second interchange does not fit: slip roads need a long clear run).
+HIGHWAY = [(376, 268), (373, 285), (370, 305), (369, 330), (373, 345), (385, 372), (397, 405), (402, 440), (404, 470), (406, 500), (410, 545), (420, 580), (426, 600)]
+def diamond(label, cx, cy, hdx, hdy, west_hook, cls='four', j=17, r=27):
     # (cx, cy) on the freeway, (hdx, hdy) its direction there (southbound); the street crosses east-west; the city centre is to the west
     outer, inner = (cx + j, cy), (cx - j, cy)
     up, dn = (cx - hdx * r, cy - hdy * r), (cx + hdx * r, cy + hdy * r)
     mid = lambda a, b: ((a[0] + b[0]) / 2 + (b[0] - cx) * 0.25, (a[1] + b[1]) / 2)
     ramps = [[up, mid(up, outer), outer], [dn, mid(dn, outer), outer], [up, mid(up, inner), inner], [dn, mid(dn, inner), inner]]
     return {'cls': cls, 'label': label, 'pts': P([outer, inner, west_hook]), 'ramps': [P(q) for q in ramps], 'template': 'diamond'}
-IXS = [diamond('Geneva Avenue', 404, 470, 0.07, 1.0, (372, 468), j=17, r=27)]
-road('four', [(319, 330), (410, 330)], 'Cesar Chavez Street')
-road('four', [(291, 405), (320, 405), (360, 405), (422, 401)], 'Silver Avenue')
+IXS = [diamond('Alemany', 392.3, 392, 0.34, 0.94, (352, 388), cls='six', r=24)]
+road('six', [(352, 388), (300, 392), (262, 402), (228, 420), (200, 450), (186, 480), (182, 500)], 'Interstate 280')
+road('four', [(409.3, 392), (421.6, 392)], 'Evans Avenue')
 
-# ---- SFO: new land south of the county line, an airport expressway off the end of 101, a loop past the terminal
+# ---- SFO: new land south of the county line; the freeway ends at the terminal loop
 RWY = [(462, 585), (462, 690)]
 road('four', [(426, 600), (433.5, 600), (433.5, 680), (419, 680), (419, 600), (426, 600)], 'Terminal Loop')
 
@@ -96,7 +109,7 @@ PARKS = [
     ('Golden Gate Park', [(51, 229.5), (211, 229.5), (211, 250.5), (51, 250.5)]),
     ('The Presidio', [(112, 150), (126, 136), (150, 112), (192, 123), (213, 121), (213, 186), (120, 188), (104, 166)]),
     ('Lincoln Park', [(52, 178), (98, 160), (102, 186), (52, 188)]),
-    ('Twin Peaks', [(236, 282), (262, 284), (266, 310), (238, 312)]),
+    ('Twin Peaks', [(244, 282), (264, 284), (265, 298), (246, 298)]),
     ('Mount Davidson', [(214, 340), (236, 338), (238, 358), (216, 360)]),
     ('McLaren Park', [(326, 418), (364, 418), (364, 452), (326, 452)]),
     ('Alamo Square', [(259, 211), (274, 211), (274, 224), (259, 224)]),
@@ -136,28 +149,22 @@ def grid(zone, xs=(), ys=(), cls='two'):
     for x in xs: line((x, y0), (x, y1), zone, cls)
     for y in ys: line((x0, y), (x1, y), zone, cls)
 
-# Richmond: the avenues between the park and the north shore
-grid([(50, 188), (82, 190), (215, 188), (215, 228), (50, 228)], xs=(70, 92, 114, 136, 184, 200), ys=(217,))
+# Richmond: the avenues between the park and California Street
+grid([(50, 186), (215, 186), (215, 228), (50, 228)], xs=(70, 92, 114, 136, 184, 200))
 # Sunset: the long avenue grid south of the park
-grid([(50, 252), (196, 252), (196, 345), (175, 352), (156, 352), (156, 385), (50, 385)], xs=(72, 115, 135, 176), ys=(270, 290, 310, 330, 350, 368))
-# Pacific Heights / Western Addition (the arterials already make most of this grid)
-grid([(215, 130), (305, 130), (305, 240), (215, 252)], ys=(166, 216))
-# Downtown, Chinatown, North Beach: north of Market, east of Van Ness
-DT = [(305, 108)] + [p for p in EMB if 300 <= p[0] <= 392 and p[1] <= 178] + [M(0), MKT_END, (305, 201)]
-grid(DT, xs=(325, 345, 365), ys=(115, 186, 214))
-# SoMa: the grid turned 45 degrees, parallel to Market
-SOMA = [M(0), (390, 176), (396, 200), (399, 226), (402, 250), (404, 268), (322, 268), MKT_END]
-for o in (16, 32, 48, 64, 80): line(M(-20, o), M(120, o), SOMA, 'four' if o == 32 else 'two')
-for t in (14, 32, 50, 68, 86): line(M(t, -2), M(t, 110), SOMA)
-# the Mission, Noe Valley, the hills and the south-west: a loose grid that leaves the hilltops alone
-SOUTH = [MKT_END, (265, 278), (240, 300), (215, 330), (196, 345), (175, 352), (156, 352), (156, 385), (160, 420), (172, 455), (182, 500), (245, 500), (262, 455), (291, 405), (305, 380), (318, 345), (319, 330), (320, 300), (322, 268)]
-grid(SOUTH, xs=(215, 240, 268, 294), ys=(330, 360, 430, 465))
+grid([(50, 252), (196, 252), (196, 330), (156, 330), (156, 385), (50, 385)], xs=(72, 115, 135, 176), ys=(270, 290, 310))
+grid([(50, 352), (156, 352), (156, 385), (50, 385)], ys=(368.5,))
+# Downtown, Chinatown, North Beach: north of Market, east of Van Ness (the E-W streets are the arterials)
+DT = [(305, 101)] + [p for p in EMB if 300 <= p[0] <= 392 and p[1] <= 178] + [M(0), MKT_END, (305, 249), (305, 201)]
+grid(DT, xs=(330.5, 350, 369))
+# SoMa: the grid turned 45 degrees, parallel to Market. Mission Street is the first parallel and bends south at the Mission.
+SOMA = [M(0), (390, 176), (396, 200), (399, 226), (402, 250), (404, 268), (321, 268), M(112, 16), M(112, 0)]
+ms = clip(M(-20, 16), M(112, 16), SOMA, HOLES)[0]
+road('four', [(ms[0][0] + 0.9, ms[0][1] - 0.93), M(60, 16)] + MISSION_S, 'Mission Street')
+line(M(-20, 32), M(130, 32), SOMA, 'four'); line(M(-20, 52), M(130, 52), SOMA)
+road('two', [M(41, -1.3), M(41, 33.3)]); road('two', [M(68.5, -1.3), M(68.5, 53.3)])
 # the Mission flat between Mission Street and Potrero Avenue
-grid([(322, 268), (345, 268), (346, 330), (319, 330), (320, 300)], xs=(333,), ys=(284, 315))
-# Potrero Hill and Dogpatch, between 101 and Third Street
-grid([(360, 268), (404, 268), (404, 300), (410, 330), (384, 330)], xs=(390,), ys=(284,))
-# the Excelsior / Portola, between Mission Street and 101
-grid([(320, 345), (320, 500), (406, 500), (402, 440), (397, 405), (320, 405)], xs=(345, 372), ys=(435,))
+grid([(321, 268), (348, 268), (348, 330), (319, 330), (320, 300)], ys=(284, 315))
 
 # ---------------------------------------------------------------- districts, landmarks, services
 D = lambda name, x0, y0, x1, y1, h, style, blurb, color: {'name': name, 'poly': P([(x0, y0), (x1, y0), (x1, y1), (x0, y1)]), 'h': h, 'style': style, 'blurb': blurb, 'color': color}
