@@ -438,7 +438,7 @@ export function buildChicago() {
     // residential blocks (brick / pastel, balconies, hipped roof) fill about 4 in 10 of the low and mid-rise lots
     const resi = (dis.style === 'low' || dis.style === 'mid') && hgt <= 30 && x1 - x0 >= 8 && z1 - z0 >= 8 && rand() < 0.42;
     if (resi) hgt = Math.max(9, Math.min(24, hgt));
-    parcels.push({ type: 'building', district: dis.name, height: hgt, color: pick(resi ? PAL.resi : (PAL[dis.style] || PAL.mid)), roof: resi ? 'resi' : roof, ...(resi ? { residential: true } : {}), footprint: rectFp(r2(x0), r2(z0), r2(x1), r2(z1)) });
+    parcels.push({ type: 'building', district: dis.name, height: hgt, color: (hexN => hexN(pick(resi ? (dis.resiPal || PAL.resi) : (dis.pal || PAL[dis.style] || PAL.mid))))(c => typeof c === 'string' ? parseInt(c.slice(1), 16) : c), roof: resi ? 'resi' : roof, ...(resi ? { residential: true } : {}), footprint: rectFp(r2(x0), r2(z0), r2(x1), r2(z1)) });
   });
 
   // ---- shop buildings (small, colour-coded) at the end of each alley

@@ -175,7 +175,35 @@ road('two', [M(41, -1.3), M(41, 33.3)]); road('two', [M(68.5, -1.3), M(68.5, 53.
 grid([(321, 268), (348, 268), (348, 330), (319, 330), (320, 300)], ys=(284, 315))
 
 # ---------------------------------------------------------------- districts, landmarks, services
-D = lambda name, x0, y0, x1, y1, h, style, blurb, color: {'name': name, 'poly': P([(x0, y0), (x1, y0), (x1, y1), (x0, y1)]), 'h': h, 'style': style, 'blurb': blurb, 'color': color}
+_D = lambda name, x0, y0, x1, y1, h, style, blurb, color: {'name': name, 'poly': P([(x0, y0), (x1, y0), (x1, y1), (x0, y1)]), 'h': h, 'style': style, 'blurb': blurb, 'color': color}
+PALS = {   # building colours per district (hex): SF's pastel stucco, painted ladies, glass and concrete downtown
+    'Financial District': (['#7f98b5', '#9fb4c9', '#5d7893', '#b7c4d1', '#6e8aa3', '#d9dde2'], None),
+    'Union Square': (['#c9bfae', '#a9b4c0', '#8d9aa8', '#d8cdb8', '#b5a28a'], None),
+    'Nob Hill': (['#e3d6bd', '#cbb894', '#b8a58a', '#d9c7c0', '#a89888'], None),
+    'Civic Center': (['#e8e1d0', '#d6cdb8', '#c4b8a0', '#bfc7cf'], None),
+    'Chinatown': (['#c0392b', '#e0a43a', '#8a3f3a', '#d9b26a', '#2f7d6d'], None),
+    'North Beach': (['#d98f5f', '#e3c07a', '#c9704f', '#8fb08a', '#e8d8b0'], None),
+    'Marina': (['#f1c6cf', '#f4e2b8', '#c6dfe9', '#fff1e0', '#e7c2a8'], ['#f6d3d8', '#f5ead0', '#cfe6ef', '#fbefe0', '#efd0b5']),
+    'Pacific Heights': (['#f3ecdf', '#e4d6c0', '#d6c8e6', '#efe0d0'], ['#f3ecdf', '#e0d3ee', '#f1dcc4', '#cfe0d8', '#e9cfd2']),
+    'Western Addition': (['#d77c5a', '#6f9fb5', '#e3b64f', '#a8809f', '#78a07e'], ['#d77c5a', '#6f9fb5', '#e3b64f', '#a8809f', '#78a07e', '#e8d8b8', '#c26a6a']),
+    'The Mission': (['#e08a5c', '#e5c15c', '#6fb0a4', '#d46a7a', '#9fb85f'], ['#e08a5c', '#e5c15c', '#6fb0a4', '#d46a7a', '#9fb85f', '#f0e0c0']),
+    'Castro & Noe Valley': (['#e9b6c8', '#b7d8e8', '#f1d98a', '#c4a8d8', '#a9d3a0'], ['#e9b6c8', '#b7d8e8', '#f1d98a', '#c4a8d8', '#a9d3a0', '#f3e6d0']),
+    'Richmond': (['#e6dcc8', '#cdd8c8', '#d9c9b4', '#bccbd3'], ['#e6dcc8', '#cdd8c8', '#d9c9b4', '#bccbd3', '#e8cfc0']),
+    'Sunset': (['#f0e6d2', '#d8e2cf', '#e8d4c2', '#c9dbe0', '#efdc9f'], ['#f0e6d2', '#d8e2cf', '#e8d4c2', '#c9dbe0', '#efdc9f', '#e2b9a8']),
+    'Excelsior': (['#e3c9a8', '#cfd8b0', '#d9b0a0', '#b8cfd8'], ['#e3c9a8', '#cfd8b0', '#d9b0a0', '#b8cfd8', '#ecdca8']),
+    'Presidio': (['#e8e1cf', '#c9b79a', '#9aa58c'], None),
+    'Lake Merced': (['#e6dcc8', '#c9d4c0', '#d8c8b4'], ['#e6dcc8', '#c9d4c0', '#d8c8b4']),
+    'SoMa': (['#8a8f93', '#a3978a', '#7f8f9a', '#b3664a', '#6f7a82'], None),
+    'Potrero Hill': (['#c49a6c', '#9fb0a0', '#d9c08a', '#a07a62'], None),
+    'Bayview': (['#8f9a9f', '#a8a090', '#7d8a8f', '#b0603f'], None),
+    'SFO': (['#c8cfd6', '#aab4bd', '#e2e6ea'], None),
+}
+def D(*a):
+    d = _D(*a)
+    pal, resi = PALS.get(d['name'], (None, None))
+    if pal: d['pal'] = pal
+    if resi: d['resiPal'] = resi
+    return d
 DISTRICTS = [
     D('Financial District', 345, 150, 400, 200, [50, 190], 'tower', 'Glass towers above the Bay', '#5aa9ff'),
     D('Chinatown', 325, 150, 345, 200, [10, 26], 'china', 'Lanterns, markets and steep little streets', '#ff8a5b'),
