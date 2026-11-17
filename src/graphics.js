@@ -5,6 +5,7 @@
 // particular is expensive: with AO and bloom both off the scene renders straight to the screen
 // with MSAA, exactly like before.
 import * as THREE from 'three';
+import { renderLifted } from './hills.js';
 import { EffectComposer } from 'three/examples/jsm/postprocessing/EffectComposer.js';
 import { RenderPass } from 'three/examples/jsm/postprocessing/RenderPass.js';
 import { GTAOPass } from 'three/examples/jsm/postprocessing/GTAOPass.js';
@@ -160,6 +161,6 @@ export function createGraphics({ renderer, scene, camera, parcelInstances, groun
       u.uVig.value = 0.28 + 0.12 * nightK;
     },
     resize(w, h) { if (composer) composer.setSize(w, h); },
-    render() { if (composer) composer.render(); else renderer.render(scene, camera); }
+    render() { renderLifted(scene, camera, () => { if (composer) composer.render(); else renderer.render(scene, camera); }); }
   };
 }

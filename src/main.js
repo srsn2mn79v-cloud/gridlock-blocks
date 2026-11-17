@@ -17,7 +17,9 @@ import { createRaces } from './races.js';
 import { createFuel } from './fuel.js';
 import { createHarbour } from './harbour.js';
 import { createHail } from './hail.js';
-import { districtAt, fromWorld, MAP } from './chicago/map.js';
+import { districtAt, fromWorld, MAP, HILLS } from './chicago/map.js';
+import { installHills, hills, hillSlope, tessellateScene } from './hills.js';
+installHills(HILLS);      // before any material is compiled: the hills are written into the shaders
 import { Car } from './car.js';
 import { createInput } from './input.js';
 import { updateFollowCamera, createCameraRig, CAM_MODES } from './camera.js';
@@ -1018,6 +1020,8 @@ function animate() {
     for (let i = 0; i < steps; i++) {
       world.beforeCar(dt / steps);
       car.update(dt / steps, (world.onFoot || flight.active || races.frozen()) ? world.parkedInput(input) : input, world.heightAt);
+      // hills: gravity along the slope (a car left standing does not roll away)
+      if (hills.on && !car.airborne && !flight.active && world.mode === 'city' && car.y > -1 && Math.abs(car.speed) > 0.6) car.speed -= 11 * hillSlope(car.x, car.z, car.heading) * (dt / steps);
       if (steps > 1 && !flight.active) pre.push(...resolveCarCollisions(car, collisionWorld, dt / steps));
     }
     drawbridge.update(dt, camera);
@@ -1116,6 +1120,7 @@ try {
   [{}, { flatShading: true }, { side: THREE.DoubleSide }, { flatShading: true, side: THREE.DoubleSide }, { transparent: true, opacity: 0.5 }].forEach(o => {
     const m = new THREE.Mesh(new THREE.BoxGeometry(0.1, 0.1, 0.1), new THREE.MeshStandardMaterial({ color: 0x888888, ...o })); m.position.set(0, -900, 0); m.castShadow = m.receiveShadow = true; scene.add(m); dummies.push(m);
   });
+  if (hills.on) { const t0 = performance.now(), n = tessellateScene(scene); console.info('hills: ' + n + ' triangles added in ' + Math.round(performance.now() - t0) + ' ms'); }
   renderer.compile(scene, camera);
   dummies.forEach(m => { scene.remove(m); m.geometry.dispose(); m.material.dispose(); });
   hid.forEach(o => { o.visible = false; });

@@ -63,7 +63,7 @@ road('four', [(255, 130), (255, 244.5), (261, 262), (265, 278), (268, 300), (268
 road('two', [(278, 130), (278, 244.5)], 'Fillmore Street')
 road('two', [(232, 130), (232, 248.5)], 'Presidio Avenue')
 EMB = [(215, 130), (235, 122), (255, 120), (280, 112), (300, 104), (330, 101), (352, 114), (368, 138), (382, 160), (390, 176), (396, 200), (399, 226), (402, 250), (404, 268)]
-THIRD = [(404, 268), (404, 300), (410, 330), (420, 360), (421.6, 392), (420.5, 430)]
+THIRD = [(404, 268), (404, 300), (410, 330), (420, 360), (427, 392), (421, 430)]
 road('four', EMB, 'The Embarcadero')
 road('four', THIRD, 'Third Street')
 MISSION_S = [M(112, 16), (321, 268), (320, 300), (319, 330), (318, 345), (305, 380), (291, 405), (262, 455), (245, 500)]
@@ -84,21 +84,29 @@ road('four', [(291, 405), (320, 405), (372, 405)], 'Silver Avenue')
 road('two', [(372, 405), (372, 500)], 'Bayshore Boulevard')
 road('two', [(256, 465), (373.3, 468)], 'Geneva Cutoff')
 road('two', [(345, 466), (345, 501.3)], 'Mansell Street')
-road('two', [(420, 360), (445, 356), (458, 375), (446, 418), (420.5, 430)], 'Hunters Point Loop')
+road('two', [(420, 360), (441, 357), (451, 373), (440, 404), (421, 430)], 'Hunters Point Loop')
 
 # ---- US 101: the city's freeway, from 16th Street down the east side and on to the airport. Interstate 280 crosses it at the Alemany
 # interchange and runs out south-west; (a second interchange does not fit: slip roads need a long clear run).
 HIGHWAY = [(376, 268), (373, 285), (370, 305), (369, 330), (373, 345), (385, 372), (397, 405), (402, 440), (404, 470), (406, 500), (410, 545), (420, 580), (426, 600)]
-def diamond(label, cx, cy, hdx, hdy, west_hook, cls='four', j=17, r=27):
-    # (cx, cy) on the freeway, (hdx, hdy) its direction there (southbound); the street crosses east-west; the city centre is to the west
+def hw_at(y):
+    # the point of the freeway at screenshot-y `y` and the unit normal pointing east there
+    for (x0, y0), (x1, y1) in zip(HIGHWAY, HIGHWAY[1:]):
+        if y0 <= y <= y1:
+            t = (y - y0) / (y1 - y0); L = math.hypot(x1 - x0, y1 - y0)
+            return (x0 + (x1 - x0) * t, y), ((y1 - y0) / L, -(x1 - x0) / L)
+def diamond(label, cy, west_hook, cls='four', j=22, r=30, off=5):
+    # the street crosses east-west at screenshot-y cy; the city centre is to the west. Slip roads leave the carriageway edge r up/down the freeway.
+    (cx, _), _ = hw_at(cy)
     outer, inner = (cx + j, cy), (cx - j, cy)
-    up, dn = (cx - hdx * r, cy - hdy * r), (cx + hdx * r, cy + hdy * r)
-    mid = lambda a, b: ((a[0] + b[0]) / 2 + (b[0] - cx) * 0.25, (a[1] + b[1]) / 2)
-    ramps = [[up, mid(up, outer), outer], [dn, mid(dn, outer), outer], [up, mid(up, inner), inner], [dn, mid(dn, inner), inner]]
+    def ramp(y, side, junction):
+        (hx, hy), (nx, ny) = hw_at(y); st = (hx + nx * off * side, hy + ny * off * side)
+        return [st, ((st[0] + junction[0]) / 2 + side * 3, (st[1] + junction[1]) / 2 + (junction[1] - st[1]) * 0.12), junction]
+    ramps = [ramp(cy - r, 1, outer), ramp(cy + r, 1, outer), ramp(cy - r, -1, inner), ramp(cy + r, -1, inner)]
     return {'cls': cls, 'label': label, 'pts': P([outer, inner, west_hook]), 'ramps': [P(q) for q in ramps], 'template': 'diamond'}
-IXS = [diamond('Alemany', 392.3, 392, 0.34, 0.94, (352, 388), cls='six', r=24)]
+IXS = [diamond('Alemany', 392, (352, 388))]
 road('six', [(352, 388), (300, 392), (262, 402), (228, 420), (200, 450), (186, 480), (182, 500)], 'Interstate 280')
-road('four', [(409.3, 392), (421.6, 392)], 'Evans Avenue')
+road('four', [(hw_at(392)[0][0] + 22, 392), (427, 392)], 'Evans Avenue')
 
 # ---- SFO: new land south of the county line; the freeway ends at the terminal loop
 RWY = [(462, 585), (462, 690)]
@@ -198,6 +206,10 @@ LANDMARKS = [
     B('City Hall', 314, 221, 9, 7, 36), B('Ferry Building', 386, 160.5, 3, 9, 30), B('555 California', 352, 177, 7, 5, 180),
     B('Palace of Fine Arts', 222, 126, 5, 2.2, 18), B('Sutro Tower', 228, 286, 3, 3, 150),
 ]
+# hills: (sx, sy, radius, height in game units). Kept clear of the shore and the bridges, where the ground must stay level (src/hills.js).
+HILLS = [(254, 291, 32, 48), (226, 268, 22, 36), (226, 349, 28, 45), (258, 335, 20, 26), (334, 178, 17, 26), (318, 148, 15, 22), (352, 128, 9, 15),
+         (262, 163, 28, 28), (232, 215, 16, 12), (263, 254, 13, 18), (333, 347, 15, 26), (388, 300, 11, 16), (345, 435, 20, 28), (190, 292, 18, 24),
+         (208, 322, 16, 22), (160, 174, 18, 12), (78, 187, 8, 9), (290, 440, 22, 16), (60, -200, 40, 60), (175, -195, 30, 50)]
 SPOT = lambda kind, x, y, r=90: {'kind': kind, 'at': [round(x * K, 1), round(y * K, 1)], 'r': r}
 md = {
     'version': 2, 'scale': 2.3, 'image': {'w': 487, 'h': 482}, 'origin': [round(305 * K, 1), round(232 * K, 1)], 'city': 'sf',
@@ -217,6 +229,7 @@ md = {
     'stations': [SPOT('hospital', 350, 300, 115), SPOT('police', 335, 180, 100), SPOT('police', 130, 270, 100), SPOT('police', 300, 420, 100), SPOT('fire', 290, 190, 100), SPOT('fire', 380, 430, 100)],
     'gas': [[round(x * K, 1), round(y * K, 1)] for x, y in [(290, 132), (160, 208), (100, 254), (150, 384), (300, 242), (345, 332), (410, 400), (250, 498)]],
     'harbour': {'slips': []},
+    'hills': [[round(x * K, 1), round(y * K, 1), round(r * K, 1), h] for x, y, r, h in HILLS],
 }
 out = os.path.join(HERE, '..', '..', 'src', 'sf', 'mapdata_sf.js')
 open(out, 'w').write('// San Francisco, laid out from the real city by tools/sf/build_real.py (map px = Google-Maps screenshot px x 2.6).\nexport default ' + json.dumps(md) + ';\n')

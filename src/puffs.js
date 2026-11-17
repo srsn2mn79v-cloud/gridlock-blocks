@@ -1,6 +1,7 @@
 // Particles: tyre smoke while the wheels slide, and sparks when the car hits something hard.
 // Two pooled Points clouds (smoke = normal blending, sparks = additive and over-bright so bloom makes them glow).
 import * as THREE from 'three';
+import { hills } from './hills.js';
 
 function makePool(scene, max, additive, renderer) {
   const pos = new Float32Array(max * 3), size = new Float32Array(max), alpha = new Float32Array(max), col = new Float32Array(max * 3);
@@ -12,7 +13,7 @@ function makePool(scene, max, additive, renderer) {
   const mat = new THREE.ShaderMaterial({
     uniforms: { uScale: { value: 400 }, uSoft: { value: additive ? 0.0 : 1.0 } },
     transparent: true, depthWrite: false, blending: additive ? THREE.AdditiveBlending : THREE.NormalBlending, fog: false,
-    vertexShader: 'attribute float aSize; attribute float aAlpha; attribute vec3 aCol; varying float vA; varying vec3 vC; uniform float uScale; void main(){ vA = aAlpha; vC = aCol; vec4 mv = modelViewMatrix * vec4(position, 1.0); gl_Position = projectionMatrix * mv; gl_PointSize = aSize * uScale / max(0.5, -mv.z); }',
+    vertexShader: 'attribute float aSize; attribute float aAlpha; attribute vec3 aCol; varying float vA; varying vec3 vC; uniform float uScale;' + (hills.on ? hills.glsl : '') + ' void main(){ vA = aAlpha; vC = aCol; ' + (hills.on ? 'vec4 gbW = modelMatrix * vec4(position, 1.0); gbW.y += gbHill(gbW.xz); vec4 mv = viewMatrix * gbW;' : 'vec4 mv = modelViewMatrix * vec4(position, 1.0);') + ' gl_Position = projectionMatrix * mv; gl_PointSize = aSize * uScale / max(0.5, -mv.z); }',
     fragmentShader: 'varying float vA; varying vec3 vC; uniform float uSoft; void main(){ float d = length(gl_PointCoord - 0.5); float a = 1.0 - smoothstep(uSoft > 0.5 ? 0.12 : 0.15, 0.5, d); if (a < 0.01) discard; gl_FragColor = vec4(vC, a * vA); }'
   });
   const pts = new THREE.Points(geo, mat); pts.frustumCulled = false; pts.renderOrder = 4; scene.add(pts);

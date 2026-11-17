@@ -17,6 +17,7 @@ export const CUSTOM_KEY = 'gridlock-custom-v1';
 export let MAP = DEFAULT_MAP;
 export let LAKES = [], RIVERS = [], PARKS = [], LANDMARKS = [], DECKS = [], STADIUM = { cx: 0, cy: 0, rx: 1, ry: 1 }, DISTRICTS = [], HIGHWAY_PX = [], STREETS = [], IXS = [];
 export let SPOTS = { shops: [], stations: [], gas: [] };
+export let HILLS = [];        // [{ x, z, r, h }] in world units: the hills of this city (src/hills.js); empty = flat
 export let OUTROAD = null;   // this city's road out of town (outroads.js), or null
 
 export function setMapData(md) {
@@ -37,6 +38,7 @@ export function setMapData(md) {
   STREETS = md.streets;
   IXS = md.interchanges;
   SPOTS = { shops: md.shops, stations: md.stations, gas: md.gas };
+  HILLS = (md.hills || []).map(([X, Y, R, h]) => { const [x, z] = T(X, Y); return { x, z, r: R * S, h }; });
 }
 // a saved edit from the studio (same origin) replaces the built-in map
 export function citySel() {
