@@ -398,6 +398,7 @@ export function createWorld({ tunnels = null, transit = null, setGarageHoles, ci
   function blockedAt(x, z) {
     if (mode === 'garage') return pocketBlocked(x, z);
     if (mode === 'flat') return flatBlocked(x, z);
+    if (tunnels && tunnels.footOK && foot.y < -1.2) return !tunnels.footOK(x, z);      // in a metro station only the stairs, concourse and platforms exist
     if (waterPolys.some(w => pointInPoly(x, z, w)) && heightAt(x, z, foot.y) < 0.6) return true;
     const cell = grid.get(gkey(Math.floor(x / BUCKET), Math.floor(z / BUCKET)));
     if (cell) for (const it of cell) {
@@ -428,11 +429,13 @@ export function createWorld({ tunnels = null, transit = null, setGarageHoles, ci
     foot.speed += (want - foot.speed) * Math.min(1, dt * 7);
     // a shove (a car that hit you): carries you along its direction, fading fast
     foot.pushX = foot.pushX || 0; foot.pushZ = foot.pushZ || 0; const fade = Math.exp(-4.5 * dt); foot.pushX *= fade; foot.pushZ *= fade; if (Math.hypot(foot.pushX, foot.pushZ) < 0.05) foot.pushX = foot.pushZ = 0;
-    const dx = (foot.dirX || 0) * foot.speed * dt + foot.pushX * dt, dz = (foot.dirZ || 0) * foot.speed * dt + foot.pushZ * dt;
+    const esc = mode === 'city' && tunnels && tunnels.footDrift ? tunnels.footDrift(foot.x, foot.z) : null;
+    const dx = (foot.dirX || 0) * foot.speed * dt + foot.pushX * dt + (esc ? esc[0] * dt : 0), dz = (foot.dirZ || 0) * foot.speed * dt + foot.pushZ * dt + (esc ? esc[1] * dt : 0);
     let nx = foot.x + dx, nz = foot.z + dz;
     if (blockedAt(nx, nz)) { if (!blockedAt(foot.x + dx, foot.z)) nz = foot.z; else if (!blockedAt(foot.x, foot.z + dz)) nx = foot.x; else { nx = foot.x; nz = foot.z; foot.speed *= 0.3; } }
     if (mode === 'city') { foot.x = Math.max(B[0], Math.min(B[2], nx)); foot.z = Math.max(B[1], Math.min(B[3], nz)); } else { foot.x = nx; foot.z = nz; }
-    const gy = mode === 'flat' ? cur.flat.floorY : heightAt(foot.x, foot.z, foot.y);
+    const tf = mode === 'city' && tunnels && tunnels.footFloor ? tunnels.footFloor(foot.x, foot.z, foot.y) : null;
+    const gy = mode === 'flat' ? cur.flat.floorY : tf != null ? tf : heightAt(foot.x, foot.z, foot.y);
     foot.y += (gy - foot.y) * Math.min(1, dt * 14);
     foot.phase += Math.abs(foot.speed) * dt * 4.2;
     avatar.position.set(foot.x, foot.y, foot.z); avatar.rotation.y = foot.heading;
@@ -737,6 +740,10 @@ export function createWorld({ tunnels = null, transit = null, setGarageHoles, ci
     const mk = arrowMarker(line.color); mk.position.set(st.x, 0.02, st.z); scene.add(mk);
     targets.push({ kind: 'metro', id: st.id, name: st.name + ' station', x: st.x, z: st.z, data: { st, line }, mk, onFootOnly: true });
   }));
+  ((tunnels && tunnels.platTargets && tunnels.platTargets()) || []).forEach(q => {       // the platforms: board a train down there too
+    const mk = arrowMarker(q.line.color); mk.position.set(q.x, q.y + 0.02, q.z); scene.add(mk);
+    targets.push({ kind: 'metro', id: q.key, name: q.st.name + ' platform', x: q.x, z: q.z, data: { st: q.st, line: q.line }, mk, onFootOnly: true });
+  });
   (city.agents || []).forEach(ag => {
     const mk = arrowMarker(0x19c6b7); mk.position.set(ag.door.x, 0.02, ag.door.z); scene.add(mk);
     targets.push({ kind: 'agent', id: ag.id, name: ag.name, x: ag.door.x, z: ag.door.z, data: ag, mk });
