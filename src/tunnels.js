@@ -21,11 +21,12 @@ export function createTunnels({ city, scene, transit, collisionWorld, parcels = 
   // ---- the line tunnels: each line is a smooth curve (centripetal Catmull-Rom through the stations, with a straight lead-in either side of every station) ----
   const segs = [];                                        // short body segments (floor at FLOOR), grouped in chains
   const stationsAt = [];                                  // { x, z, name, color }
-  let chainId = 0;
+  let chainId = 0; const chains = [];
   const addChain = (pts, extra = {}) => {
     const curve = new THREE.CatmullRomCurve3(pts.map(p => new THREE.Vector3(p.x, 0, p.z)), false, 'centripetal');
     const n = Math.max(2, Math.ceil(curve.getLength() / 6)), sp = curve.getSpacedPoints(n), id = chainId++;
     for (let i = 0; i < n; i++) segs.push(seg(sp[i].x, sp[i].z, sp[i + 1].x, sp[i + 1].z, { chain: id, idx: i, last: i === n - 1, ...extra }));
+    chains.push({ id, pts: sp.map(v => ({ x: v.x, z: v.z })), ...extra });
   };
   lines.forEach(l => {
     const st = l.stations, pts = [];
@@ -180,6 +181,7 @@ export function createTunnels({ city, scene, transit, collisionWorld, parcels = 
     const near = segs.find(q => !q.feeder && distSeg(q, s.x, s.z) < 2); sg.rotation.y = near ? Math.atan2(near.dx, near.dz) : 0; g.add(sg);
     if (near) [-1, 1].forEach(sd => bx(B(s.color), 26, 0.5, 0.08, s.x - near.dz * sd * (W / 2 - 0.02), FLOOR + 2.8, s.z + near.dx * sd * (W / 2 - 0.02), Math.atan2(-near.dz, near.dx)));      // a coloured band along both walls
   });
+  const gates = [];
   // ramps: floor, retaining walls, rim, the trench's end wall over the mouth, and a gantry sign at the top
   ramps.forEach(p => {
     const N = 29, flo = [], wl = [[], []], idx = [], P = (u, l, y) => [p.x + p.dx * u - p.dz * l, y, p.z + p.dz * u + p.dx * l];
@@ -187,26 +189,77 @@ export function createTunnels({ city, scene, transit, collisionWorld, parcels = 
     for (let i = 0; i <= N; i++) { const u = L * i / N, y = rampH(u); [-1, 1].forEach(s => fpos.push(...P(u, s * (W / 2 + 0.4), y - 0.02))); [-1, 1].forEach((s, k) => { wpos[k].push(...P(u, s * (W / 2 + 0.4), 0), ...P(u, s * (W / 2 + 0.4), y - 0.4)); }); if (i) { const a = i * 2; idx.push(a - 2, a - 1, a, a - 1, a + 1, a); } }
     void flo; void wl;
     const mk = (pos, m) => { const geo = new THREE.BufferGeometry(); geo.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3)); geo.setIndex(idx); geo.computeVertexNormals(); const o = new THREE.Mesh(geo, m); g.add(o); };
-    mk(fpos, new THREE.MeshBasicMaterial({ color: 0x1b1d20, side: THREE.DoubleSide }));
+    mk(fpos, new THREE.MeshBasicMaterial({ color: 0x5a5d60, side: THREE.DoubleSide }));       // bare concrete: a service ramp, not a street
     mk(wpos[0], new THREE.MeshBasicMaterial({ color: 0x474c52, side: THREE.DoubleSide })); mk(wpos[1], new THREE.MeshBasicMaterial({ color: 0x474c52, side: THREE.DoubleSide }));
     const ry = Math.atan2(-p.dz, p.dx);
-    for (let u = 3; u < L - 2; u += 7) { const q = P(u, 0, rampH(u) + 0.03); const o = bx(yellowM, 3, 0.02, 0.2, q[0], q[1], q[2], ry); o.rotation.z = -Math.atan2(rampH(u + 1) - rampH(u - 1), 2); }   // centre dashes follow the slope
+    [-1, 1].forEach(sd => { for (let u = 2; u < L - 2; u += 2.5) { const q = P(u, sd * 1.5, rampH(u) + 0.03); const o = bx(B(0x44474a), 2.6, 0.02, 0.9, q[0], q[1], q[2], ry); o.rotation.z = -Math.atan2(rampH(u + 1) - rampH(u - 1), 2); } });   // two worn wheel tracks
     [-1, 1].forEach(s => { for (let u = 8; u < L; u += 2) { const q = P(u + 1, s * (W / 2 + 0.95), 0.45); bx(B(0xb9bdc2), 2.05, 0.9, 0.9, q[0], q[1], q[2], ry); } });   // rim blocks
     { const q = P(L + 0.4, 0, (TOP + 0) / 2 - 0.0); bx(wallM, 0.8, -TOP, W + 1.8, q[0], TOP / 2, q[2], ry); }       // the end wall above the mouth (ground to the roof)
     { const q = P(L + 0.1, 0, FLOOR / 2 + TOP / 2); void q; }
     // gantry over the mouth at the street: two posts, a lintel and the sign
     const c = document.createElement('canvas'); c.width = 512; c.height = 128; const x = c.getContext('2d');
-    if (x && x.fillRect) { x.fillStyle = '#0d2342'; x.fillRect(0, 0, 512, 128); x.fillStyle = '#ffd24a'; x.font = 'bold 52px sans-serif'; x.textAlign = 'center'; x.fillText('Ⓜ METRO TUNNEL', 256, 62); x.fillStyle = '#fff'; x.font = '32px sans-serif'; x.fillText('▼ stations: ' + String(p.S.name || '').slice(0, 24), 256, 104, 480); }
+    if (x && x.fillRect) { x.fillStyle = '#f2f2ee'; x.fillRect(0, 0, 512, 128); x.fillStyle = '#c21f1f'; x.fillRect(0, 0, 512, 10); x.fillRect(0, 118, 512, 10); x.font = 'bold 44px sans-serif'; x.textAlign = 'center'; x.fillText('Ⓜ METRO MAINTENANCE', 256, 58, 490); x.fillStyle = '#111'; x.font = 'bold 30px sans-serif'; x.fillText('AUTHORISED VEHICLES ONLY', 256, 100, 480); }
     const post = (s) => { const q = P(1.5, s * (W / 2 + 1.8), 3.2); bx(B(0x3a3f45), 0.5, 6.4, 0.5, q[0], q[1], q[2], ry); };
     post(-1); post(1); { const q = P(1.5, 0, 6.2); bx(B(0x3a3f45), 0.5, 0.7, W + 4.2, q[0], q[1], q[2], ry); const sg = new THREE.Mesh(new THREE.PlaneGeometry(W + 1, 2.6), new THREE.MeshBasicMaterial({ map: new THREE.CanvasTexture(c), side: THREE.DoubleSide })); const q2 = P(1.5, 0, 4.6); sg.position.set(q2[0], q2[1], q2[2]); sg.rotation.y = Math.atan2(p.dx, p.dz); g.add(sg); }
+    // a boom gate across the top of the ramp: post, counterweight, a red-and-white arm that lifts when a car comes up to it, amber beacons
+    { const q = P(4, -(W / 2 + 1.1), 0), piv = new THREE.Group(), arm = new THREE.Group(); piv.position.set(q[0], 1.15, q[2]); piv.rotation.y = Math.atan2(-p.dx, -p.dz); piv.add(arm); g.add(piv);
+      bx(B(0x2c2f33), 0.6, 1.3, 0.6, q[0], 0.65, q[2], ry);
+      for (let k = 0; k < 9; k++) { const m = new THREE.Mesh(boxGeo, B(k % 2 ? 0xf4f4f0 : 0xd0221f)); m.scale.set((W + 1.4) / 9, 0.22, 0.14); m.position.set((k + 0.5) * (W + 1.4) / 9, 0, 0); arm.add(m); }
+      { const m = new THREE.Mesh(boxGeo, B(0x2c2f33)); m.scale.set(1.2, 0.5, 0.4); m.position.set(-0.7, 0, 0); arm.add(m); }
+      const lampA = B(0xffb020), mkL = sd => { const q2 = P(4, sd * (W / 2 + 1.1), 0); const m = bx(lampA, 0.3, 0.3, 0.3, q2[0], sd < 0 ? 1.6 : 1.3, q2[2], ry); if (sd > 0) bx(B(0x2c2f33), 0.3, 1.15, 0.3, q2[0], 0.58, q2[2], ry); return m; };
+      mkL(-1); mkL(1); gates.push({ arm, lamp: lampA, x: p.x + p.dx * 4, z: p.z + p.dz * 4, open: 0 }); }
     for (let k = -3; k <= 3; k++) { const q = P(-1.5, k * 1.5, 0.03); bx(k % 2 ? B(0x111111) : yellowM, 0.8, 0.03, 1.4, q[0], q[1], q[2], ry); }       // hazard stripes across the mouth
   });
+  // ---- trains: one per line, four carriages, shuttling end to end on the right-hand track and waiting at every station ----
+  const trains = [];
+  chains.filter(c => c.line).forEach(c => {
+    const pts = c.pts, cum = [0]; for (let i = 1; i < pts.length; i++) cum.push(cum[i - 1] + Math.hypot(pts[i].x - pts[i - 1].x, pts[i].z - pts[i - 1].z));
+    const total = cum[cum.length - 1]; if (total < 160) return;
+    const at = sv => { sv = Math.max(0, Math.min(total, sv)); let i = 1; while (i < pts.length - 1 && cum[i] < sv) i++; const t = (sv - cum[i - 1]) / ((cum[i] - cum[i - 1]) || 1), a = pts[i - 1], b = pts[i], L = Math.hypot(b.x - a.x, b.z - a.z) || 1; return { x: a.x + (b.x - a.x) * t, z: a.z + (b.z - a.z) * t, dx: (b.x - a.x) / L, dz: (b.z - a.z) / L }; };
+    const stops = c.line.stations.map(st => { let bi = 0, bd = 1e9; pts.forEach((q, i) => { const d = Math.hypot(q.x - st.x, q.z - st.z); if (d < bd) { bd = d; bi = i; } }); return cum[bi]; }).sort((a, b) => a - b);
+    const body = B(0xc9ced4), stripe = B(c.line.color || 0x3388ff), win = B(0xfff3c4), dark = B(0x23262a), cars = [];
+    for (let k = 0; k < 4; k++) {
+      const grp = new THREE.Group(), add = (m, sx, sy, sz, x, y, z) => { const o = new THREE.Mesh(boxGeo, m); o.scale.set(sx, sy, sz); o.position.set(x, y, z); grp.add(o); };
+      add(body, 13.4, 2.9, 2.9, 0, 2.0, 0); add(dark, 12.6, 0.5, 2.5, 0, 0.45, 0); add(stripe, 13.44, 0.35, 2.94, 0, 1.25, 0); add(win, 11.6, 0.95, 2.96, 0, 2.55, 0); add(dark, 13.2, 0.25, 2.2, 0, 3.55, 0);
+      [-4.6, -1.55, 1.55, 4.6].forEach(x => add(dark, 0.25, 1.0, 2.98, x, 2.55, 0));                                        // window pillars
+      if (k === 0 || k === 3) { const e = k === 0 ? 1 : -1; add(win, 0.1, 0.9, 2.2, e * 6.72, 2.55, 0); add(B(0xffffff), 0.12, 0.25, 0.4, e * 6.74, 1.0, 0.9); add(B(0xffffff), 0.12, 0.25, 0.4, e * 6.74, 1.0, -0.9); }
+      g.add(grp); cars.push(grp);
+    }
+    trains.push({ at, total, stops, cars, s: Math.max(30, Math.min(total - 30, stops[0] || 40)), dir: 1, v: 0, wait: 4 });
+  });
+  const TRAIN_V = 19, CAR_GAP = 14.2; let warnT = 0;
+  function stepTrains(dt, car) {
+    trains.forEach(tr => {
+      // where it has to stop next: the next station in its direction, or the end of the line
+      const lim0 = 30, lim1 = tr.total - 30, ahead = tr.dir > 0 ? tr.stops.find(q => q > tr.s + 0.5) : [...tr.stops].reverse().find(q => q < tr.s - 0.5);
+      const goal = ahead !== undefined ? Math.max(lim0, Math.min(lim1, ahead)) : (tr.dir > 0 ? lim1 : lim0), left = Math.abs(goal - tr.s);
+      // a car on its track ahead: it brakes for it
+      const head = tr.at(tr.s + tr.dir * 21), hx = head.dx * tr.dir, hz = head.dz * tr.dir; let block = false;
+      if (car.y < -3) { const rx = car.x - head.x, rz = car.z - head.z, fwd = rx * hx + rz * hz, lat = -rx * hz + rz * hx; if (fwd > -4 && fwd < 46 && Math.abs(lat - TR * 1) < 2.6) block = true; }
+      if (tr.wait > 0) { tr.wait -= dt; tr.v = 0; }
+      else {
+        const want = block ? 0 : Math.min(TRAIN_V, Math.sqrt(2 * 5 * Math.max(0, left - 0.3)) + 0.6);
+        tr.v += Math.max(-9 * dt, Math.min(4 * dt, want - tr.v)); tr.s += tr.dir * tr.v * dt;
+        if (!block && left < 0.6) { tr.s = goal; tr.v = 0; tr.wait = 7; if (ahead === undefined) tr.dir = -tr.dir; }
+      }
+      tr.cars.forEach((grp, k) => {
+        const off = (k - 1.5) * CAR_GAP, q = tr.at(tr.s - tr.dir * off), dx = q.dx * tr.dir, dz = q.dz * tr.dir;
+        grp.position.set(q.x - dz * TR, FLOOR + 0.28, q.z + dx * TR); grp.rotation.y = Math.atan2(-dz, dx);
+        // a car that is in the way all the same gets shoved to the side walkway
+        if (car.y < -3) { const rx = car.x - grp.position.x, rz = car.z - grp.position.z, fwd = rx * dx + rz * dz, lat = -rx * dz + rz * dx; if (Math.abs(fwd) < 8.2 && Math.abs(lat) < 2.5) { const sd = lat >= 0 ? 1 : -1; car.x += -dz * sd * (2.5 - Math.abs(lat)); car.z += dx * sd * (2.5 - Math.abs(lat)); car.speed *= 0.9; if (warnT <= 0) { warnT = 4; toast('Mind the train!'); } } }
+      });
+    });
+    warnT -= dt;
+  }
   let was = false, nameShown = null;
   api.update = (dt, car) => {
     const under = car.y < -3;
-    if (under && !was) toast('Metro tunnel - follow it to the stations');
+    if (under && !was) toast('Metro service tunnel - watch out for trains');
     was = under; api.active = under;
+    stepTrains(dt, car);
+    const blink = (performance.now() % 900) < 450; gates.forEach(gt => { const near = Math.hypot(car.x - gt.x, car.z - gt.z) < 20 && car.y > -6; gt.open += ((near ? 1 : 0) - gt.open) * Math.min(1, dt * 3.5); gt.arm.rotation.z = gt.open * 1.38; gt.lamp.color.setHex(blink && near ? 0xffd060 : 0x8a5a10); });
     if (under) { const s = stationsAt.find(q => Math.hypot(q.x - car.x, q.z - car.z) < 6); if (s && nameShown !== s.name) { nameShown = s.name; toast(s.name + ' station'); } else if (!s) nameShown = null; }
   };
+  api.trains = trains; api.gates = gates;
   return api;
 }
