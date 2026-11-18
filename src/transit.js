@@ -119,6 +119,25 @@ export function buildTransit(city, custom) {
     }
     if (!s.lines.includes(line.id)) { s.lines.push(line.id); line.stops = (line.stops || []).concat(s); }
   }
+  // tram lines: each connected stretch of tram street (edges the builder marked `tram`) gets a tram that runs out along it and back
+  {
+    const te = ave.filter(e => e.tram), tadj = {};
+    te.forEach(e => { (tadj[e.from] ||= []).push(e.to); (tadj[e.to] ||= []).push(e.from); });
+    const seenT = new Set(), nonTram = new Set(ave.filter(e => !e.tram).map(e => e.id)); let tn = 0;
+    Object.keys(tadj).forEach(id0 => {
+      if (seenT.has(id0)) return;
+      const comp = [], q = [id0]; seenT.add(id0);
+      while (q.length) { const a = q.pop(); comp.push(a); tadj[a].forEach(b => { if (!seenT.has(b)) { seenT.add(b); q.push(b); } }); }
+      let A = comp[0], B = comp[0], bd = -1; comp.forEach(a => comp.forEach(b => { const d = (N[a].x - N[b].x) ** 2 + (N[a].z - N[b].z) ** 2; if (d > bd) { bd = d; A = a; B = b; } }));
+      if (A === B) return;
+      const path = dijkstra(A, B, nonTram); if (!path || path.length < 3) return;
+      const seq = path.concat(path.slice(1, -1).reverse()), m = seq.length, next = new Map(); let total = 0, ok = true;
+      for (let i = 0; i < m; i++) { const p = seq[(i + m - 1) % m], c = seq[i], q2 = seq[(i + 1) % m], rec = edgeBetween(c, q2); if (!rec) { ok = false; break; } next.set(p + '>' + c, rec.e); total += len(rec.e); }
+      if (!ok || total < 300) return;
+      const steps = seq.map((c, i) => ({ from: c, to: seq[(i + 1) % m], edge: edgeBetween(c, seq[(i + 1) % m]).e }));
+      lines.push({ id: lines.length, name: 'Tram ' + (++tn), color: 0xc8362f, nodes: seq, steps, next, length: total, custom: false, tram: true });
+    });
+  }
   for (const line of lines) {
     if (line.custom) {       // the stops you placed: each goes on the nearest long-enough piece of the line
       line.userStops.forEach(q => {

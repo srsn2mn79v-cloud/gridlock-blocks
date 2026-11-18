@@ -61,6 +61,9 @@ export function buildChicago() {
     if (e.line.cls === 'ramp') { o.oneWay = true; o.ramp = true; o.lanes = 1; }
     if (e.line.cls === 'hw' || e.line.cls === 'hwEnd' || e.line.cls === 'hwEnd2' || e.line.cls === 'hwMid') o.oneWay = true;
     if (e.line.oneWay) o.oneWay = true;
+    if (e.line.trees) o.trees = e.line.trees;
+    if (e.line.tram) o.tram = true;
+    if (e.line.ped) { o.ped = true; o.speedLimit = 15; }
     if (e.line.ring) { o.ring = true; o.speedLimit = 40; }          // a roundabout's ring: one way, and the traffic on it has the right of way
     o.cls = e.line.cls;
     if (c.type === 'highway' || e.line.cls === 'hwEnd2' || e.line.cls === 'hwMid') o.interstate = true;       // interstate-class for the traffic: lane choice, exits, merging (the two end sections are arterial-class roads)
@@ -663,6 +666,18 @@ export function buildChicago() {
       treeList.push({ type: 'tree', x: r2(p.x), z: r2(p.z), rotation: 0 });
     }
   });
+  // roads the builder marked as tree-lined (map.streets[].trees: 'tree' | 'oak' | 'mixed' | 'hedge'): a row of trees on each side
+  edges.forEach(e => {
+    if (!e.trees || e.structure === 'bridge' || e.structure === 'tunnel') return;
+    const a = nodes[e.from], b = nodes[e.to], len = Math.hypot(b.x - a.x, b.z - a.z), hedge = e.trees === 'hedge', step = hedge ? 7 : 16;
+    const c1 = intersectionClearance(e.from, e, byNode) + 5, c2 = intersectionClearance(e.to, e, byNode) + 5;
+    for (let t = c1; t < len - c2; t += step) for (const side of [1, -1]) {
+      const p = sidePoint(e, t, side, e.width / 2 + (e.type === 'highway' ? 5 : 3.4));
+      if (roadClear(p.x, p.z) < 1.0 || inWater(p.x, p.z, 1.5) || parcelsHit(p.x, p.z, 1)) continue;
+      if (!propOK(p.x, p.z, hedge ? 3 : 6, treeList) || !propOK(p.x, p.z, 3, lampList)) continue;
+      treeList.push({ type: hedge ? 'bush' : e.trees === 'oak' ? 'oak' : e.trees === 'mixed' ? (rand() < 0.5 ? 'oak' : 'tree') : 'tree', x: r2(p.x), z: r2(p.z), rotation: Math.floor(rand() * 360) });
+    }
+  });
   // freeway verges: a scatter of trees beyond the rails
   edges.forEach(e => {
     if (e.type !== 'highway' || e.structure || Math.max(nodes[e.from].elevation, nodes[e.to].elevation) > 0.25) return;
@@ -715,6 +730,7 @@ export function buildChicago() {
     }
   });
   props.push(...treeList);
+  (MAP.props || []).forEach(q => { if (!q || !q.at) return; const [px, pz] = T(q.at[0], q.at[1]); props.push({ type: q.type, x: r2(px), z: r2(pz), rotation: q.rot || 0 }); });       // props placed in the builder
   // pedestrian path lights: low posts on a loose grid through the parks (they glow at night, see props.js / main.js)
   PARKS.forEach(pk => {
     const xs = pk.pts.map(p => p[0]), zs = pk.pts.map(p => p[1]);

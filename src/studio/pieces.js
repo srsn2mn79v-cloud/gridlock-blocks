@@ -176,3 +176,39 @@ export function elevatedStructs(pts, hU = 6.5) {
   if (len < 40) return { error: 'Too short to lift: with a ' + Math.round(hU * 1.25) + ' m clearance the ramps need ' + Math.round(ramp * 1.25) + ' m each, so the highway has to be at least ' + Math.round((2 * ramp + 70) * 1.25) + ' m long.' };
   return { len, h: hU, ramp };
 }
+
+// ---------------------------------------------------------------------------------------------------------------------------------------------------
+// Grid mode: a block of streets between two corners (map px), one street every `blockM` metres each way.
+export function gridStreets(a, b, blockM = 90, cls = 'two') {
+  const x0 = Math.min(a[0], b[0]), x1 = Math.max(a[0], b[0]), y0 = Math.min(a[1], b[1]), y1 = Math.max(a[1], b[1]), pitch = blockM / 1.25 / S;
+  const nx = Math.max(1, Math.round((x1 - x0) / pitch)), ny = Math.max(1, Math.round((y1 - y0) / pitch)), out = [];
+  for (let i = 0; i <= nx; i++) { const x = x0 + (x1 - x0) * i / nx; out.push({ cls, pts: [[r2(x), r2(y0)], [r2(x), r2(y1)]] }); }
+  for (let j = 0; j <= ny; j++) { const y = y0 + (y1 - y0) * j / ny; out.push({ cls, pts: [[r2(x0), r2(y)], [r2(x1), r2(y)]] }); }
+  return { streets: out, nx, ny };
+}
+
+// Zones: fill a rectangle with buildings between the streets. Returns landmark rows [name, x0, y0, x1, y1, height].
+export const ZONES = {
+  residential: { name: 'Residential zone', color: '#7bd36a', blurb: 'Houses and low flats along the streets.', kinds: [['House', 3.2, 3.2, 9, 0.7], ['Apartment block', 7, 5, 40, 0.3]] },
+  commercial: { name: 'Commercial zone', color: '#4aa3ff', blurb: 'Offices, towers and shop blocks.', kinds: [['Office', 8, 7, 70, 0.6], ['Tower', 7, 7, 140, 0.2], ['Apartment block', 7, 5, 40, 0.2]] },
+  industrial: { name: 'Industrial zone', color: '#e0b030', blurb: 'Warehouses and halls.', kinds: [['Hall / warehouse', 12, 8, 14, 0.8], ['Office', 8, 7, 70, 0.2]] }
+};
+export function zoneFill(rect, kind, streets, seed = 1) {
+  const z = ZONES[kind], x0 = Math.min(rect[0], rect[2]), x1 = Math.max(rect[0], rect[2]), y0 = Math.min(rect[1], rect[3]), y1 = Math.max(rect[1], rect[3]);
+  let s = seed >>> 0; const rnd = () => { s = (s * 1664525 + 1013904223) >>> 0; return s / 4294967296; };
+  const half = { two: 4.2, four: 8.4, six: 9.2, hw: 22, ramp: 6 }, out = [];
+  const nearStreet = (x, y, rad) => streets.some(st => { const hw = (half[st.cls] || 8) / S + rad; for (let j = 1; j < st.pts.length; j++) { const A = st.pts[j - 1], B = st.pts[j];
+    if (x < Math.min(A[0], B[0]) - hw || x > Math.max(A[0], B[0]) + hw || y < Math.min(A[1], B[1]) - hw || y > Math.max(A[1], B[1]) + hw) continue;
+    const dx = B[0] - A[0], dy = B[1] - A[1], l2 = dx * dx + dy * dy || 1, t = Math.max(0, Math.min(1, ((x - A[0]) * dx + (y - A[1]) * dy) / l2)); if (Math.hypot(A[0] + dx * t - x, A[1] + dy * t - y) < hw) return true; } return false; });
+  const pick = () => { let r = rnd(), tot = z.kinds.reduce((t, k) => t + k[4], 0); r *= tot; for (const k of z.kinds) { if ((r -= k[4]) < 0) return k; } return z.kinds[0]; };
+  for (let y = y0 + 3; y < y1 - 3 && out.length < 500; ) {
+    let rowH = 0;
+    for (let x = x0 + 3; x < x1 - 3 && out.length < 500; ) {
+      const k = pick(), w = k[1], d = k[2], cx = x + w / 2, cy = y + d / 2;
+      if (x + w <= x1 && y + d <= y1 && !nearStreet(cx, cy, Math.max(w, d) / 2 + 0.6) && !nearStreet(x, y, 0.8) && !nearStreet(x + w, y + d, 0.8)) { out.push([k[0], r2(x), r2(y), r2(x + w), r2(y + d), Math.round(k[3] * (0.8 + rnd() * 0.5))]); }
+      x += w + 1.4; rowH = Math.max(rowH, d);
+    }
+    y += (rowH || 4) + 1.4;
+  }
+  return out;
+}

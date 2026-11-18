@@ -54,6 +54,7 @@ const VEH = {
   van:   { mass: 2400, speedMul: 0.92, accel: 3.6, brake: 15.2,  circles: [-1.3, 1.3], r: 1.0 },
   truck: { mass: 7500, speedMul: 0.8,  accel: 2.1, brake: 11.7, circles: [-2.6, 0, 2.6], r: 1.2 },
   bus:   { mass: 11000, speedMul: 0.74, accel: 2.3, brake: 12.4,  circles: [-3.8, -1.3, 1.3, 3.8], r: 1.2 },
+  tram:  { mass: 28000, speedMul: 0.7, accel: 1.8, brake: 11.5, circles: [-6.2, -3.1, 0, 3.1, 6.2], r: 1.2 },
   police:    { mass: 1700, speedMul: 1.2,  accel: 6.3, brake: 19.3, circles: [-0.75, 0.75], r: 1.0 },
   ambulance: { mass: 2900, speedMul: 1.12, accel: 4.7, brake: 16.5, circles: [-1.3, 1.3], r: 1.0 },
   fire:      { mass: 9000, speedMul: 1.0,  accel: 3.0, brake: 12.4,  circles: [-2.6, 0, 2.6], r: 1.2 },
@@ -70,7 +71,7 @@ function trafficCarMesh(svcType, color) {
   const d = body.userData.dims || TRAFFIC_DIMS[type];
   const hl = d.len / 2;
   const hw = d.wid / 2 - 0.3;
-  const lampY = type === 'bus' ? 0.9 : type === 'truck' ? 0.85 : 0.52;
+  const lampY = type === 'bus' || type === 'tram' ? 0.9 : type === 'truck' ? 0.85 : 0.52;
   const headMat = new THREE.MeshStandardMaterial({ color: 0x1a1a1a, emissive: 0xfff2c8, emissiveIntensity: 1.1 });
   const tailMat = new THREE.MeshStandardMaterial({ color: 0x1a1a1a, emissive: 0xff2a2a, emissiveIntensity: 1.0 });
   const hGeo = new THREE.BoxGeometry(0.22, 0.14, 0.05), tGeo = new THREE.BoxGeometry(0.2, 0.14, 0.05);
@@ -118,7 +119,7 @@ function liteGeo(type, d) {
   if (_liteCache[type]) return _liteCache[type];
   const box = (w, h, l, y, z) => { const b = new THREE.BoxGeometry(w, h, l); b.translate(0, y, z); return b.toNonIndexed(); };
   let parts;
-  if (type === 'bus') parts = [box(d.wid, 2.5, d.len, 1.65, 0)];
+  if (type === 'bus' || type === 'tram') parts = [box(d.wid, 2.5, d.len, 1.65, 0)];
   else if (type === 'truck') parts = [box(d.wid * 0.9, 0.7, d.len, 0.8, 0), box(d.wid, 2.3, d.len * 0.65, 1.9, -d.len * 0.15), box(d.wid, 1.5, d.len * 0.25, 1.4, d.len * 0.36)];
   else if (type === 'van') parts = [box(d.wid, 1.5, d.len, 1.1, 0), box(d.wid * 0.95, 0.5, d.len * 0.5, 1.9, -d.len * 0.12)];
   else parts = [box(d.wid, 0.75, d.len, 0.65, 0), box(d.wid * 0.9, 0.5, d.len * 0.5, 1.2, -d.len * 0.08)];
@@ -137,7 +138,7 @@ export function createTrafficSystem(cityData, scene, heightAt, count = 6, maxCou
   if (globalThis.__hw) widenInterchanges(cityData.roadNodes, cityData.roadEdges || [], globalThis.__hw);       // (the experiment widens them here; the game does it when the map is built)
   const isHw = e => e.type === 'highway' || !!e.interstate;
   const inAux = car => car.edge.lanes === 4 && car.edge.type === 'highway';
-  const drivable = cityData.roadEdges || [];
+  const drivable = (cityData.roadEdges || []).filter(e => !e.ped);          // pedestrian streets (builder) carry no traffic
   // Buses and trucks are too long to take a 9 m side street's corners, so they stay on avenues
   // and highways (spawn there, and prefer those roads at every junction).
   const isWide = e => e.type !== 'local';
@@ -309,7 +310,7 @@ export function createTrafficSystem(cityData, scene, heightAt, count = 6, maxCou
   function chooseLaneIndex(car) {
     const n = Math.max(1, car.lanes || 1);
     if (n <= 1) return 0;
-    if (car.line) return n - 1;                       // bus lines hug the kerb so they can serve the stops
+    if (car.line) return car.line.tram ? 0 : n - 1;      // bus lines hug the kerb so they can serve the stops; trams run in the lane next to the middle, on the rails
     if (car.edge && isHw(car.edge)) {
       if (car.prevType === 'highway' && car.laneIndex != null) return Math.min(n - 1, car.laneIndex);
       if (car.spawnHere) return Math.min(n - 1, n - 1 - Math.floor(Math.pow(car.laneBias === undefined ? Math.random() : car.laneBias, 1.3) * n));
@@ -492,10 +493,10 @@ export function createTrafficSystem(cityData, scene, heightAt, count = 6, maxCou
   // Public transport: a few buses per line, spread round the loop, always on their route (see transit.js).
   const lineBuses = [];
   if (transit) for (const line of transit.lines) {
-    const per = Math.max(3, Math.round(line.length / 520));
+    const per = line.tram ? Math.max(2, Math.round(line.length / 700)) : Math.max(3, Math.round(line.length / 520));
     for (let b = 0; b < per; b++) {
       const st = line.steps[Math.floor((b / per) * line.steps.length)];
-      lineBuses.push(spawnOn(st.edge, st.edge.from !== st.from, { type: 'bus', color: line.color, line }));
+      lineBuses.push(spawnOn(st.edge, st.edge.from !== st.from, { type: line.tram ? 'tram' : 'bus', color: line.color, line }));
     }
   }
 
@@ -539,7 +540,7 @@ export function createTrafficSystem(cityData, scene, heightAt, count = 6, maxCou
   // Can this car legally continue onto `edge` starting from `nodeId`? Only false for a
   // one-way edge entered from its `to` end — every other edge is fair game either way.
   function allowedFrom(edge, nodeId) {
-    return !edge.oneWay || edge.from === nodeId;
+    return !edge.ped && (!edge.oneWay || edge.from === nodeId);
   }
 
   function pickNextEdge(nodeId, fromNodeId, car) {

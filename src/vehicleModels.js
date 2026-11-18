@@ -256,7 +256,8 @@ export const TRAFFIC_DIMS = {
   taxi: { len: 3.6, wid: 1.5 },
   van: { len: 4.9, wid: 1.7 },
   truck: { len: 7.8, wid: 2.1 },
-  bus: { len: 10.4, wid: 2.1 }
+  bus: { len: 10.4, wid: 2.1 },
+  tram: { len: 17, wid: 2.1 }
 };
 
 export function buildTrafficBody(type, color, dimsOverride) {
@@ -314,6 +315,26 @@ export function buildTrafficBody(type, color, dimsOverride) {
       dest.position.set(0, H - 0.24, L - 0.4); dest.rotation.x = -0.2; g.add(dest);
       part(boxGeo('bus_roofac', 1.4, 0.3, 2.2, 0.05), m.white, 0, H + 0.12, -1.0, g);
       addWheels(g, [[-1.12, 0.5, L - 2.2], [1.12, 0.5, L - 2.2], [-1.12, 0.5, -L + 2.4], [1.12, 0.5, -L + 2.4]], 0.5, 0.42);
+      break;
+    }
+    case 'tram': {
+      // a two-section tram: long low body, big windows, a white roof band, a pantograph and a bogie at each end of both sections
+      const H = 3.1;
+      part(profileGeo('tram_body', [[-L, 0.55], [L, 0.55], [L, 1.4], [L - 0.35, H - 0.2], [L - 0.5, H], [-L + 0.5, H], [-L, H - 0.2]], d.wid), m.paint, 0, 0, 0, g, true);
+      part(boxGeo('tram_under', d.wid - 0.4, 0.5, d.len - 0.4, 0.05), m.dark, 0, 0.4, 0, g);
+      part(boxGeo('tram_roof', d.wid - 0.5, 0.18, d.len - 1.4, 0.03), m.white, 0, H + 0.04, 0, g);
+      const ws = part(boxGeo('tram_ws', d.wid - 0.3, 1.2, 0.07, 0.012), m.glass, 0, 2.2, L - 0.12, g); ws.rotation.x = -0.2;
+      const wr = part(boxGeo('tram_wr', d.wid - 0.3, 1.2, 0.07, 0.012), m.glass, 0, 2.2, -L + 0.12, g); wr.rotation.x = 0.2;
+      [-1, 1].forEach(sd => {
+        part(boxGeo('tram_win', 0.04, 1.0, d.len - 3.0, 0.005), m.glass, sd * (d.wid / 2 + 0.012), 2.15, 0, g);
+        part(boxGeo('tram_stripe', 0.03, 0.22, d.len - 0.4, 0.005), m.white, sd * (d.wid / 2 + 0.01), 1.35, 0, g);
+        [-0.34, 0.34].forEach(f => part(boxGeo('tram_door', 0.05, 1.9, 1.1, 0.005), m.dark, sd * (d.wid / 2 + 0.014), 1.6, f * d.len, g));
+        part(boxGeo('tram_light', 0.06, 0.2, 0.34, 0.01), new THREE.MeshStandardMaterial({ color: 0xfff6d0, emissive: 0xfff0b0, emissiveIntensity: 0.9 }), sd * 0.8, 0.9, L + 0.02, g);
+      });
+      part(boxGeo('tram_joint', d.wid - 0.3, 2.6, 0.3, 0.03), m.dark, 0, 1.75, 0, g);                               // the articulation between the two sections
+      part(boxGeo('tram_pant', 0.9, 0.06, 1.3, 0.01), m.dark, 0, H + 0.5, -L * 0.45, g);
+      part(boxGeo('tram_pant_arm', 0.06, 0.55, 0.06, 0.01), m.dark, 0, H + 0.26, -L * 0.45, g);
+      addWheels(g, [[-0.95, 0.4, L - 2.4], [0.95, 0.4, L - 2.4], [-0.95, 0.4, 2.0], [0.95, 0.4, 2.0], [-0.95, 0.4, -2.0], [0.95, 0.4, -2.0], [-0.95, 0.4, -L + 2.4], [0.95, 0.4, -L + 2.4]], 0.4, 0.38);
       break;
     }
     default: { // sedan

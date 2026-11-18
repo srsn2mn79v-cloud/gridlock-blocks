@@ -27,7 +27,7 @@ export function generateRoads() {
   STREETS.forEach((s, i) => {
     if (!s.pts || s.pts.length < 2) return;
     const pts = TP(s.pts);
-    lines.push({ id: 'L' + i, cls: CLASSES[s.cls] ? s.cls : 'two', pts: pts.map(p => [p[0], p[1]]), bridge: true, noBridge: 'highway', name: s.name, ...(s.oneWay ? { oneWay: true } : {}), ...(s.ring ? { ring: true, noJoin: false } : {}) });
+    lines.push({ id: 'L' + i, cls: CLASSES[s.cls] ? s.cls : 'two', pts: pts.map(p => [p[0], p[1]]), bridge: true, noBridge: 'highway', name: s.name, ...(s.oneWay ? { oneWay: true } : {}), ...(s.trees ? { trees: s.trees } : {}), ...(s.tram ? { tram: true } : {}), ...(s.ped ? { ped: true } : {}), ...(s.ring ? { ring: true, noJoin: false } : {}) });
   });
   // ---- bridges and tunnels marked on the map: map.structs = [{at:[X,Y], len, h}] (h > 0 a bridge that high, h < 0 a tunnel that deep, in units)
   //      or {line:'name', from, to, h} to span part of a named road (to < 0 counts back from its end) ----

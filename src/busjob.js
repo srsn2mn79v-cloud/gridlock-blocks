@@ -6,7 +6,7 @@ import * as THREE from 'three';
 const PER_PAX = 9, LOOP_BONUS = 450;
 
 export function createBusJob({ transit, nodes = {}, scene, taxi, setBody, restoreBody, toast = () => {} }) {
-  const depot = transit && transit.depot, lines = (transit && transit.lines) || [];
+  const depot = transit && transit.depot, lines = ((transit && transit.lines) || []).filter(l => !l.tram);
   const none = { active: false, update() {}, mapExtras: () => null, end() {}, nearDepot: () => false };
   if (!depot || !lines.length) return none;
 

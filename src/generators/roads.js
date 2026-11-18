@@ -79,6 +79,7 @@ function buildRibbon(points, widthOrArray, colorHex, bankSamples, lift = ROAD_LI
 const dashMat = new THREE.MeshStandardMaterial({ color: 0xf2ead2, roughness: 0.7 });
 const edgeMat = new THREE.MeshStandardMaterial({ color: 0xe9e9e9, roughness: 0.8 });
 const DASH_LEN = 1.4, DASH_GAP = 1.4;
+const railMat = new THREE.MeshStandardMaterial({ color: 0x6d747c, roughness: 0.35, metalness: 0.8 });       // the steel rails of a tram street
 const yellowLineMat = new THREE.MeshStandardMaterial({ color: 0xe6b422, roughness: 0.7, emissive: 0xffc93f, emissiveIntensity: 0.05 });
 // A real double-yellow centre line: two solid yellow lines with a gap between them.
 function addDoubleYellow(group, a, b, heading, perpX, perpZ, segLen) {
@@ -111,6 +112,7 @@ function orientAlongGrade(mesh, ax, ay, az, bx, by, bz, perpX, perpZ) {
 // line" and "solid median" are all just this with different offsets/lengths — that's
 // also why every road type ends up with *some* markings, where before only
 // local/avenue did.
+let markTram = false;     // the road being painted is a tram street (rails)
 let markEdge = null;      // the road whose paint is being queued (see the paint queue further down)
 let mergeArrowMat = null;
 function addMergeArrow(group, x, z, y, h) {
@@ -249,6 +251,10 @@ function addLaneMarkings(group, points, widthOrArray, type, lanes, oneWay) {
       // (n-1) dashed white dividers per side split that direction's own lanes (n=1
       // draws none — the original single-lane-each-way look), then solid edge lines.
       Y();
+      if (markTram) {        // tram street: a track (two steel rails) in the lane next to the middle, each way
+        const lw = (w / 2) / n;
+        [1, -1].forEach(side => [-0.58, 0.58].forEach(o => addLine(group, a, b, heading, perpX, perpZ, side * (lw * 0.5 + 0.35) + o, segLen, false, railMat)));
+      }
       [1, -1].forEach(side => {
         for (let li = 1; li < n; li++) P(side * li * ((w / 2) / n), true, 'white', 4);
         const edge = w / 2 - 0.35;
@@ -427,8 +433,8 @@ export function buildRoads(cityData) {
   cityData.roadEdges.forEach(e => {
     const a = nodes[e.from], b = nodes[e.to];
     if (!a || !b) return;
-    markEdge = e.id; markRank = e.width + (e.type === 'highway' ? 4 : 0);
-    const color = roadColor[e.type] || 0x3c3f44;
+    markEdge = e.id; markTram = !!e.tram; markRank = e.width + (e.type === 'highway' ? 4 : 0);
+    const color = e.ped ? 0x948f86 : (roadColor[e.type] || 0x3c3f44);
 
     const fullLen = dist(a.x, a.z, b.x, b.z);
     const startCurve = curveInfo[e.from];
@@ -510,7 +516,7 @@ export function buildRoads(cityData) {
       }
       let mp = markPts;
       if (e.ramp) { const ex = e.width * 0.5; const k0 = mp.findIndex(q => !onHwPaving(q.x, q.z, ex)); let k1 = -1; mp.forEach((q, i) => { if (!onHwPaving(q.x, q.z, ex)) k1 = i; }); mp = k0 < 0 ? [] : mp.slice(k0, k1 + 1); }
-      if (mp.length >= 2) addLaneMarkings(group, mp, e.flare && !e.ramp ? mp.map(q => edgeWidthAt(e, q.s, fullLen)) : e.width, e.type, e.lanes, e.oneWay);
+      if (mp.length >= 2 && !e.ped) addLaneMarkings(group, mp, e.flare && !e.ramp ? mp.map(q => edgeWidthAt(e, q.s, fullLen)) : e.width, e.type, e.lanes, e.oneWay);
       // a lane that ends here (the interchange lane running on after an entry, not one that leaves as an exit): lane-reduction arrows before the taper
       if (e.flare && e.flare.n1 && e.lanes === 4 && !e.ramp && !(edgesByNode[e.flare.endNode] || []).some(o => o.ramp && o.from === e.flare.endNode)) [24, 70].forEach(back => {
         const sA = e.flare.d1 + fullLen - e.flare.T - back; if (sA < clearStart + 4 || sA > clearEnd - 4) return;
@@ -677,7 +683,7 @@ export function buildRoads(cityData) {
     // carries straight through the corner unchanged (both edges here are the same
     // physical street continuing around a bend, so they agree on lane count/one-way-ness
     // in practice — falling back to either side's value if one is missing).
-    markEdge = 'corner:' + nodeId; markRank = Math.max(w1, w2) + (c.type === 'highway' ? 4 : 0);
+    markEdge = 'corner:' + nodeId; markTram = false; markRank = Math.max(w1, w2) + (c.type === 'highway' ? 4 : 0);
     addLaneMarkings(group, pts, widths, c.type, edge1.lanes || edge2.lanes, edge1.oneWay || edge2.oneWay);
   }
 

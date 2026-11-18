@@ -6,7 +6,7 @@ import { put, h, View, SC, S } from './common.js';
 import refUrl from './ref-map.png';
 import { SHOP_KINDS } from '../chicago/chicago.js';
 import { nearestRoadPoint } from './snap.js';
-import { roundabout, ROUNDABOUTS, slipRoads, interchange, elevatedStructs, HW_OFF } from './pieces.js';
+import { roundabout, ROUNDABOUTS, slipRoads, interchange, elevatedStructs, HW_OFF, gridStreets, ZONES, zoneFill } from './pieces.js';
 import { CLASSES } from '../chicago/network.js';
 
 const M_PER_U = 1.25;
@@ -14,13 +14,17 @@ const ROAD_TYPES = [
   { id: 'six', name: 'Express avenue', color: '#e8a21a', pin: 'E', blurb: 'The widest street: fast traffic, long junction spacing.' },
   { id: 'four', name: 'Main avenue', color: '#f0d23c', pin: 'M', blurb: 'A main arterial: shops and bus routes line it.' },
   { id: 'two', name: 'Local street', color: '#e8605f', pin: 'L', blurb: 'A quiet residential street, slow and narrow.' },
+  { id: 'tram', cls: 'four', name: 'Tram avenue', color: '#d9534f', pin: 'T', blurb: 'A main avenue with a tram track in the lane next to the middle, each way. A tram line runs along it, out and back, stopping at its stops.', tram: true },
+  { id: 'ped', cls: 'two', name: 'Pedestrian street', color: '#c8b89a', pin: 'P', blurb: 'Paved and car-free: no traffic drives here, but people walk. Good for shopping streets.', ped: true },
   { id: 'hw', name: 'Highway', color: '#2e9d5a', pin: 'H', blurb: 'Two carriageways of 3 lanes, 120 km/h, one-way each. It crosses other roads at ground level unless you put a bridge or tunnel there.', pair: true },
   { id: 'hwE', cls: 'hw', name: 'Elevated highway', color: '#1f8f8f', pin: 'V', blurb: 'A highway on a long viaduct, 8 m up: streets and buildings fit underneath. It comes down in ramps at both ends.', pair: true, elev: true }
 ];
+const rtOfStreet = s => (s.tram ? ROAD_TYPES.find(r => r.id === 'tram') : s.ped ? ROAD_TYPES.find(r => r.id === 'ped') : ROAD_TYPES.find(r => r.id === s.cls)) || ROAD_TYPES[2];
 const roadType = id => ROAD_TYPES.find(r => r.id === id) || ROAD_TYPES[2];
 const CATS = [
   { id: 'road', name: 'Roads', color: '#f0d23c', tools: [
     ...ROAD_TYPES.map(r => ({ id: 'road:' + r.id, name: r.name, road: r.id, blurb: r.blurb })),
+    { id: 'grid', name: 'Street grid', rect: 'grid', blurb: 'Click two corners: a block of streets, one every 90 m (set below). Ends join the roads they touch.' },
     { id: 'bridge', name: 'Bridge', blurb: 'Click a road: that stretch is lifted over what it crosses, with ramps up and down.', struct: 1 },
     { id: 'tunnel', name: 'Tunnel', blurb: 'Click a road: that stretch goes underground, with ramps down and up.', struct: -1 } ] },
   { id: 'junction', name: 'Junctions', color: '#3dd6a5', tools: [
@@ -28,6 +32,14 @@ const CATS = [
     { id: 'inter:round', name: 'Roundabout interchange', piece: 'inter', round: true, blurb: 'Click a highway: a street crosses it on a bridge, with a roundabout and slip roads on each side.' },
     { id: 'slip', name: 'Exit & entry ramps', piece: 'slip', blurb: 'Click a highway carriageway: an exit and an entry ramp with a short street to connect to.' },
     ...Object.entries(ROUNDABOUTS).map(([k, r]) => ({ id: 'round:' + k, name: r.name, piece: 'round', kind: k, blurb: r.blurb + ' Click a junction: the streets are cut back to the ring.' })) ] },
+  { id: 'nature', name: 'Trees & props', color: '#6aa56b', tools: [
+    { id: 'prop:tree', name: 'Tree', prop: 'tree', blurb: 'A street tree.' }, { id: 'prop:oak', name: 'Oak', prop: 'oak', blurb: 'A big round tree: shade for a park or a square.' },
+    { id: 'prop:bush', name: 'Bush', prop: 'bush', blurb: 'A bush or hedge piece. You can drive through it.' }, { id: 'prop:bench', name: 'Bench', prop: 'bench', blurb: 'A park bench.' },
+    { id: 'prop:fountain', name: 'Fountain', prop: 'fountain', blurb: 'A fountain for a square.' }, { id: 'prop:gazebo', name: 'Gazebo', prop: 'gazebo', blurb: 'A park gazebo.' },
+    { id: 'prop:picnic', name: 'Picnic table', prop: 'picnic', blurb: 'A picnic table.' }, { id: 'prop:foodstand', name: 'Food stand', prop: 'foodstand', blurb: 'A snack stand.' },
+    { id: 'prop:cafeset', name: 'Cafe tables', prop: 'cafeset', blurb: 'Outdoor tables and chairs.' }, { id: 'prop:hydrant', name: 'Hydrant', prop: 'hydrant', blurb: 'A fire hydrant.' },
+    { id: 'prop:mailbox', name: 'Mailbox', prop: 'mailbox', blurb: 'A mailbox.' } ] },
+  { id: 'zone', name: 'Zones', color: '#7bd36a', tools: Object.entries(ZONES).map(([k, z]) => ({ id: 'zone:' + k, name: z.name, rect: 'zone', zone: k, color: z.color, blurb: z.blurb + ' Click two corners: buildings fill the space between the streets.' })) },
   { id: 'build', name: 'Buildings', color: '#e56bb0', tools: [
     { id: 'house', name: 'House', size: [3.2, 3.2], hgt: 9, blurb: 'A small family house.' }, { id: 'flats', name: 'Apartment block', size: [7, 5], hgt: 40, blurb: 'Mid-rise flats.' },
     { id: 'office', name: 'Office', size: [8, 7], hgt: 70, blurb: 'A glass office block.' }, { id: 'tower', name: 'Tower', size: [7, 7], hgt: 140, blurb: 'A skyscraper.' }, { id: 'hall', name: 'Hall / warehouse', size: [12, 8], hgt: 14, blurb: 'Wide and low.' } ] },
@@ -56,6 +68,27 @@ function iconFor(t, cv) {
     for (let i = 1; i < n; i++) { if (i === lanes) continue; c.beginPath(); c.moveTo(x0 + lw * i, 4); c.lineTo(x0 + lw * i, H - 4); c.stroke(); } c.setLineDash([]);
     c.strokeStyle = hwy ? 'rgba(0,0,0,0)' : '#f0c020'; c.lineWidth = 1.6; [-1.5, 1.5].forEach(o => { c.beginPath(); c.moveTo(x0 + wpx / 2 + o, 4); c.lineTo(x0 + wpx / 2 + o, H - 4); c.stroke(); });
     c.fillStyle = t.color || roadType(t.road).color; c.beginPath(); c.arc(14, 14, 7, 0, 7); c.fill(); c.fillStyle = '#000'; c.font = 'bold 9px system-ui'; c.textAlign = 'center'; c.textBaseline = 'middle'; c.fillText(roadType(t.road).pin, 14, 14.5); return;
+  }
+  if (t.rect === 'grid' || t.rect === 'zone') {
+    c.fillStyle = '#2f3a2a'; c.fillRect(0, 0, W, H);
+    if (t.rect === 'grid') { c.strokeStyle = '#59616b'; c.lineWidth = 5; for (let i = 0; i < 4; i++) { c.beginPath(); c.moveTo(18 + i * 31, 6); c.lineTo(18 + i * 31, H - 6); c.stroke(); } for (let j = 0; j < 3; j++) { c.beginPath(); c.moveTo(8, 12 + j * 26); c.lineTo(W - 8, 12 + j * 26); c.stroke(); } }
+    else { c.strokeStyle = '#59616b'; c.lineWidth = 4; c.beginPath(); c.moveTo(W / 2, 4); c.lineTo(W / 2, H - 4); c.moveTo(6, H / 2); c.lineTo(W - 6, H / 2); c.stroke();
+      const col = t.color || '#7bd36a'; for (let i = 0; i < 2; i++) for (let j = 0; j < 2; j++) for (let k = 0; k < 3; k++) for (let m = 0; m < 2; m++) { const bh = t.zone === 'commercial' ? 14 + ((i + j + k) % 3) * 5 : t.zone === 'industrial' ? 9 : 7 + (k % 2) * 3; c.fillStyle = col; c.globalAlpha = 0.85; c.fillRect(i * (W / 2) + 8 + k * 16, j * (H / 2) + 6 + m * 14, 12, Math.min(11, bh)); c.globalAlpha = 1; } }
+    return;
+  }
+  if (t.prop) {
+    c.fillStyle = '#4c7a3e'; c.fillRect(0, H - 22, W, 22); const cx = W / 2, g0 = H - 18, k = t.prop;
+    if (k === 'tree' || k === 'oak') { c.fillStyle = '#6b4a2b'; c.fillRect(cx - 3, g0 - 26, 6, 26); c.fillStyle = k === 'oak' ? '#2f7a34' : '#3e9a43'; c.beginPath(); c.arc(cx, g0 - 38, k === 'oak' ? 22 : 16, 0, 7); c.fill(); c.fillStyle = 'rgba(255,255,255,.12)'; c.beginPath(); c.arc(cx - 6, g0 - 44, 8, 0, 7); c.fill(); }
+    else if (k === 'bush') { c.fillStyle = '#2f7a34'; [[-14, 0, 12], [0, -4, 15], [14, 0, 12]].forEach(([x, y, r]) => { c.beginPath(); c.arc(cx + x, g0 - 10 + y, r, 0, 7); c.fill(); }); }
+    else if (k === 'bench') { c.fillStyle = '#8a5a34'; c.fillRect(cx - 24, g0 - 18, 48, 6); c.fillRect(cx - 24, g0 - 10, 48, 5); c.fillStyle = '#333'; [-20, 20].forEach(x => c.fillRect(cx + x - 2, g0 - 6, 4, 8)); }
+    else if (k === 'fountain') { c.fillStyle = '#9aa6b4'; c.beginPath(); c.ellipse(cx, g0 - 6, 28, 9, 0, 0, 7); c.fill(); c.fillStyle = '#4aa3df'; c.beginPath(); c.ellipse(cx, g0 - 8, 22, 6, 0, 0, 7); c.fill(); c.strokeStyle = '#bfe6ff'; c.lineWidth = 2; c.beginPath(); c.moveTo(cx, g0 - 8); c.quadraticCurveTo(cx - 8, g0 - 40, cx - 16, g0 - 14); c.moveTo(cx, g0 - 8); c.quadraticCurveTo(cx + 8, g0 - 40, cx + 16, g0 - 14); c.moveTo(cx, g0 - 8); c.lineTo(cx, g0 - 38); c.stroke(); }
+    else if (k === 'gazebo') { c.fillStyle = '#e8e0d0'; [-18, 18].forEach(x => c.fillRect(cx + x - 2, g0 - 30, 4, 30)); c.fillStyle = '#b0503c'; c.beginPath(); c.moveTo(cx - 28, g0 - 30); c.lineTo(cx, g0 - 50); c.lineTo(cx + 28, g0 - 30); c.fill(); }
+    else if (k === 'picnic') { c.fillStyle = '#8a5a34'; c.fillRect(cx - 24, g0 - 18, 48, 5); c.fillRect(cx - 28, g0 - 8, 56, 4); c.fillRect(cx - 18, g0 - 13, 4, 14); c.fillRect(cx + 14, g0 - 13, 4, 14); }
+    else if (k === 'foodstand') { c.fillStyle = '#e8e8e8'; c.fillRect(cx - 22, g0 - 26, 44, 26); for (let i = 0; i < 6; i++) { c.fillStyle = i % 2 ? '#fff' : '#d4442b'; c.fillRect(cx - 24 + i * 8, g0 - 34, 8, 9); } c.fillStyle = '#333'; c.fillRect(cx - 14, g0 - 18, 28, 8); }
+    else if (k === 'cafeset') { c.fillStyle = '#ddd'; [-18, 16].forEach(x => { c.beginPath(); c.ellipse(cx + x, g0 - 14, 12, 5, 0, 0, 7); c.fill(); c.fillRect(cx + x - 1, g0 - 14, 2, 14); }); c.fillStyle = '#d4442b'; [-4, 30].forEach(x => c.fillRect(cx + x - 8, g0 - 8, 5, 8)); }
+    else if (k === 'hydrant') { c.fillStyle = '#d4442b'; c.fillRect(cx - 6, g0 - 24, 12, 24); c.beginPath(); c.arc(cx, g0 - 26, 7, 0, 7); c.fill(); c.fillRect(cx - 12, g0 - 18, 24, 5); }
+    else if (k === 'mailbox') { c.fillStyle = '#2b4a8c'; c.fillRect(cx - 10, g0 - 28, 20, 18); c.beginPath(); c.arc(cx, g0 - 28, 10, Math.PI, 0); c.fill(); c.fillStyle = '#555'; c.fillRect(cx - 2, g0 - 10, 4, 12); }
+    return;
   }
   if (t.piece === 'inter' || t.piece === 'slip') {
     const cx = W / 2; c.fillStyle = '#2f3a2a'; c.fillRect(0, 0, W, H);
@@ -104,7 +137,7 @@ export function createBuildEditor(ctx) {
   root.append(wrap, side);
   const img = new Image(); img.src = refUrl; img.onload = () => view.redraw();
   const r2 = v => Math.round(v * 100) / 100;
-  let pieceNote = '', tool = 'road:four', cat = 'road', curved = true, snapInfo = null, selStruct = -1, mouse = null, drag = null, busSel = 0, metroSel = 0, roadPts = null, roadName = '', selStreet = -1, showLanes = true, showSigns = true, showImg = true, sLen = 70, sH = 6, hist = [];
+  let rectA = null, gridM = 90, gridCls = 'two', roadTrees = '', pieceNote = '', tool = 'road:four', cat = 'road', curved = true, snapInfo = null, selStruct = -1, mouse = null, drag = null, busSel = 0, metroSel = 0, roadPts = null, roadName = '', selStreet = -1, showLanes = true, showSigns = true, showImg = true, sLen = 70, sH = 6, hist = [];
   const M = () => ctx.map();
   const T = () => { const t = (ctx.custom().transit ||= {}); t.bus ||= []; t.metro ||= []; return t; };
   const toWorld = p => [-(p[0] - M().origin[0]) * S, (M().origin[1] - p[1]) * S], toPx = w => [M().origin[0] - w[0] / S, M().origin[1] - w[1] / S];
@@ -119,6 +152,7 @@ export function createBuildEditor(ctx) {
     const md = M(), out = [];
     (md.landmarks || []).forEach((a, i) => out.push({ k: 'build', px: [(a[1] + a[3]) / 2, (a[2] + a[4]) / 2], rect: [a[1], a[2], a[3], a[4]], label: a[0], color: '#e56bb0', remove: () => md.landmarks.splice(i, 1), move: p => { const w = a[3] - a[1], hh = a[4] - a[2]; a[1] = p[0] - w / 2; a[3] = p[0] + w / 2; a[2] = p[1] - hh / 2; a[4] = p[1] + hh / 2; } }));
     (md.shops || []).forEach((s, i) => out.push({ k: 'shop', px: s.at, label: s.kind, color: '#ffb02e', remove: () => md.shops.splice(i, 1), move: p => { s.at = p; } }));
+    (md.props || []).forEach((q, i) => out.push({ k: 'prop', px: q.at, label: q.type, color: '#6aa56b', remove: () => md.props.splice(i, 1), move: p => { q.at = p; } }));
     (md.stations || []).forEach((s, i) => out.push({ k: 'svc', px: s.at, label: s.kind, color: '#ff5555', remove: () => md.stations.splice(i, 1), move: p => { s.at = p; } }));
     (md.gas || []).forEach((g, i) => out.push({ k: 'gas', px: g, label: 'gas', color: '#ff7f2e', remove: () => md.gas.splice(i, 1), move: p => { md.gas[i] = p; } }));
     (md.structs || []).forEach((s, i) => { if (s.at) out.push({ k: s.h < 0 ? 'tunnel' : 'bridge', st: s, idx: i, px: s.at, label: (s.h < 0 ? 'Tunnel ' : 'Bridge ') + Math.round(s.len * M_PER_U) + ' m', color: s.h < 0 ? '#b08a5a' : '#6fb8ff', remove: () => md.structs.splice(i, 1), move: p => { s.at = p; } }); });
@@ -238,15 +272,15 @@ export function createBuildEditor(ctx) {
     if (showImg && img.complete && img.naturalWidth) { const [x0, y0] = view.toScreen(0, 0); c.globalAlpha = 0.45; c.drawImage(img, x0, y0, img.naturalWidth * SC * view.k, img.naturalHeight * SC * view.k); c.globalAlpha = 1; }
     const city = ctx.cityIfBuilt();
     if (city && city.roadNodes) drawBuilt(c, city);
-    else { streets().forEach(s => { c.strokeStyle = roadType(s.cls).color; c.lineWidth = 3; c.beginPath(); s.pts.forEach((q, i) => { const o = sc(q); i ? c.lineTo(o[0], o[1]) : c.moveTo(o[0], o[1]); }); c.stroke(); }); }
+    else { streets().forEach(s => { c.strokeStyle = rtOfStreet(s).color; c.lineWidth = 3; c.beginPath(); s.pts.forEach((q, i) => { const o = sc(q); i ? c.lineTo(o[0], o[1]) : c.moveTo(o[0], o[1]); }); c.stroke(); }); }
     (M().structs || []).forEach((st, i) => { if (!st.at) return; const geo = structGeo(st); if (!geo) return; const col = st.h < 0 ? '#c9a46a' : '#6fb8ff', P = geo.s.pts, a = geo.along / S;
       const ramp = (from, to) => { const q = slicePoly(P, from, to); if (q.length < 2) return; c.beginPath(); q.forEach((z, j) => { const o = sc(z); j ? c.lineTo(o[0], o[1]) : c.moveTo(o[0], o[1]); }); c.stroke(); };
       c.lineCap = 'butt'; c.setLineDash([]); c.lineWidth = (i === selStruct ? 12 : 8); c.strokeStyle = col + 'ee'; ramp(a - geo.d1 / S, a + geo.d1 / S);       // the structure itself
       c.lineWidth = 6; c.strokeStyle = col + '66'; c.setLineDash([6, 5]); ramp(a - geo.d2 / S, a - geo.d1 / S); ramp(a + geo.d1 / S, a + geo.d2 / S); c.setLineDash([]);   // the ramps
       if (geo.warns.length) { const o = sc(st.at); c.fillStyle = '#ff9f1a'; c.strokeStyle = '#000'; c.beginPath(); c.moveTo(o[0] + 14, o[1] - 24); c.lineTo(o[0] + 22, o[1] - 10); c.lineTo(o[0] + 6, o[1] - 10); c.closePath(); c.fill(); c.stroke(); } });
-    streets().forEach(s => { c.strokeStyle = roadType(s.cls).color + 'aa'; c.lineWidth = 1.5; c.setLineDash([5, 4]); c.beginPath(); s.pts.forEach((q, i) => { const o = sc(q); i ? c.lineTo(o[0], o[1]) : c.moveTo(o[0], o[1]); }); c.stroke(); c.setLineDash([]); });
+    streets().forEach(s => { c.strokeStyle = rtOfStreet(s).color + 'aa'; c.lineWidth = 1.5; c.setLineDash([5, 4]); c.beginPath(); s.pts.forEach((q, i) => { const o = sc(q); i ? c.lineTo(o[0], o[1]) : c.moveTo(o[0], o[1]); }); c.stroke(); c.setLineDash([]); });
     // pins: one at each end of every street (coloured by type, with its letter), small dots on the points between
-    streets().forEach((s, i) => { const rt = roadType(s.cls); if (s.pair && streets().findIndex(q => q.pair === s.pair) !== i) return; const SP = shownPts(s); SP.forEach((q, j) => { const o = sc(q), end = j === 0 || j === SP.length - 1; if (end) pin(c, o[0], o[1], i === selStreet ? '#fff' : rt.color, rt.pin, view.k > 0.8 ? 8 : 5.5); else if (view.k > 1.2) { c.fillStyle = rt.color; c.strokeStyle = '#000'; c.lineWidth = 1; c.beginPath(); c.arc(o[0], o[1], 3, 0, 7); c.fill(); c.stroke(); } }); });
+    streets().forEach((s, i) => { const rt = rtOfStreet(s); if (s.pair && streets().findIndex(q => q.pair === s.pair) !== i) return; const SP = shownPts(s); SP.forEach((q, j) => { const o = sc(q), end = j === 0 || j === SP.length - 1; if (end) pin(c, o[0], o[1], i === selStreet ? '#fff' : rt.color, rt.pin, view.k > 0.8 ? 8 : 5.5); else if (view.k > 1.2) { c.fillStyle = rt.color; c.strokeStyle = '#000'; c.lineWidth = 1; c.beginPath(); c.arc(o[0], o[1], 3, 0, 7); c.fill(); c.stroke(); } }); });
     things().forEach(t => {
       const [x, y] = sc(t.px);
       if (t.rect) { const a = sc([t.rect[0], t.rect[1]]), b = sc([t.rect[2], t.rect[3]]); c.fillStyle = t.color + '88'; c.strokeStyle = t.color; c.lineWidth = 1.5; c.fillRect(a[0], a[1], b[0] - a[0], b[1] - a[1]); c.strokeRect(a[0], a[1], b[0] - a[0], b[1] - a[1]); return; }
@@ -254,7 +288,7 @@ export function createBuildEditor(ctx) {
       c.fillStyle = t.color; c.strokeStyle = '#000'; c.lineWidth = 1.5; c.beginPath();
       if (t.k === 'metro') c.rect(x - 8, y - 8, 16, 16); else if (t.k === 'depot') c.rect(x - 12, y - 8, 24, 16); else c.arc(x, y, t.k === 'busstop' ? 6 : 8, 0, 7);
       c.fill(); c.stroke(); c.fillStyle = '#fff'; c.font = 'bold 10px system-ui'; c.textAlign = 'center'; c.textBaseline = 'middle';
-      c.fillText({ metro: 'M', busstop: 'B', depot: 'D', gas: 'G', svc: '+', shop: '$' }[t.k] || '', x, y + 0.5);
+      c.fillText({ metro: 'M', busstop: 'B', depot: 'D', gas: 'G', svc: '+', shop: '$', prop: '♣' }[t.k] || '', x, y + 0.5);
     });
     T().metro.forEach(l => { if (l.stations.length < 2) return; c.strokeStyle = '#' + (l.color >>> 0).toString(16).padStart(6, '0').slice(-6) + '99'; c.lineWidth = 3; c.setLineDash([8, 6]); c.beginPath(); l.stations.forEach((s, i) => { const q = sc(toPx(s.at)); i ? c.lineTo(q[0], q[1]) : c.moveTo(q[0], q[1]); }); c.stroke(); c.setLineDash([]); });
     // the road being drawn: pins, a smooth rubber band at the road's real width
@@ -270,6 +304,10 @@ export function createBuildEditor(ctx) {
       c.globalAlpha = 0.65; c.fillStyle = t.cat.color; c.strokeStyle = '#fff'; c.lineWidth = 1.5;
       if (t.size) { const w = t.size[0] * view.k, hh = t.size[1] * view.k; c.fillRect(mouse[0] - w / 2, mouse[1] - hh / 2, w, hh); c.strokeRect(mouse[0] - w / 2, mouse[1] - hh / 2, w, hh); }
       else if (t.struct) { const r = nearRoad(view.toWorld(mouse[0], mouse[1]), 30); if (r) { const o = sc([r.x, r.y]), hl = sLen / M_PER_U / S * view.k / 2, ca = Math.cos(r.ang), sa = Math.sin(r.ang); c.lineWidth = 9; c.strokeStyle = t.struct > 0 ? '#6fb8ff' : '#b08a5a'; c.lineCap = 'butt'; c.beginPath(); c.moveTo(o[0] - ca * hl, o[1] - sa * hl); c.lineTo(o[0] + ca * hl, o[1] + sa * hl); c.stroke(); } }
+      else if (t.rect) { c.globalAlpha = 1; const A = rectA || (mouse ? snapAt(view.toWorld(mouse[0], mouse[1])).p : null), B = mouse ? snapAt(view.toWorld(mouse[0], mouse[1])).p : null;
+        if (rectA && B) { const a = sc(rectA), b = sc(B); c.fillStyle = (t.color || '#3dd6a5') + '33'; c.strokeStyle = t.color || '#3dd6a5'; c.lineWidth = 2; c.setLineDash([6, 4]); c.fillRect(a[0], a[1], b[0] - a[0], b[1] - a[1]); c.strokeRect(a[0], a[1], b[0] - a[0], b[1] - a[1]); c.setLineDash([]);
+          if (t.rect === 'grid') { const g = gridStreets(rectA, B, gridM, gridCls); c.lineWidth = 1.5; g.streets.forEach(q => { const u = sc(q.pts[0]), v = sc(q.pts[1]); c.beginPath(); c.moveTo(u[0], u[1]); c.lineTo(v[0], v[1]); c.stroke(); }); } }
+        else if (A) { const o = sc(A); c.beginPath(); c.arc(o[0], o[1], 7, 0, 7); c.stroke(); } }
       else if (t.piece === 'round') { const sn = snapAt(view.toWorld(mouse[0], mouse[1])), q = sn.kind === 'free' ? mouse : sc(sn.p); c.beginPath(); c.arc(q[0], q[1], ROUNDABOUTS[t.kind].R / S * view.k, 0, 7); c.lineWidth = 8; c.globalAlpha = 0.3; c.stroke(); c.globalAlpha = 0.65; c.lineWidth = 1.5; c.stroke(); }
       else if (!t.road) { c.beginPath(); c.arc(mouse[0], mouse[1], 9, 0, 7); c.fill(); c.stroke(); }
       c.globalAlpha = 1; c.fillStyle = '#fff'; c.font = '11px system-ui'; c.textAlign = 'left'; c.textBaseline = 'alphabetic'; c.fillText(t.name, mouse[0] + 14, mouse[1] - 8);
@@ -304,9 +342,9 @@ export function createBuildEditor(ctx) {
       const rt = roadType(t.road);
       if (rt.pair) {     // a highway is two one-way carriageways, driving on the right
         const id = 'hw' + Date.now().toString(36), off = HW_OFF / S, A = offsetLine(pts, off), B = offsetLine(pts, -off).reverse();
-        ss.push({ cls: 'hw', pts: A.map(q => [rd(q[0]), rd(q[1])]), pair: id, name: roadName || undefined, ctl: curved && ctl.length >= 3 ? ctl : undefined }, { cls: 'hw', pts: B.map(q => [rd(q[0]), rd(q[1])]), pair: id, name: roadName || undefined });
+        ss.push({ cls: 'hw', pts: A.map(q => [rd(q[0]), rd(q[1])]), pair: id, name: roadName || undefined, trees: roadTrees || undefined, ctl: curved && ctl.length >= 3 ? ctl : undefined }, { cls: 'hw', pts: B.map(q => [rd(q[0]), rd(q[1])]), pair: id, name: roadName || undefined, trees: roadTrees || undefined });
         if (rt.elev) { const e = elevatedStructs(pts); if (e.error) { pieceNote = e.error; } else { const ph = pts; [A, B.slice().reverse()].forEach(L => { const mid = L[Math.floor(L.length / 2)], ps = L.map(q => [q[0], q[1]]); (M().structs ||= []).push({ at: mid.map(rd), len: r2(e.len), h: e.h }); }); pieceNote = 'Elevated: ' + Math.round(e.len * 1.25) + ' m on the viaduct, ramps of ' + Math.round(e.ramp * 1.25) + ' m at each end.'; } }
-      } else { ss.push({ cls: t.road, pts, name: roadName || undefined, ctl: curved && ctl.length >= 3 ? ctl : undefined }); }
+      } else { ss.push({ cls: rt.cls || t.road, tram: rt.tram || undefined, ped: rt.ped || undefined, pts, name: roadName || undefined, trees: roadTrees || undefined, ctl: curved && ctl.length >= 3 ? ctl : undefined }); }
       const ni = ss.length - 1; [pts[0], pts[pts.length - 1]].forEach(q => spliceOnto(q, rt.pair ? -1 : ni));
       selStreet = ni; dirtyMap(); autoBuild();
     }
@@ -318,6 +356,13 @@ export function createBuildEditor(ctx) {
   }
   function place(p) {
     const t = toolById[tool]; if (!t) return; const m = M(), w = toWorld(p).map(rd);
+    if (t.rect) {
+      if (!rectA) { rectA = snapAt(p).p; renderSide(); view.redraw(); return; }
+      const a = rectA, b = snapAt(p).p; rectA = null; snap(); const ss = streets();
+      if (t.rect === 'grid') { const g = gridStreets(a, b, gridM, gridCls); const n0 = ss.length; g.streets.forEach(q => ss.push(q)); g.streets.forEach((q, i) => [q.pts[0], q.pts[1]].forEach(e => spliceOnto(e, n0 + i))); pieceNote = g.nx + ' × ' + g.ny + ' blocks of ' + gridM + ' m.'; autoBuild(); }
+      else { const rows = zoneFill([a[0], a[1], b[0], b[1]], t.zone, ss, (Date.now() >>> 0) % 100000), md = M(); rows.forEach(r => md.landmarks.push(r)); pieceNote = rows.length + ' buildings placed.'; }
+      dirtyMap(); renderSide(); view.redraw(); return;
+    }
     if (t.piece === 'inter' || t.piece === 'slip') {
       snap(); const ss = streets(), r = t.piece === 'inter' ? interchange(ss, (M().structs ||= []), p, { round: !!t.round }) : slipRoads(ss, p);
       if (r.error) { hist.pop(); pieceNote = r.error; renderSide(); return; }
@@ -328,6 +373,7 @@ export function createBuildEditor(ctx) {
     snap();
     if (t.struct) { const r = nearRoad(p, 30); if (!r) { hist.pop(); return; } (m.structs ||= []).push({ at: [rd(r.x), rd(r.y)], len: Math.round(sLen / M_PER_U), h: t.struct * Math.round(sH / M_PER_U * 10) / 10 }); dirtyMap(); autoBuild(); }
     else if (t.cat.id === 'build') { m.landmarks.push([t.name, rd(p[0] - t.size[0] / 2), rd(p[1] - t.size[1] / 2), rd(p[0] + t.size[0] / 2), rd(p[1] + t.size[1] / 2), t.hgt]); dirtyMap(); }
+    else if (t.prop) { (m.props ||= []).push({ type: t.prop, at: [rd(p[0]), rd(p[1])], rot: 0 }); dirtyMap(); }
     else if (t.cat.id === 'shop') { (m.shops ||= []).push({ kind: t.kind, at: [rd(p[0]), rd(p[1])], r: 60 }); dirtyMap(); }
     else if (t.cat.id === 'svc' && t.kind) { (m.stations ||= []).push({ kind: t.kind, at: [rd(p[0]), rd(p[1])], r: 101 }); dirtyMap(); }
     else if (t.id === 'gas') { (m.gas ||= []).push([rd(p[0]), rd(p[1])]); dirtyMap(); }
@@ -345,6 +391,7 @@ export function createBuildEditor(ctx) {
   canvas.addEventListener('mousedown', e => {
     const [mx, my] = view.mouse(e), hit = hitThing(mx, my);
     if (e.button === 2) {
+      if (rectA) { rectA = null; renderSide(); view.redraw(); return; }
       if (roadPts) { finishRoad(); return; }
       if (hit) { snap(); hit.remove(); ctx.dirty(isTransit(hit.k) ? 'transit' : 'map'); renderSide(); view.redraw(); return; }
       const sp = hitStreetPin(mx, my); if (sp) { snap(); delStreet(sp.i); selStreet = -1; dirtyMap(); autoBuild(); renderSide(); view.redraw(); } return;
@@ -379,18 +426,22 @@ export function createBuildEditor(ctx) {
     const cur = toolById[tool], c0 = CATS.find(c => c.id === cat), st = streets()[selStreet];
     put(side, h('h3', {}, 'City builder'),
       h('div', { class: 'row', style: 'flex-wrap:wrap;gap:4px;margin-bottom:8px' }, CATS.map(c => h('button', { class: 'btn' + (cat === c.id ? ' pri' : ''), onclick: () => { cat = c.id; if (!c.tools.some(t => t.id === tool)) tool = c.tools[0].id; roadPts = null; renderSide(); view.redraw(); } }, c.name))),
-      h('div', { class: 'cards' }, c0.tools.map(t => card({ ...t, color: t.color }, () => { tool = t.id; roadPts = null; renderSide(); view.redraw(); }, tool === t.id))),
+      h('div', { class: 'cards' }, c0.tools.map(t => card({ ...t, color: t.color }, () => { tool = t.id; roadPts = null; rectA = null; renderSide(); view.redraw(); }, tool === t.id))),
       cur && cur.road ? h('div', {}, h('p', { class: 'hint' }, roadPts ? `Drawing: ${roadPts.length} point${roadPts.length > 1 ? 's' : ''}. Click to add a point (it snaps to existing roads), double-click or Enter to finish, Esc to cancel, Backspace/Ctrl+Z removes a point.` : 'Click the map to start a road. Each click drops a pin; the road is drawn at its real width. Click near an existing road to join it. Alt + click a pin to select that road.'),
         h('div', { class: 'row' }, 'Name ', h('input', { type: 'text', value: roadName, placeholder: '(optional)', style: 'width:150px', oninput: e => { roadName = e.target.value; } })),
+        h('div', { class: 'row' }, 'Roadside ', h('select', { onchange: e => { roadTrees = e.target.value; } }, [['', 'none'], ['tree', 'trees'], ['oak', 'oaks'], ['mixed', 'mixed trees'], ['hedge', 'hedge']].map(([v, n]) => h('option', { value: v, selected: v === roadTrees }, n)))),
         h('div', { class: 'row' }, h('label', {}, h('input', { type: 'checkbox', checked: curved, onchange: e => { curved = e.target.checked; view.redraw(); } }), ' Curved road (smooth curve through 3+ points)')),
         roadPts && roadPts.length >= 2 ? h('div', { class: 'row' }, h('button', { class: 'btn pri', onclick: finishRoad }, 'Finish road')) : null) : null,
       cur && cur.struct ? h('div', {}, h('p', { class: 'hint' }, cur.blurb),
         h('div', { class: 'row' }, 'Length ', h('input', { type: 'number', value: sLen, step: 10, min: 20, style: 'width:70px', oninput: e => { sLen = +e.target.value || 70; view.redraw(); } }), ' m   ', cur.struct > 0 ? 'Height ' : 'Depth ', h('input', { type: 'number', value: sH, step: 1, min: 2, style: 'width:60px', oninput: e => { sH = +e.target.value || 6; } }), ' m')) : null,
       cur && !cur.road && !cur.struct && cur.blurb ? h('p', { class: 'hint' }, cur.blurb) : null,
-      cur && cur.piece && pieceNote ? h('p', { class: 'hint', style: 'color:#3dd6a5' }, pieceNote) : null,
+      cur && cur.rect === 'grid' ? h('div', { class: 'row' }, 'Block ', h('input', { type: 'number', value: gridM, step: 10, min: 40, style: 'width:60px', oninput: e => { gridM = Math.max(40, +e.target.value || 90); } }), ' m   Street ', h('select', { onchange: e => { gridCls = e.target.value; } }, ROAD_TYPES.filter(r => !r.pair).map(r => h('option', { value: r.id, selected: r.id === gridCls }, r.name)))) : null,
+      cur && cur.rect ? h('p', { class: 'hint' }, rectA ? 'Now click the opposite corner (right-click to cancel).' : 'Click the first corner.') : null,
+      cur && (cur.piece || cur.rect) && pieceNote ? h('p', { class: 'hint', style: 'color:#3dd6a5' }, pieceNote) : null,
       cur && cur.id === 'busstop' ? h('div', { class: 'row' }, 'Line ', h('select', { onchange: e => { busSel = +e.target.value; } }, (T().bus.length ? T().bus : [{ name: 'a new line' }]).map((l, i) => h('option', { value: i, selected: i === busSel }, l.name)))) : null,
       cur && cur.id === 'metro' ? h('div', { class: 'row' }, 'Line ', h('select', { onchange: e => { metroSel = +e.target.value; } }, (T().metro.length ? T().metro : [{ name: 'a new line' }]).map((l, i) => h('option', { value: i, selected: i === metroSel }, l.name)))) : null,
-      st ? h('div', { class: 'grp' }, h('h4', {}, 'Selected road'), h('div', { class: 'row' }, 'Type ', h('select', { onchange: e => { snap(); st.cls = e.target.value; dirtyMap(); renderSide(); view.redraw(); } }, ROAD_TYPES.map(r => h('option', { value: r.id, selected: r.id === st.cls }, r.name)))),
+      st ? h('div', { class: 'grp' }, h('h4', {}, 'Selected road'), h('div', { class: 'row' }, 'Type ', h('select', { onchange: e => { snap(); const rt = roadType(e.target.value); st.cls = rt.cls || rt.id; st.tram = rt.tram || undefined; st.ped = rt.ped || undefined; dirtyMap(); autoBuild(); renderSide(); view.redraw(); } }, ROAD_TYPES.filter(r => !r.pair).map(r => h('option', { value: r.id, selected: r.id === (st.tram ? 'tram' : st.ped ? 'ped' : st.cls) }, r.name)))),
+        h('div', { class: 'row' }, 'Roadside ', h('select', { onchange: e => { snap(); const v = e.target.value || undefined; (st.pair ? streets().filter(o => o.pair === st.pair) : [st]).forEach(o => { o.trees = v; }); dirtyMap(); } }, [['', 'none'], ['tree', 'trees'], ['oak', 'oaks'], ['mixed', 'mixed trees'], ['hedge', 'hedge']].map(([v, n]) => h('option', { value: v, selected: v === (st.trees || '') }, n)))),
         h('div', { class: 'row' }, 'Name ', h('input', { type: 'text', value: st.name || '', style: 'width:150px', oninput: e => { st.name = e.target.value || undefined; dirtyMap(); } })),
         h('div', { class: 'row' }, h('button', { class: 'btn danger', onclick: () => { snap(); delStreet(selStreet); selStreet = -1; dirtyMap(); autoBuild(); renderSide(); view.redraw(); } }, 'Delete road'))) : null,
       selStructPanel(),
