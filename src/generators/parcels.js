@@ -149,10 +149,10 @@ export function buildParcels(cityData) {
     }
     const geo = new THREE.ShapeGeometry(footprintToShape(p.footprint));
     geo.rotateX(-Math.PI / 2);
-    const mat = new THREE.MeshStandardMaterial({ color: (p.type === 'plaza' && p.color != null) ? p.color : (parcelColor[p.type] || 0x888888), roughness: p.type === 'water' ? 0.2 : 0.9 });
+    const mat = new THREE.MeshStandardMaterial({ color: ((p.type === 'plaza' || p.type === 'field') && p.color != null) ? p.color : (parcelColor[p.type] || 0x888888), roughness: p.type === 'water' ? 0.2 : 0.9 });
     if (p.type === 'water' && !p.deck) animateWater(mat, !!p.river);
     const mesh = new THREE.Mesh(geo, mat);
-    mesh.position.y = p.deck ? 0.12 : p.river ? WATER_Y : p.type === 'water' ? 0.05 : p.type === 'plaza' ? 0.04 : 0.02;
+    mesh.position.y = p.deck ? 0.12 : p.river ? WATER_Y : p.type === 'water' ? 0.05 : p.type === 'plaza' ? 0.04 : p.type === 'field' ? 0.02 + (p.lift || 0) : 0.02;
     mesh.receiveShadow = true;
     group.add(mesh);
     instances.push({ id: 'parcel' + i, type: p.type, footprint: p.footprint, mesh, deck: !!p.deck });

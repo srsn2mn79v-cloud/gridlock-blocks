@@ -3,6 +3,7 @@
 // shops hidden in alleys, and apartments to buy. Deterministic (seeded) so every load is the same city.
 import { generateRoads } from './gen_network.js';
 import { CLASSES } from './network.js';
+import { BKINDS, FIELDS } from '../buildKinds.js';
 import { widenInterchanges } from '../hwLanes.js';
 import { buildEdgesByNode, intersectionClearance } from '../roadMath.js';
 import { BANK_W } from '../rivers.js';
@@ -342,7 +343,7 @@ export function buildChicago() {
     parcels.push({ type: 'building', height: 17, color: 0xd8d2c4, roof: 'flat', footprint: rectFp(sc[0] + a, sc[1] + b, sc[0] + c, sc[1] + d) }));
   // landmarks
   const lmRects = [];
-  LANDMARKS.forEach(([name, X0_, Y0_, X1_, Y1_, h, onDeck]) => {
+  LANDMARKS.forEach(([name, X0_, Y0_, X1_, Y1_, h, onDeck, kind]) => {
     const a = T(X0_, Y0_), b = T(X1_, Y1_);
     let x0 = Math.min(a[0], b[0]), x1 = Math.max(a[0], b[0]), z0 = Math.min(a[1], b[1]), z1 = Math.max(a[1], b[1]);
     if (hasHW && nearestOnPoly((x0 + x1) / 2, (z0 + z1) / 2, R.H).side !== hwSide) return;
@@ -360,8 +361,24 @@ export function buildChicago() {
     }
     if (x1 - x0 < 16 || z1 - z0 < 16 || (!onDeck && inWater((x0 + x1) / 2, (z0 + z1) / 2, 0))) return;
     lmRects.push([x0 - 6, z0 - 6, x1 + 6, z1 + 6]);
-    const tall = h > 100;
-    parcels.push({ type: 'building', name, landmark: true, height: h, color: tall ? 0x20242b : 0xd9c9c4, roof: tall ? 'tiers' : 'flat', footprint: rectFp(x0, z0, x1, z1) });
+    const tall = h > 100, K = kind && BKINDS[kind];
+    if (K && K.podium) {   // a skyscraper on a shop podium: the wide low base is the shops at street level
+      parcels.push({ type: 'building', name: name + ' (shops)', landmark: true, height: K.podium, color: 0xd9a066, roof: 'flat', footprint: rectFp(x0, z0, x1, z1) });
+      const ix = (x1 - x0) * 0.2, iz = (z1 - z0) * 0.2;
+      parcels.push({ type: 'building', name, landmark: true, height: h, color: K.color, roof: 'tiers', footprint: rectFp(x0 + ix, z0 + iz, x1 - ix, z1 - iz) });
+    } else parcels.push({ type: 'building', name, landmark: true, height: h, color: K ? K.color : tall ? 0x20242b : 0xd9c9c4, roof: K ? K.roof : tall ? 'tiers' : 'flat', footprint: rectFp(x0, z0, x1, z1) });
+  });
+  // land cover from the city builder: fields, grass, pasture, forest (trees are added with the props below)
+  const fieldTrees = [];
+  (MAP.fields || []).forEach((f, fi) => {
+    const F = FIELDS[f.kind]; if (!F || !f.rect) return;
+    const a = T(f.rect[0], f.rect[1]), b = T(f.rect[2], f.rect[3]), x0 = Math.min(a[0], b[0]), x1 = Math.max(a[0], b[0]), z0 = Math.min(a[1], b[1]), z1 = Math.max(a[1], b[1]);
+    if (x1 - x0 < 6 || z1 - z0 < 6 || inWater((x0 + x1) / 2, (z0 + z1) / 2, 0)) return;
+    lmRects.push([x0, z0, x1, z1]);
+    parcels.push({ type: 'field', name: F.name, color: F.color, footprint: rectFp(x0, z0, x1, z1) });
+    if (F.furrow) { const n = Math.min(70, Math.floor((z1 - z0) / 3)), st = (z1 - z0) / Math.max(1, n); for (let k = 0; k < n; k++) parcels.push({ type: 'field', lift: 0.03, name: F.name, color: F.furrow, footprint: rectFp(x0 + 1, z0 + k * st + st * 0.35, x1 - 1, z0 + k * st + st * 0.65) }); }
+    if (F.trees) { let seed = (fi + 1) * 7919; const rnd = () => { seed = (seed * 1664525 + 1013904223) >>> 0; return seed / 4294967296; };
+      for (let x = x0 + 3; x < x1 - 2 && fieldTrees.length < 1800; x += 7) for (let z = z0 + 3; z < z1 - 2 && fieldTrees.length < 1800; z += 7) { const px = x + rnd() * 4 - 2, pz = z + rnd() * 4 - 2; if (roadClear(px, pz) < 7) continue; fieldTrees.push({ type: rnd() < 0.45 ? 'oak' : 'tree', x: r2(px), z: r2(pz), rotation: Math.round(rnd() * 360) }); } }
   });
   // cells
   const C = 8, gx0 = -1500, gz0 = -1400, NX = Math.ceil((1250 - gx0) / C), NZ = Math.ceil((2350 - gz0) / C);
@@ -732,6 +749,7 @@ export function buildChicago() {
     }
   });
   props.push(...treeList);
+  props.push(...fieldTrees);
   (MAP.props || []).forEach(q => { if (!q || !q.at) return; const [px, pz] = T(q.at[0], q.at[1]); props.push({ type: q.type, x: r2(px), z: r2(pz), rotation: q.rot || 0 }); });       // props placed in the builder
   // pedestrian path lights: low posts on a loose grid through the parks (they glow at night, see props.js / main.js)
   PARKS.forEach(pk => {

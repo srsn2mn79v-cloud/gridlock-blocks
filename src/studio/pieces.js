@@ -1,3 +1,4 @@
+import { BKINDS } from '../buildKinds.js';
 // Premade junctions for the City builder. Each piece is stamped into map.streets / map.structs as ordinary roads (map pixels, 1 px = S units,
 // 1 unit = 1.25 m), so the game builds them like any other road. Pure geometry, no DOM.
 export const S = 2.5;
@@ -218,9 +219,12 @@ export function gridStreets(a, b, blockM = 90, cls = 'two') {
 
 // Zones: fill a rectangle with buildings between the streets. Returns landmark rows [name, x0, y0, x1, y1, height].
 export const ZONES = {
-  residential: { name: 'Residential zone', color: '#7bd36a', blurb: 'Houses and low flats along the streets.', kinds: [['House', 3.2, 3.2, 9, 0.7], ['Apartment block', 7, 5, 40, 0.3]] },
-  commercial: { name: 'Commercial zone', color: '#4aa3ff', blurb: 'Offices, towers and shop blocks.', kinds: [['Office', 8, 7, 70, 0.6], ['Tower', 7, 7, 140, 0.2], ['Apartment block', 7, 5, 40, 0.2]] },
-  industrial: { name: 'Industrial zone', color: '#e0b030', blurb: 'Warehouses and halls.', kinds: [['Hall / warehouse', 12, 8, 14, 0.8], ['Office', 8, 7, 70, 0.2]] }
+  residential: { name: 'Residential zone', color: '#7bd36a', blurb: 'Houses, terraces and low flats.', kinds: [['house', .45], ['terrace', .2], ['flats', .25], ['shopfront', .1]] },
+  dense: { name: 'High-rise residential', color: '#a9d36a', blurb: 'Apartment towers and mid-rise flats.', kinds: [['highrise', .5], ['flats', .5]] },
+  commercial: { name: 'Commercial zone', color: '#4aa3ff', blurb: 'Shop rows, offices and towers with shops at street level.', kinds: [['shopfront', .35], ['office', .3], ['towershops', .15], ['flats', .2]] },
+  downtown: { name: 'Downtown (skyscrapers)', color: '#7a8cff', blurb: 'Skyscrapers on shop podiums, plus offices.', kinds: [['towershops', .45], ['tower', .3], ['office', .25]] },
+  industrial: { name: 'Industrial zone', color: '#e0b030', blurb: 'Warehouses, factories, halls and tanks.', kinds: [['warehouse', .3], ['factory', .25], ['hall', .25], ['silo', .2]] },
+  farmstead: { name: 'Farmstead', color: '#c98a4a', blurb: 'A few farm buildings spread out: farmhouse, barns, silos.', gap: 10, kinds: [['farmhouse', .25], ['barn', .45], ['silo', .3]] }
 };
 export function zoneFill(rect, kind, streets, seed = 1) {
   const z = ZONES[kind], x0 = Math.min(rect[0], rect[2]), x1 = Math.max(rect[0], rect[2]), y0 = Math.min(rect[1], rect[3]), y1 = Math.max(rect[1], rect[3]);
@@ -229,15 +233,15 @@ export function zoneFill(rect, kind, streets, seed = 1) {
   const nearStreet = (x, y, rad) => streets.some(st => { const hw = (half[st.cls] || 8) / S + rad; for (let j = 1; j < st.pts.length; j++) { const A = st.pts[j - 1], B = st.pts[j];
     if (x < Math.min(A[0], B[0]) - hw || x > Math.max(A[0], B[0]) + hw || y < Math.min(A[1], B[1]) - hw || y > Math.max(A[1], B[1]) + hw) continue;
     const dx = B[0] - A[0], dy = B[1] - A[1], l2 = dx * dx + dy * dy || 1, t = Math.max(0, Math.min(1, ((x - A[0]) * dx + (y - A[1]) * dy) / l2)); if (Math.hypot(A[0] + dx * t - x, A[1] + dy * t - y) < hw) return true; } return false; });
-  const pick = () => { let r = rnd(), tot = z.kinds.reduce((t, k) => t + k[4], 0); r *= tot; for (const k of z.kinds) { if ((r -= k[4]) < 0) return k; } return z.kinds[0]; };
+  const pick = () => { let r = rnd() * z.kinds.reduce((t, k) => t + k[1], 0); for (const k of z.kinds) { if ((r -= k[1]) < 0) return BKINDS[k[0]] && { id: k[0], ...BKINDS[k[0]] }; } const f = z.kinds[0][0]; return { id: f, ...BKINDS[f] }; }, gap = z.gap || 1.4;
   for (let y = y0 + 3; y < y1 - 3 && out.length < 500; ) {
     let rowH = 0;
     for (let x = x0 + 3; x < x1 - 3 && out.length < 500; ) {
-      const k = pick(), w = k[1], d = k[2], cx = x + w / 2, cy = y + d / 2;
-      if (x + w <= x1 && y + d <= y1 && !nearStreet(cx, cy, Math.max(w, d) / 2 + 0.6) && !nearStreet(x, y, 0.8) && !nearStreet(x + w, y + d, 0.8)) { out.push([k[0], r2(x), r2(y), r2(x + w), r2(y + d), Math.round(k[3] * (0.8 + rnd() * 0.5))]); }
-      x += w + 1.4; rowH = Math.max(rowH, d);
+      const k = pick(), w = k.size[0], d = k.size[1], cx = x + w / 2, cy = y + d / 2;
+      if (x + w <= x1 && y + d <= y1 && !nearStreet(cx, cy, Math.max(w, d) / 2 + 0.6) && !nearStreet(x, y, 0.8) && !nearStreet(x + w, y + d, 0.8)) { out.push([k.name, r2(x), r2(y), r2(x + w), r2(y + d), Math.round(k.h * (0.8 + rnd() * 0.5)), 0, k.id]); }
+      x += w + gap; rowH = Math.max(rowH, d);
     }
-    y += (rowH || 4) + 1.4;
+    y += (rowH || 4) + gap;
   }
   return out;
 }

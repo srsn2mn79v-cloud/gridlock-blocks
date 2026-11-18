@@ -2,6 +2,7 @@
 // cards (picture, name, what it does), then click the map to put it down. Roads are drawn point by point (pins mark each point, coloured by type),
 // bridges and tunnels are dropped onto a road, and the map can show the roads the game really builds: every lane, the traffic lights, the stop signs
 // and where the road changes width (the lanes merge there).
+import { BKINDS, FIELDS } from '../buildKinds.js';
 import { put, h, View, SC, S } from './common.js';
 import refUrl from './ref-map.png';
 import { SHOP_KINDS } from '../chicago/chicago.js';
@@ -42,9 +43,8 @@ const CATS = [
     { id: 'prop:cafeset', name: 'Cafe tables', prop: 'cafeset', blurb: 'Outdoor tables and chairs.' }, { id: 'prop:hydrant', name: 'Hydrant', prop: 'hydrant', blurb: 'A fire hydrant.' },
     { id: 'prop:mailbox', name: 'Mailbox', prop: 'mailbox', blurb: 'A mailbox.' } ] },
   { id: 'zone', name: 'Zones', color: '#7bd36a', tools: Object.entries(ZONES).map(([k, z]) => ({ id: 'zone:' + k, name: z.name, rect: 'zone', zone: k, color: z.color, blurb: z.blurb + ' Click two corners: buildings fill the space between the streets.' })) },
-  { id: 'build', name: 'Buildings', color: '#e56bb0', tools: [
-    { id: 'house', name: 'House', size: [3.2, 3.2], hgt: 9, blurb: 'A small family house.' }, { id: 'flats', name: 'Apartment block', size: [7, 5], hgt: 40, blurb: 'Mid-rise flats.' },
-    { id: 'office', name: 'Office', size: [8, 7], hgt: 70, blurb: 'A glass office block.' }, { id: 'tower', name: 'Tower', size: [7, 7], hgt: 140, blurb: 'A skyscraper.' }, { id: 'hall', name: 'Hall / warehouse', size: [12, 8], hgt: 14, blurb: 'Wide and low.' } ] },
+  { id: 'build', name: 'Buildings', color: '#e56bb0', tools: Object.entries(BKINDS).map(([k, b]) => ({ id: 'b:' + k, bk: k, name: b.name, size: b.size, hgt: b.h, blurb: b.blurb })) },
+  { id: 'land', name: 'Land', color: '#8fae3c', tools: Object.entries(FIELDS).map(([k, f]) => ({ id: 'field:' + k, field: k, name: f.name, rect: 'field', color: '#' + f.color.toString(16).padStart(6, '0'), blurb: f.blurb + ' Click two corners. Roads can cross it; generated buildings keep off it.' })) },
   { id: 'shop', name: 'Shops', color: '#ffb02e', tools: Object.keys(SHOP_KINDS).map(k => ({ id: 'shop:' + k, name: SHOP_KINDS[k].name || k, kind: k, color: SHOP_KINDS[k].color, blurb: SHOP_KINDS[k].desc || '' })) },
   { id: 'svc', name: 'Services', color: '#ff5555', tools: [
     { id: 'svc:hospital', name: 'Hospital', kind: 'hospital', blurb: 'Ambulances start here.' }, { id: 'svc:police', name: 'Police station', kind: 'police', blurb: 'Police cars start here.' },
@@ -71,6 +71,8 @@ function iconFor(t, cv) {
     c.strokeStyle = hwy ? 'rgba(0,0,0,0)' : '#f0c020'; c.lineWidth = 1.6; [-1.5, 1.5].forEach(o => { c.beginPath(); c.moveTo(x0 + wpx / 2 + o, 4); c.lineTo(x0 + wpx / 2 + o, H - 4); c.stroke(); });
     c.fillStyle = t.color || roadType(t.road).color; c.beginPath(); c.arc(14, 14, 7, 0, 7); c.fill(); c.fillStyle = '#000'; c.font = 'bold 9px system-ui'; c.textAlign = 'center'; c.textBaseline = 'middle'; c.fillText(roadType(t.road).pin, 14, 14.5); return;
   }
+  if (t.bk) { const B = BKINDS[t.bk], hh = Math.min(H - 16, 14 + B.h * 0.5), ww = Math.min(70, 16 + B.size[0] * 4), hex = '#' + B.color.toString(16).padStart(6, '0'); box(W / 2 - ww / 2, H - 10 - hh, ww, hh, hex, B.h > 10); if (B.podium) box(W / 2 - 40, H - 22, 80, 12, '#d9a066', 1); if (B.roof === 'gable') { c.fillStyle = '#7a3a2e'; c.beginPath(); c.moveTo(W / 2 - ww / 2 - 3, H - 10 - hh); c.lineTo(W / 2, H - 22 - hh); c.lineTo(W / 2 + ww / 2 + 3, H - 10 - hh); c.fill(); } return; }
+  if (t.field) { const F = FIELDS[t.field], hex = n => '#' + n.toString(16).padStart(6, '0'); c.fillStyle = hex(F.color); c.fillRect(0, 0, W, H); if (F.furrow) { c.fillStyle = hex(F.furrow); for (let y = 8; y < H; y += 12) c.fillRect(0, y, W, 5); } if (F.trees) { for (let i = 0; i < 14; i++) { c.fillStyle = i % 3 ? '#3f7a3a' : '#2a5a2a'; c.beginPath(); c.arc(12 + (i * 37) % (W - 20), 12 + (i * 23) % (H - 20), 9, 0, 7); c.fill(); } } return; }
   if (t.rect === 'grid' || t.rect === 'zone') {
     c.fillStyle = '#2f3a2a'; c.fillRect(0, 0, W, H);
     if (t.rect === 'grid') { c.strokeStyle = '#59616b'; c.lineWidth = 5; for (let i = 0; i < 4; i++) { c.beginPath(); c.moveTo(18 + i * 31, 6); c.lineTo(18 + i * 31, H - 6); c.stroke(); } for (let j = 0; j < 3; j++) { c.beginPath(); c.moveTo(8, 12 + j * 26); c.lineTo(W - 8, 12 + j * 26); c.stroke(); } }
@@ -154,6 +156,7 @@ export function createBuildEditor(ctx) {
   function things() {
     const md = M(), out = [];
     (md.landmarks || []).forEach((a, i) => out.push({ k: 'build', px: [(a[1] + a[3]) / 2, (a[2] + a[4]) / 2], rect: [a[1], a[2], a[3], a[4]], label: a[0], color: '#e56bb0', remove: () => md.landmarks.splice(i, 1), move: p => { const w = a[3] - a[1], hh = a[4] - a[2]; a[1] = p[0] - w / 2; a[3] = p[0] + w / 2; a[2] = p[1] - hh / 2; a[4] = p[1] + hh / 2; } }));
+    (md.fields || []).forEach((f, i) => { const F = FIELDS[f.kind] || {}; out.push({ k: 'field', px: [(f.rect[0] + f.rect[2]) / 2, (f.rect[1] + f.rect[3]) / 2], rect: f.rect, label: F.name || f.kind, color: '#' + (F.color || 0x5d9a45).toString(16).padStart(6, '0'), remove: () => md.fields.splice(i, 1), move: p => { const w = f.rect[2] - f.rect[0], hh = f.rect[3] - f.rect[1]; f.rect = [p[0] - w / 2, p[1] - hh / 2, p[0] + w / 2, p[1] + hh / 2].map(rd); } }); });
     (md.shops || []).forEach((s, i) => out.push({ k: 'shop', px: s.at, label: s.kind, color: '#ffb02e', remove: () => md.shops.splice(i, 1), move: p => { s.at = p; } }));
     (md.props || []).forEach((q, i) => out.push({ k: 'prop', px: q.at, label: q.type, color: '#6aa56b', remove: () => md.props.splice(i, 1), move: p => { q.at = p; } }));
     (md.stations || []).forEach((s, i) => out.push({ k: 'svc', px: s.at, label: s.kind, color: '#ff5555', remove: () => md.stations.splice(i, 1), move: p => { s.at = p; } }));
@@ -363,6 +366,7 @@ export function createBuildEditor(ctx) {
       if (!rectA) { rectA = snapAt(p).p; renderSide(); view.redraw(); return; }
       const a = rectA, b = snapAt(p).p; rectA = null; snap(); const ss = streets();
       if (t.rect === 'grid') { const g = gridStreets(a, b, gridM, gridCls); const n0 = ss.length; g.streets.forEach(q => ss.push(q)); g.streets.forEach((q, i) => [q.pts[0], q.pts[1]].forEach(e => spliceOnto(e, n0 + i))); pieceNote = g.nx + ' × ' + g.ny + ' blocks of ' + gridM + ' m.'; autoBuild(); }
+      else if (t.rect === 'field') { (m.fields ||= []).push({ kind: t.field, rect: [Math.min(a[0], b[0]), Math.min(a[1], b[1]), Math.max(a[0], b[0]), Math.max(a[1], b[1])].map(rd) }); pieceNote = t.name + ' added.'; }
       else { const rows = zoneFill([a[0], a[1], b[0], b[1]], t.zone, ss, (Date.now() >>> 0) % 100000), md = M(); rows.forEach(r => md.landmarks.push(r)); pieceNote = rows.length + ' buildings placed.'; }
       dirtyMap(); renderSide(); view.redraw(); return;
     }
@@ -375,7 +379,7 @@ export function createBuildEditor(ctx) {
     if (t.road) { const sn = snapAt(p); (roadPts ||= []).push(sn.p); renderSide(); view.redraw(); return; }
     snap();
     if (t.struct) { const r = nearRoad(p, 30); if (!r) { hist.pop(); return; } (m.structs ||= []).push({ at: [rd(r.x), rd(r.y)], len: Math.round(sLen / M_PER_U), h: t.struct * Math.round(sH / M_PER_U * 10) / 10 }); dirtyMap(); autoBuild(); }
-    else if (t.cat.id === 'build') { m.landmarks.push([t.name, rd(p[0] - t.size[0] / 2), rd(p[1] - t.size[1] / 2), rd(p[0] + t.size[0] / 2), rd(p[1] + t.size[1] / 2), t.hgt]); dirtyMap(); }
+    else if (t.cat.id === 'build') { m.landmarks.push([t.name, rd(p[0] - t.size[0] / 2), rd(p[1] - t.size[1] / 2), rd(p[0] + t.size[0] / 2), rd(p[1] + t.size[1] / 2), t.hgt, 0, t.bk]); dirtyMap(); }
     else if (t.prop) { (m.props ||= []).push({ type: t.prop, at: [rd(p[0]), rd(p[1])], rot: 0 }); dirtyMap(); }
     else if (t.cat.id === 'shop') { (m.shops ||= []).push({ kind: t.kind, at: [rd(p[0]), rd(p[1])], r: 60 }); dirtyMap(); }
     else if (t.cat.id === 'svc' && t.kind) { (m.stations ||= []).push({ kind: t.kind, at: [rd(p[0]), rd(p[1])], r: 101 }); dirtyMap(); }
