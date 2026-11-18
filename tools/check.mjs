@@ -793,6 +793,17 @@ async function checkMetro() {
   (tn.segs || []).forEach(s => { if (s.chain !== undefined && !s.feeder) { segs++; if (!s.rails) bad.push('tunnel part without rails @' + r1(s.x || 0) + ',' + r1(s.z || 0)); } });
   const st = (transit.metro && transit.metro.lines || []).flatMap(l => l.stations);
   st.forEach(s => { if (!(tn.stairs || []).some(h => Math.hypot(h.S.x - s.x, h.S.z - s.z) < 1)) bad.push('station ' + s.name + ' has no walk-down shaft'); });
+  // walkable: from the top of every shaft, down the stairs and along the concourse, the floor under a walker steps down smoothly and is never missing
+  (tn.stairs || []).forEach(t => {
+    let prev = 0, y = 0;
+    for (let u = 0; u <= t.SL + t.cl - 0.1; u += 0.5) {
+      const onS = u < t.SL - 0.01, lt = -1.85, x = onS ? t.px + t.dx * u - t.dz * lt : t.fx + t.cx * (u - t.SL), z = onS ? t.pz + t.dz * u + t.dx * lt : t.fz + t.cz * (u - t.SL);
+      const f = tn.footFloor(x, z, onS ? Math.max(prev, -1) : prev), ok = tn.footOK(x, z);
+      if (f == null || !ok) { bad.push('station ' + t.S.name + ': no walkable floor ' + (onS ? 'on the stairs' : 'in the concourse') + ' at ' + r1(u) + ' u'); break; }
+      if (Math.abs(f - y) > 0.9) { bad.push('station ' + t.S.name + ': floor jumps ' + r1(y) + ' -> ' + r1(f) + ' at ' + r1(u) + ' u'); break; }
+      y = f; prev = f;
+    }
+  });
   return { name: 'metro', count: chains.length + ' lines, ' + segs + ' tunnel parts, ' + st.length + ' stations, tightest curve ' + r1(minR * 1.25) + ' m', bad };
 }
 

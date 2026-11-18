@@ -174,6 +174,7 @@ export function createTunnels({ city, scene, transit, collisionWorld, parcels = 
         const cx = (ex - fx) / cl, cz = (ez - fz) / cl, al = dx * cx + dz * cz; if (al < RX.al || Math.abs(cx * nx + cz * nz) < 0.5) continue;
         const score = r + cl * 0.3 + (1 - al) * 40; if (best && score >= best.score) continue;
         let ok = true;
+        for (let u = 0; u <= SL && ok; u += 3) if (stairs.some(q => { const w = Math.max(0, Math.min(q.SL, (px + dx * u - q.px) * q.dx + (pz + dz * u - q.pz) * q.dz)); return Math.hypot(px + dx * u - q.px - q.dx * w, pz + dz * u - q.pz - q.dz * w) < 8; })) ok = false;      // never across another shaft
         for (let u = 0; u <= SL && ok; u += 2.5) for (const lat of [-4.2, 0, 4.2]) {
           const x = px + dx * u - dz * lat, z = pz + dz * u + dx * lat;
           if (lotAt(x, z) !== null || propHit(x, z, 0.7) || nearKeep(x, z) && u > 0) { ok = false; break; }
