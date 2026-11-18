@@ -524,7 +524,7 @@ const bus = createBusJob({ transit, nodes: city.roadNodes, scene, taxi, toast: m
   restoreBody: () => { car.setStyle(settings.car); refreshCamOffset(); camRig.setMode(camRig.mode); world.applyMods(); } });
 let modalPause = false;
 const tunnels = createTunnels({ city, scene, transit, collisionWorld, parcels: parcelInstances, props: propInstances, cityHeight: heightAt, toast: msg => world.toast(msg) });
-if (pedestrians.setMetro) pedestrians.setMetro(tunnels.stairs);
+if (pedestrians.setMetro) pedestrians.setMetro(tunnels.stairs, tunnels.platformSpot);
 tunnelPolys = tunnels.holes; setGarageHoles(null);
 const world = createWorld({ tunnels, transit, setGarageHoles, city, scene, camera, car, input, heightAt, collisionWorld, parcelInstances, taxi, env, setModalPause: v => { modalPause = v; },
   chooseCar: key => { settings.car = key; saveSettings(settings); applySetting('car', key); menu.refresh?.(); } });

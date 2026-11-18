@@ -398,7 +398,7 @@ export function createWorld({ tunnels = null, transit = null, setGarageHoles, ci
   function blockedAt(x, z) {
     if (mode === 'garage') return pocketBlocked(x, z);
     if (mode === 'flat') return flatBlocked(x, z);
-    if (tunnels && tunnels.footOK && foot.y < -1.2) return !tunnels.footOK(x, z);      // in a metro station only the stairs, concourse and platforms exist
+    if (tunnels && tunnels.footOK && foot.y < -1.2) return !tunnels.footOK(x, z, foot.y);      // in a metro station only the stairs, concourse and platforms exist
     if (waterPolys.some(w => pointInPoly(x, z, w)) && heightAt(x, z, foot.y) < 0.6) return true;
     const cell = grid.get(gkey(Math.floor(x / BUCKET), Math.floor(z / BUCKET)));
     if (cell) for (const it of cell) {

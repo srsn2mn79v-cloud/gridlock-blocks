@@ -347,37 +347,51 @@ export function createPedestrianSystem(cityData, scene, count = 14, maxCount = c
   }
   // the metro: people walk to a station's shaft, down the stairs, vanish for the ride and come up the stairs of another station
   const metroEntrances = [];
-  function setMetro(shafts) {
+  let platformSpot = () => ({ x: 0, z: 0, y: 0, fx: 0, fz: 1 });
+  function setMetro(shafts, spotFn) {
+    if (spotFn) platformSpot = spotFn;
     metroEntrances.length = 0;
     (shafts || []).forEach(t => metroEntrances.push({ x: t.px, z: t.pz, metro: t }));
   }
   const nearestWaypoint = (x, z) => { let bi = 0, bd = 1e9; waypoints.forEach((w, i) => { const d = Math.hypot(w.x - x, w.z - z); if (d < bd) { bd = d; bi = i; } }); return bi; };
+  // a metro trip is a path of points: top of the stairs -> down the stairs -> concourse -> platform (wait) -> [train] -> platform -> concourse -> up the stairs -> street
+  function metroPath(t, down, lat) {
+    const foot = { x: t.fx, z: t.fz, y: t.S.fp }, top = { x: t.px - t.dz * lat, z: t.pz + t.dx * lat, y: 0 }, f2 = { x: t.px + t.dx * t.SL - t.dz * lat, z: t.pz + t.dz * t.SL + t.dx * lat, y: t.S.fp };
+    const E = { x: t.fx + t.cx * t.cl, z: t.fz + t.cz * t.cl, y: t.S.fp }, Q = platformSpot(t);
+    return down ? [top, f2, foot, E, { x: Q.x, z: Q.z, y: Q.y, face: [Q.fx, Q.fz] }] : [{ x: Q.x, z: Q.z, y: Q.y }, E, foot, f2, top];
+  }
   function stepMetro(p, dt, car) {
     const en = p.enter, t = en.e.metro, w = waypoints[en.wp], spd = p.speed * 0.9, step = spd * dt;
-    const onStairs = u => { const lat = en.lat || 0, x = t.px + t.dx * u - t.dz * lat, z = t.pz + t.dz * u + t.dx * lat, y = t.S.fp * Math.max(0, Math.min(1, u / t.SL)); p.renderX = x; p.renderZ = z; p.mesh.position.set(x, y, z); if (p.lod < 2) animate(p, dt, true, spd); return [x, z]; };
+    const place = (x, y, z) => { p.renderX = x; p.renderZ = z; p.mesh.position.set(x, y, z); };
     const face = (dx, dz) => { const want = Math.atan2(dx, dz); let d = want - p.yaw; d = Math.atan2(Math.sin(d), Math.cos(d)); p.yaw += d * Math.min(1, dt * 8); p.mesh.rotation.y = p.yaw; };
     if (car && en.phase !== 1) setLod(p, Math.hypot(p.renderX - car.x, p.renderZ - car.z));
     if (en.phase === 0) {                              // to the top of the stairs
       const dx = en.e.x - p.renderX, dz = en.e.z - p.renderZ, d = Math.hypot(dx, dz);
-      if (d <= Math.max(step, 0.4)) { en.phase = 3; en.u = 0; en.lat = (Math.random() - 0.5) * 1.5; return; }
+      if (d <= Math.max(step, 0.4)) { en.lat = -(1.85 + (Math.random() - 0.5) * 0.4); en.path = metroPath(t, true, en.lat); en.i = 0; en.pos = { x: en.path[0].x, z: en.path[0].z, y: 0 }; en.phase = 3; return; }
       p.renderX += dx / d * step; p.renderZ += dz / d * step; if (p.lod < 2) animate(p, dt, true, spd);
       p.mesh.position.set(p.renderX, w.elevation, p.renderZ); face(dx, dz); return;
     }
-    if (en.phase === 3) {                              // down the stairs
-      en.u += step; onStairs(Math.min(en.u, t.SL)); face(t.dx, t.dz);
-      if (en.u >= t.SL) { en.phase = 1; en.timer = 14 + Math.random() * 50; p.mesh.visible = false; stats.entered++; }
+    if (en.phase === 3 || en.phase === 4) {            // along the path (3: going down to the platform, 4: coming back up to the street)
+      const goal = en.path[en.i + 1];
+      if (!goal) { if (en.phase === 3) { en.phase = 5; en.timer = 8 + Math.random() * 30; } else { en.phase = 2; p.renderX = t.px; p.renderZ = t.pz; } return; }
+      const dx = goal.x - en.pos.x, dz = goal.z - en.pos.z, dy = goal.y - en.pos.y, d = Math.hypot(dx, dz) || 1e-6, m = Math.min(1, step / d);
+      en.pos.x += dx * m; en.pos.z += dz * m; en.pos.y += dy * m;
+      place(en.pos.x, en.pos.y, en.pos.z); if (p.lod < 2) animate(p, dt, true, spd); face(dx, dz);
+      if (m >= 1) en.i++;
       return;
     }
-    if (en.phase === 1) {                              // on the train: back up at another station
+    if (en.phase === 5) {                              // standing on the platform, facing the track, waiting for the train
+      const q = en.path[en.path.length - 1]; place(q.x, q.y, q.z); if (q.face) face(q.face[0], q.face[1]);
+      en.timer -= dt; if (en.timer <= 0) { en.phase = 1; en.timer = 12 + Math.random() * 30; p.mesh.visible = false; stats.entered++; }
+      return;
+    }
+    if (en.phase === 1) {                              // on the train: off again at another station
       en.timer -= dt; if (en.timer > 0) return;
       const others = metroEntrances.filter(o => o !== en.e && Math.hypot(o.x - en.e.x, o.z - en.e.z) > 150), pick = others.length ? others : metroEntrances;
       const o = pick[Math.floor(Math.random() * pick.length)] || en.e;
-      en.e = o; en.wp = nearestWaypoint(o.x, o.z); en.phase = 4; en.u = o.metro.SL; en.lat = (Math.random() - 0.5) * 1.5;
+      en.e = o; en.wp = nearestWaypoint(o.x, o.z); en.phase = 4; en.lat = 1.85 + (Math.random() - 0.5) * 0.4;
+      en.path = metroPath(o.metro, false, en.lat); en.i = 0; en.pos = { x: en.path[0].x, z: en.path[0].z, y: en.path[0].y };
       p.mesh.visible = p.active && p.lod < 2; return;
-    }
-    if (en.phase === 4) {                              // up the stairs
-      en.u -= step; onStairs(Math.max(en.u, 0)); face(-t.dx, -t.dz);
-      if (en.u <= 0) { en.phase = 2; p.renderX = t.px; p.renderZ = t.pz; }
     }
   }
   // walking into a door: straight to it, vanish for a while, come back out and rejoin the pavement
