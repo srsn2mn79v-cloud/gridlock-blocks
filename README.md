@@ -793,7 +793,7 @@ function per new type) whenever you want it — say the word and I'll add them.
   - **Races**: drop checkpoints anywhere. The route is the shortest road path between consecutive checkpoints (Dijkstra, `src/routeTool.js`); each checkpoint is joined to the nearest road by a straight connector, so a checkpoint off the road makes the race cross grass (drawn dashed orange). Circuit (closed loop, laps) or Sprint (A to B). Shift+click the route inserts a checkpoint; drag to move; right-click deletes. Custom races join the generated ones in the race menu.
   - **Cars**: side-profile editor (body outline, glass, extra boxes such as roof / wing / bed) with a live 3-D preview, plus colour, class, top speed, acceleration, mass, braking, handling and dealership price per car. The six player cars are now data (`CAR_SPECS` in `vehicleModels.js`).
   - **Upgrades**: every price and effect in the performance, tuning, paint and body-kit shops (`UPGRADE_DEFAULTS` in `src/customData.js`), the dealership prices, and a calculator that shows what a build does to a car.
-- `npm run build:html` now also makes `dist-singlefile-studio/studio.html` (the Studio as one file).
+- `npm run build:html` now also makes `dist-singlefile-studio/studio.html` (the Studio as one file). "Save & play" in the single-file studio opens `gridlock-blocks.html` (a copy of the game file, made by the same command) from the same folder, not `index.html`, which may belong to something else.
 - Fixes needed by the new layout: lamps/signs far from any road are dropped, props inside buildings or water are dropped, the circuit generator is more tolerant, bus lines may use local streets.
 - Not covered: the old `city-editor.html` (different data format) is obsolete.
 
