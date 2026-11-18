@@ -156,16 +156,45 @@ export function slipRoads(streets, p) {
 }
 
 // A street over the highway with slip roads on every side.
+// The loops of a cloverleaf for one carriageway (frame F): the left turn off the highway (a 270 degree loop that joins the street's level stretch) and the
+// left turn on to it (the same loop turned round). They run on the ground under the bridge and climb to the street's height on the way round.
+const LOOP = { R: 32, P: 66, H: 4.0, SPEED: 35 };
+function loopRamps(F) {
+  const { R, P, H } = LOOP, offU = F.offU, rd = q => [r2(q[0]), r2(q[1])];
+  const ctl = [[-20, offU], [-2, offU + 1.2], [14, offU + 5], [26, offU + 15], [R, P - R]];       // lead-in, ends at the west-most point of the circle
+  const iw = ctl.length - 1;
+  for (let a = 150; a >= -90; a -= 30) ctl.push([R + R * Math.sin(a * Math.PI / 180), P + R * Math.cos(a * Math.PI / 180)]);   // clockwise to the street
+  ctl[ctl.length - 1] = [0, P];
+  const build = (list, wi, hwEnd, rev) => {
+    const pts = list.map(([sv, lv]) => F.pos(sv, lv)), hwV = F.vertexAt(hwEnd); pts[rev ? pts.length - 1 : 0] = hwV;
+    const c = curve(pts, 6); c[rev ? c.length - 1 : 0] = hwV.slice();
+    // elevation: level on the ground up to the circle, then a steady climb to the street's height (reversed for the way on)
+    let iwd = 0, bd = 1e9; c.forEach((q, i) => { const d = hyp(q, pts[wi]); if (d < bd) { bd = d; iwd = i; } });
+    const cum = [0]; for (let i = 1; i < c.length; i++) cum.push(cum[i - 1] + hyp(c[i], c[i - 1]));
+    const el = c.map((_, i) => rev ? (i >= iwd ? 0 : H * (1 - cum[i] / (cum[iwd] || 1))) : (i <= iwd ? 0 : H * (cum[i] - cum[iwd]) / ((cum[c.length - 1] - cum[iwd]) || 1)));
+    return { pts: c.map(rd), elevs: el.map(v => r2(v)) };
+  };
+  const A = build(ctl, iw, -20, false);
+  const refl = ctl.map(([sv, lv]) => [-sv, lv]).reverse(), B = build(refl, ctl.length - 1 - iw, 20, true);
+  const mk = (o, name) => ({ cls: 'ramp', pts: o.pts, elevs: o.elevs, speed: LOOP.SPEED, loop: true, name });
+  return [mk(A, 'Loop ramp (off)'), mk(B, 'Loop ramp (on)')];
+}
+
 export function interchange(streets, structs, p, opts = {}) {
   const F = hwFrame(streets, p); if (!F) return { error: 'Click a highway.' };
-  const g = deckGeo(), Lo = g.d2 + (opts.round ? ROUNDABOUTS.small.R + 8 : 18), c = F.centre, warns = [];
+  const g = opts.clover ? { d1: deckGeo().d1, h: LOOP.H, d2: LOOP.P + LOOP.H / GRADE, plat: LOOP.P } : deckGeo(), Lo = g.d2 + (opts.round ? ROUNDABOUTS.small.R + 8 : opts.clover ? 16 : 18), c = F.centre, warns = [];
   const G = frameOn(streets, F.partner, c);           // the other carriageway, with the same middle
   if (!G) return { error: 'The other carriageway was not found.' };
   const one = sideRamps(F, Lo), two = sideRamps(G, Lo); warns.push(...one.warns);
   const far = (g.d2 + 150) / S, r = F.r, A = [c[0] + r[0] * far, c[1] + r[1] * far], B = [c[0] - r[0] * far, c[1] - r[1] * far];
   streets.push({ cls: 'four', pts: [B, two.T, one.T, A].map(q => [r2(q[0]), r2(q[1])]), name: 'Interchange road' });
   [...one.streets, ...two.streets].forEach(s => streets.push(s));
-  structs.push({ at: [r2(c[0]), r2(c[1])], len: r2(2 * g.d1), h: g.h });
+  structs.push({ at: [r2(c[0]), r2(c[1])], len: r2(2 * g.d1), h: g.h, ...(g.plat ? { plat: g.plat } : {}) });
+  if (opts.clover) {
+    if (F.room[0] < 360 || F.room[1] < 360 || G.room[0] < 360 || G.room[1] < 360) warns.push('The highway is short here: the loops and ramps need about 450 m each side.');
+    [...loopRamps(F), ...loopRamps(G)].forEach(l => streets.push(l));
+    return { warnings: warns, note: 'Cloverleaf added: four loop ramps (35 km/h) climb to the street, which stays level for 80 m each side of the bridge, plus four outer ramps. Connect the street ends to your roads.' };
+  }
   if (opts.round) { roundabout(streets, one.T, 'small'); roundabout(streets, two.T, 'small'); return { warnings: warns, note: 'Roundabout interchange added: a street crosses on a bridge and a roundabout sits at each end of it. Connect the street ends to your roads.' }; }
   return { warnings: warns, note: 'Interchange added: a street crosses on a bridge and four slip roads join it. Connect the street ends to your roads.' };
 }

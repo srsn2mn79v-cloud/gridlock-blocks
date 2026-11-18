@@ -63,6 +63,8 @@ export function buildChicago() {
     if (e.line.oneWay) o.oneWay = true;
     if (e.line.trees) o.trees = e.line.trees;
     if (e.line.tram) o.tram = true;
+    if (e.line.speed) o.speedLimit = e.line.speed;
+    if (e.line.loop) o.loop = true;
     if (e.line.ped) { o.ped = true; o.speedLimit = 15; }
     if (e.line.ring) { o.ring = true; o.speedLimit = 40; }          // a roundabout's ring: one way, and the traffic on it has the right of way
     o.cls = e.line.cls;

@@ -30,6 +30,7 @@ const CATS = [
   { id: 'junction', name: 'Junctions', color: '#3dd6a5', tools: [
     { id: 'inter:diamond', name: 'Highway interchange', piece: 'inter', blurb: 'Click a highway: a street crosses it on a bridge, with four slip roads (diamond interchange).' },
     { id: 'inter:round', name: 'Roundabout interchange', piece: 'inter', round: true, blurb: 'Click a highway: a street crosses it on a bridge, with a roundabout and slip roads on each side.' },
+    { id: 'inter:clover', name: 'Cloverleaf', piece: 'inter', clover: true, blurb: 'Click a highway: a street crosses on a bridge, with four 35 km/h loop ramps that climb to it and four outer ramps. Needs a long highway.' },
     { id: 'slip', name: 'Exit & entry ramps', piece: 'slip', blurb: 'Click a highway carriageway: an exit and an entry ramp with a short street to connect to.' },
     ...Object.entries(ROUNDABOUTS).map(([k, r]) => ({ id: 'round:' + k, name: r.name, piece: 'round', kind: k, blurb: r.blurb + ' Click a junction: the streets are cut back to the ring.' })) ] },
   { id: 'nature', name: 'Trees & props', color: '#6aa56b', tools: [
@@ -98,6 +99,7 @@ function iconFor(t, cv) {
       c.strokeStyle = '#59616b'; c.lineWidth = 9; c.beginPath(); c.moveTo(0, H / 2); c.lineTo(W, H / 2); c.stroke();
       c.fillStyle = '#6b727c'; c.fillRect(cx - 14, H / 2 - 6, 28, 12); c.strokeStyle = '#e9e9e4'; c.lineWidth = 1; c.strokeRect(cx - 14, H / 2 - 6, 28, 12);
       [[1, 1], [1, -1], [-1, 1], [-1, -1]].forEach(([sx, sy]) => ramp(cx + sx * 9, H / 2 + sy * 34, cx + sx * 20, H / 2 + sy * 14, cx + sx * 36, H / 2));
+      if (t.clover) { c.strokeStyle = '#59616b'; c.lineWidth = 3; [[1, 1], [1, -1], [-1, 1], [-1, -1]].forEach(([sx, sy]) => { c.beginPath(); c.arc(cx + sx * 20, H / 2 + sy * 17, 8, 0, 7); c.stroke(); }); }
       if (t.round) { c.strokeStyle = '#59616b'; c.lineWidth = 4; [-1, 1].forEach(sx => { c.beginPath(); c.arc(cx + sx * 40, H / 2, 7, 0, 7); c.stroke(); }); }
     } else { ramp(cx + 9, H - 6, cx + 26, H / 2 + 6, cx + 40, H / 2 - 4); ramp(cx + 40, H / 2 - 4, cx + 24, H / 2 - 14, cx + 9, 6); c.strokeStyle = '#59616b'; c.lineWidth = 7; c.beginPath(); c.moveTo(cx + 40, H / 2 - 4); c.lineTo(W - 2, H / 2 - 4); c.stroke(); }
     return;
@@ -221,7 +223,7 @@ export function createBuildEditor(ctx) {
     let best = null; streets().forEach((s, i) => { const r = alongOf(s.pts, st.at); if (!best || r.d < best.d) best = { i, s, ...r }; });
     if (!best || best.d > 6) return null;
     const k = CLASSES[best.s.cls] || CLASSES.two, g = 0.95 * (k.maxGrade || 0.06), d1 = st.len / 2, ramp = Math.abs(st.h) / g, total = polyLen(best.s.pts) * S, along = best.along * S;
-    const warns = [], info = { ...best, d1, ramp, d2: d1 + ramp, g, total, along, warns };
+    const warns = [], info = { ...best, d1, ramp, d2: (st.plat || d1) + ramp, g, total, along, warns };
     if (along - info.d2 < 4 || along + info.d2 > total - 4) warns.push('The ramps run past the end of the road (' + Math.round(info.d2 * M_PER_U) + ' m each side of the middle): make the road longer or the structure lower.');
     // junctions on the span or the ramps
     const pts = [], city = ctx.cityIfBuilt();
@@ -364,7 +366,7 @@ export function createBuildEditor(ctx) {
       dirtyMap(); renderSide(); view.redraw(); return;
     }
     if (t.piece === 'inter' || t.piece === 'slip') {
-      snap(); const ss = streets(), r = t.piece === 'inter' ? interchange(ss, (M().structs ||= []), p, { round: !!t.round }) : slipRoads(ss, p);
+      snap(); const ss = streets(), r = t.piece === 'inter' ? interchange(ss, (M().structs ||= []), p, { round: !!t.round, clover: !!t.clover }) : slipRoads(ss, p);
       if (r.error) { hist.pop(); pieceNote = r.error; renderSide(); return; }
       pieceNote = [r.note, ...(r.warnings || [])].join(' '); dirtyMap(); autoBuild(); renderSide(); view.redraw(); return;
     }

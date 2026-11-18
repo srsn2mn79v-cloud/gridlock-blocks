@@ -6,7 +6,7 @@
 // lines (roads.js) and the stop-sign props (signs.js) so all three always agree.
 import { buildEdgesByNode } from './roadMath.js';
 
-export const roadRank = e => (e.ring ? 4 : e.type === 'highway' || e.interstate ? 3 : e.type === 'avenue' ? 2 : 1);
+export const roadRank = e => (e.ring ? 4 : e.loop ? 1 : e.type === 'highway' || e.interstate ? 3 : e.type === 'avenue' ? 2 : 1);
 
 export const stopKey = (nodeId, edgeId) => nodeId + '|' + edgeId;
 

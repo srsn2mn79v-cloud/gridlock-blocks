@@ -27,7 +27,7 @@ export function generateRoads() {
   STREETS.forEach((s, i) => {
     if (!s.pts || s.pts.length < 2) return;
     const pts = TP(s.pts);
-    lines.push({ id: 'L' + i, cls: CLASSES[s.cls] ? s.cls : 'two', pts: pts.map(p => [p[0], p[1]]), bridge: true, noBridge: 'highway', name: s.name, ...(s.oneWay ? { oneWay: true } : {}), ...(s.trees ? { trees: s.trees } : {}), ...(s.tram ? { tram: true } : {}), ...(s.ped ? { ped: true } : {}), ...(s.ring ? { ring: true, noJoin: false } : {}) });
+    lines.push({ id: 'L' + i, cls: CLASSES[s.cls] ? s.cls : 'two', pts: pts.map(p => [p[0], p[1]]), bridge: true, noBridge: 'highway', name: s.name, ...(s.oneWay ? { oneWay: true } : {}), ...(s.trees ? { trees: s.trees } : {}), ...(s.tram ? { tram: true } : {}), ...(s.ped ? { ped: true } : {}), ...(s.speed ? { speed: s.speed } : {}), ...(s.loop ? { loop: true } : {}), ...(s.elevs ? { elevs: s.elevs, fixedEnds: true, noJoin: true } : {}), ...(s.ring ? { ring: true, noJoin: false } : {}) });
   });
   // ---- bridges and tunnels marked on the map: map.structs = [{at:[X,Y], len, h}] (h > 0 a bridge that high, h < 0 a tunnel that deep, in units)
   //      or {line:'name', from, to, h} to span part of a named road (to < 0 counts back from its end) ----
@@ -39,7 +39,7 @@ export function generateRoads() {
       lines.forEach(L => { let acc = 0; for (let i = 1; i < L.pts.length; i++) { const l = Math.hypot(L.pts[i][0] - L.pts[i - 1][0], L.pts[i][1] - L.pts[i - 1][1]), r = distToSeg(x, z, L.pts[i - 1][0], L.pts[i - 1][1], L.pts[i][0], L.pts[i][1]); if (!best || r.d < best.d) best = { d: r.d, L, s: acc + r.t * l, tot: 0 }; acc += l; } });
       if (!best || best.d > 40) { warnings.push('no road at the structure at ' + st.at); return; }
       const tot = plen(best.L.pts), s0 = Math.max(0, best.s - st.len / 2), s1 = Math.min(tot, best.s + st.len / 2);
-      (best.L.structs ||= []).push({ s0, s1, h: st.h });
+      (best.L.structs ||= []).push({ s0, s1, h: st.h, ...(st.plat ? { plat: st.plat } : {}) });
     });
   }
   // ---- river bridges: arterials that stop on one bank and line up with another arterial on the far bank get joined ---------------------------
