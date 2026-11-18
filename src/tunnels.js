@@ -15,38 +15,41 @@ export const METRO_MIN_R = 72;   // 90 m            // 95 m: no curve of a line 
 const unit = (a, b) => { const dx = b.x - a.x, dz = b.z - a.z, l = Math.hypot(dx, dz) || 1; return { x: dx / l, z: dz / l, l }; };
 const angBetween = (u, v) => Math.acos(Math.max(-1, Math.min(1, u.x * v.x + u.z * v.z)));
 // the path of one line: a straight through every station (the platforms), joined by arcs; the arc radius is shrunk (never below 72 u) when stations are close
-export function metroPath(st) {
-  const P = st.map(s => ({ x: s.x, z: s.z })), n = P.length;
-  const T = P.map((p, i) => { if (i === 0) return unit(P[0], P[1]); if (i === n - 1) return unit(P[n - 2], P[n - 1]); const u = unit(P[i - 1], p), v = unit(p, P[i + 1]), x = u.x + v.x, z = u.z + v.z, l = Math.hypot(x, z) || 1; return { x: x / l, z: z / l }; });
+export function metroPath(st, loop = false) {
+  const P = st.map(s => ({ x: s.x, z: s.z })), n = P.length, cyc = !!loop && n >= 3, nx1 = i => (i + 1) % n, pv = i => (i + n - 1) % n;
+  const T = P.map((p, i) => {
+    if (!cyc && i === 0) return unit(P[0], P[1]); if (!cyc && i === n - 1) return unit(P[n - 2], P[n - 1]);
+    const u = unit(P[pv(i)], p), v = unit(p, P[nx1(i)]), x = u.x + v.x, z = u.z + v.z, l = Math.hypot(x, z) || 1; return { x: x / l, z: z / l }; });
   let best = null;
-  for (let R = 84; R >= 72; R -= 2) {
+  for (const STUB of [26, 24.2, 23.4]) for (let R = 84; R >= 72 && !(best && best.ok); R -= 2) {
     let ok = true, V;
     const aB = P.map(() => 30), aA = P.map(() => 30);
     for (let it = 0; it < 6; it++) {                                          // the corner points depend on the angles between them: iterate until they settle
-      V = [{ x: P[0].x - T[0].x * 30, z: P[0].z - T[0].z * 30, f: 0 }];
-      for (let i = 0; i < n; i++) { if (i) V.push({ x: P[i].x - T[i].x * aA[i], z: P[i].z - T[i].z * aA[i], f: 1, i, side: 'A' }); V.push({ x: P[i].x, z: P[i].z, f: 0, st: 1 }); if (i < n - 1) V.push({ x: P[i].x + T[i].x * aB[i], z: P[i].z + T[i].z * aB[i], f: 1, i, side: 'B' }); }
-      V.push({ x: P[n - 1].x + T[n - 1].x * 30, z: P[n - 1].z + T[n - 1].z * 30, f: 0 });
-      for (let k = 1; k < V.length - 1; k++) { if (V[k].st) continue; const th = angBetween(unit(V[k - 1], V[k]), unit(V[k], V[k + 1])), a = Math.max(30, 26 + R * Math.tan(th / 2)); if (V[k].side === 'A') aA[V[k].i] = a; else aB[V[k].i] = a; }
+      V = cyc ? [] : [{ x: P[0].x - T[0].x * 30, z: P[0].z - T[0].z * 30, f: 0 }];
+      for (let i = 0; i < n; i++) { if (i || cyc) V.push({ x: P[i].x - T[i].x * aA[i], z: P[i].z - T[i].z * aA[i], f: 1, i, side: 'A' }); V.push({ x: P[i].x, z: P[i].z, f: 0, st: 1 }); if (i < n - 1 || cyc) V.push({ x: P[i].x + T[i].x * aB[i], z: P[i].z + T[i].z * aB[i], f: 1, i, side: 'B' }); }
+      if (!cyc) V.push({ x: P[n - 1].x + T[n - 1].x * 30, z: P[n - 1].z + T[n - 1].z * 30, f: 0 });
+      const L = V.length, g = k => V[cyc ? (k + L) % L : k], k0 = cyc ? 0 : 1, k1 = cyc ? L : L - 1;
+      for (let k = k0; k < k1; k++) { const v = g(k); if (v.st) continue; const th = angBetween(unit(g(k - 1), v), unit(v, g(k + 1))), a = Math.max(30, STUB + R * Math.tan(th / 2)); if (v.side === 'A') aA[v.i] = a; else aB[v.i] = a; }
     }
-    // corners: the vertices that are not station points
-    const arcs = []; let used = new Array(V.length).fill(0);
-    for (let k = 1; k < V.length - 1; k++) { if (V[k].st) continue; const d1 = unit(V[k - 1], V[k]), d2 = unit(V[k], V[k + 1]), th = angBetween(d1, d2); if (th < 0.01) continue; used[k] = R * Math.tan(th / 2); }
-    for (let k = 1; k < V.length - 1; k++) { if (!used[k]) continue; const before = unit(V[k - 1], V[k]).l - (V[k - 1].st ? 25 : 0), after = unit(V[k], V[k + 1]).l - (V[k + 1].st || V[k + 1].f === 0 ? 25 : 0); if (used[k] + (used[k - 1] || 0) > before - 0.5 || used[k] + (used[k + 1] || 0) > after - 0.5) { ok = false; break; } }
-    if (ok || R === 72) { best = { V, R, ok }; if (ok) break; }
+    const L = V.length, g = k => V[cyc ? (k + L) % L : k], k0 = cyc ? 0 : 1, k1 = cyc ? L : L - 1, used = new Array(L).fill(0), u = k => used[cyc ? (k + L) % L : k] || 0;
+    for (let k = k0; k < k1; k++) { const v = g(k); if (v.st) continue; const th = angBetween(unit(g(k - 1), v), unit(v, g(k + 1))); if (th < 0.01) continue; used[(k + L) % L] = R * Math.tan(th / 2); }
+    for (let k = k0; k < k1; k++) { if (!u(k)) continue; const before = unit(g(k - 1), g(k)).l - (g(k - 1).st ? STUB - 1 : 0), after = unit(g(k), g(k + 1)).l - (g(k + 1).st || g(k + 1).f === 0 ? STUB - 1 : 0); if (u(k) + u(k - 1) > before - 0.5 || u(k) + u(k + 1) > after - 0.5) { ok = false; break; } }
+    if (ok || (R === 72 && STUB < 24)) best = { V, R, ok, STUB };
   }
-  const { V, R } = best, out = [{ x: V[0].x, z: V[0].z }];
-  for (let k = 1; k < V.length - 1; k++) {
-    const d1 = unit(V[k - 1], V[k]), d2 = unit(V[k], V[k + 1]), th = angBetween(d1, d2);
-    if (V[k].st || th < 0.01) { out.push({ x: V[k].x, z: V[k].z }); continue; }
-    const lim1 = V[k - 1].st ? d1.l - 25 : d1.l - 0.5, lim2 = V[k + 1].st || V[k + 1].f === 0 ? d2.l - 25 : d2.l - 0.5, tl = Math.min(R * Math.tan(th / 2), lim1, lim2), r = tl / Math.tan(th / 2);      // (a corner too tight for R would be rounded with a smaller r; the check reports it)
-    const T1 = { x: V[k].x - d1.x * tl, z: V[k].z - d1.z * tl }, T2 = { x: V[k].x + d2.x * tl, z: V[k].z + d2.z * tl };
+  const { V, R } = best, L = V.length, g = k => V[cyc ? (k + L) % L : k], out = [];
+  const corner = k => {
+    const v = g(k), d1 = unit(g(k - 1), v), d2 = unit(v, g(k + 1)), th = angBetween(d1, d2);
+    if (v.st || th < 0.01) { out.push({ x: v.x, z: v.z }); return; }
+    const lim1 = g(k - 1).st ? d1.l - (best.STUB - 1) : d1.l - 0.5, lim2 = g(k + 1).st || g(k + 1).f === 0 ? d2.l - (best.STUB - 1) : d2.l - 0.5, tl = Math.min(R * Math.tan(th / 2), lim1, lim2), r = tl / Math.tan(th / 2);      // (a corner too tight for R would be rounded with a smaller r; the check reports it)
+    const T1 = { x: v.x - d1.x * tl, z: v.z - d1.z * tl }, T2 = { x: v.x + d2.x * tl, z: v.z + d2.z * tl };
     const dd = d1.x * d2.x + d1.z * d2.z, nx = d2.x - d1.x * dd, nz = d2.z - d1.z * dd, nl = Math.hypot(nx, nz) || 1, C = { x: T1.x + nx / nl * r, z: T1.z + nz / nl * r };
     const p0 = Math.atan2(T1.z - C.z, T1.x - C.x); let dl = Math.atan2(T2.z - C.z, T2.x - C.x) - p0; while (dl > Math.PI) dl -= 2 * Math.PI; while (dl < -Math.PI) dl += 2 * Math.PI;
     const m = Math.max(3, Math.ceil(r * Math.abs(dl) / 3));
     for (let q = 0; q <= m; q++) { const a = p0 + dl * q / m; out.push({ x: C.x + Math.cos(a) * r, z: C.z + Math.sin(a) * r }); }
-  }
-  out.push({ x: V[V.length - 1].x, z: V[V.length - 1].z });
-  return { pts: out, R: best.R, fits: best.ok };
+  };
+  if (cyc) { for (let k = 1; k <= L; k++) corner(k); out.push({ x: out[0].x, z: out[0].z }); }      // a closed circuit: from the first station's platform all the way round to it again
+  else { out.push({ x: V[0].x, z: V[0].z }); for (let k = 1; k < V.length - 1; k++) corner(k); out.push({ x: V[V.length - 1].x, z: V[V.length - 1].z }); }
+  return { pts: out, R: best.R, fits: best.ok, loop: cyc };
 }
 
 export function createTunnels({ city, scene, transit, collisionWorld, parcels = [], props = [], cityHeight, toast = () => {} }) {
@@ -74,7 +77,7 @@ export function createTunnels({ city, scene, transit, collisionWorld, parcels = 
   lines.forEach(l => {
     l.dy = (lines.indexOf(l) % 3) * -7;                                  // lines run at different depths (0, -7, -14 u): crossings pass over / under each other
     l.stations.forEach(s => stationsAt.push({ x: s.x, z: s.z, name: s.name, color: l.color, st: s, line: l, dy: l.dy }));
-    const lp = metroPath(l.stations); addChain(lp.pts, { line: l, poly: true, radius: lp.R, fits: lp.fits });
+    const lp = metroPath(l.stations, l.loop); addChain(lp.pts, { line: l, poly: true, radius: lp.R, fits: lp.fits, loop: lp.loop });
   });
 
   // ---- where a ramp can go: free ground beside a road, near a station ----
@@ -382,9 +385,10 @@ export function createTunnels({ city, scene, transit, collisionWorld, parcels = 
   chains.filter(c => c.line).forEach(c => {
     const pts = c.pts, cum = [0]; for (let i = 1; i < pts.length; i++) cum.push(cum[i - 1] + Math.hypot(pts[i].x - pts[i - 1].x, pts[i].z - pts[i - 1].z));
     const total = cum[cum.length - 1]; if (total < 160) return;
-    const at = sv => { sv = Math.max(0, Math.min(total, sv)); let i = 1; while (i < pts.length - 1 && cum[i] < sv) i++; const t = (sv - cum[i - 1]) / ((cum[i] - cum[i - 1]) || 1), a = pts[i - 1], b = pts[i], L = Math.hypot(b.x - a.x, b.z - a.z) || 1; return { x: a.x + (b.x - a.x) * t, z: a.z + (b.z - a.z) * t, dx: (b.x - a.x) / L, dz: (b.z - a.z) / L }; };
-    const stops = c.line.stations.map(st => { let bi = 0, bd = 1e9; pts.forEach((q, i) => { const d = Math.hypot(q.x - st.x, q.z - st.z); if (d < bd) { bd = d; bi = i; } }); return cum[bi]; }).sort((a, b) => a - b);
-    const body = B(0xc9ced4), stripe = B(c.line.color || 0x3388ff), win = B(0xfff3c4), dark = B(0x23262a), cars = [];
+    const loopL = !!c.loop, at = sv => { sv = loopL ? ((sv % total) + total) % total : Math.max(0, Math.min(total, sv)); let i = 1; while (i < pts.length - 1 && cum[i] < sv) i++; const t = (sv - cum[i - 1]) / ((cum[i] - cum[i - 1]) || 1), a = pts[i - 1], b = pts[i], L = Math.hypot(b.x - a.x, b.z - a.z) || 1; return { x: a.x + (b.x - a.x) * t, z: a.z + (b.z - a.z) * t, dx: (b.x - a.x) / L, dz: (b.z - a.z) / L }; };
+    const stops = c.line.stations.map(st => { let bi = 0, bd = 1e9; pts.forEach((q, i) => { const d = Math.hypot(q.x - st.x, q.z - st.z); if (d < bd) { bd = d; bi = i; } }); return (loopL && cum[bi] > total - 3) ? 0 : cum[bi]; }).sort((a, b) => a - b);
+    const body = B(0xc9ced4), stripe = B(c.line.color || 0x3388ff), win = B(0xfff3c4), dark = B(0x23262a);
+    const makeTrain = (dir, s0, wait) => { const cars = [];
     for (let k = 0; k < 4; k++) {
       const grp = new THREE.Group(), add = (m, sx, sy, sz, x, y, z) => { const o = new THREE.Mesh(boxGeo, m); o.scale.set(sx, sy, sz); o.position.set(x, y, z); grp.add(o); };
       add(body, 13.4, 2.9, 2.9, 0, 2.0, 0); add(dark, 12.6, 0.5, 2.5, 0, 0.45, 0); add(stripe, 13.44, 0.35, 2.94, 0, 1.25, 0); add(win, 11.6, 0.95, 2.96, 0, 2.55, 0); add(dark, 13.2, 0.25, 2.2, 0, 3.55, 0);
@@ -392,14 +396,20 @@ export function createTunnels({ city, scene, transit, collisionWorld, parcels = 
       if (k === 0 || k === 3) { const e = k === 0 ? 1 : -1; add(win, 0.1, 0.9, 2.2, e * 6.72, 2.55, 0); add(B(0xffffff), 0.12, 0.25, 0.4, e * 6.74, 1.0, 0.9); add(B(0xffffff), 0.12, 0.25, 0.4, e * 6.74, 1.0, -0.9); }
       g.add(grp); cars.push(grp);
     }
-    trains.push({ fl: FL0 + (c.line.dy || 0), at, total, stops, cars, s: Math.max(30, Math.min(total - 30, stops[0] || 40)), dir: 1, v: 0, wait: 4 });
+    trains.push({ fl: FL0 + (c.line.dy || 0), at, total, stops, cars, loop: loopL, s: s0, dir, v: 0, wait }); };
+    // trains run both ways: one on each track (a loop line circulates both ways round)
+    makeTrain(1, loopL ? stops[0] : Math.max(30, Math.min(total - 30, stops[0] || 40)), 4);
+    makeTrain(-1, loopL ? stops[Math.floor(stops.length / 2)] : Math.max(30, Math.min(total - 30, stops[stops.length - 1] || total - 40)), 9);
   });
   const TRAIN_V = 19, CAR_GAP = 14.2; let warnT = 0;
   function stepTrains(dt, car) {
     trains.forEach(tr => {
       // where it has to stop next: the next station in its direction, or the end of the line
-      const lim0 = 30, lim1 = tr.total - 30, ahead = tr.dir > 0 ? tr.stops.find(q => q > tr.s + 0.5) : [...tr.stops].reverse().find(q => q < tr.s - 0.5);
-      const goal = ahead !== undefined ? Math.max(lim0, Math.min(lim1, ahead)) : (tr.dir > 0 ? lim1 : lim0), left = Math.abs(goal - tr.s);
+      const lim0 = 30, lim1 = tr.total - 30;
+      let ahead = tr.dir > 0 ? tr.stops.find(q => q > tr.s + 0.5) : [...tr.stops].reverse().find(q => q < tr.s - 0.5), goal;
+      if (tr.loop) { if (ahead === undefined) ahead = tr.dir > 0 ? tr.stops[0] + tr.total : tr.stops[tr.stops.length - 1] - tr.total; goal = ahead; }
+      else goal = ahead !== undefined ? Math.max(lim0, Math.min(lim1, ahead)) : (tr.dir > 0 ? lim1 : lim0);
+      const left = Math.abs(goal - tr.s);
       // a car on its track ahead: it brakes for it
       const head = tr.at(tr.s + tr.dir * 21), hx = head.dx * tr.dir, hz = head.dz * tr.dir; let block = false;
       if (car.y < -3) { const rx = car.x - head.x, rz = car.z - head.z, fwd = rx * hx + rz * hz, lat = -rx * hz + rz * hx; if (fwd > -4 && fwd < 46 && Math.abs(lat - TR * 1) < 2.6) block = true; }
@@ -407,7 +417,7 @@ export function createTunnels({ city, scene, transit, collisionWorld, parcels = 
       else {
         const want = block ? 0 : Math.min(TRAIN_V, Math.sqrt(2 * 5 * Math.max(0, left - 0.3)) + 0.6);
         tr.v += Math.max(-9 * dt, Math.min(4 * dt, want - tr.v)); tr.s += tr.dir * tr.v * dt;
-        if (!block && left < 0.6) { tr.s = goal; tr.v = 0; tr.wait = 7; if (ahead === undefined) tr.dir = -tr.dir; }
+        if (!block && left < 0.6) { tr.s = goal; tr.v = 0; tr.wait = 7; if (tr.loop) tr.s = ((tr.s % tr.total) + tr.total) % tr.total; else if (ahead === undefined) tr.dir = -tr.dir; }
       }
       tr.cars.forEach((grp, k) => {
         const off = (k - 1.5) * CAR_GAP, q = tr.at(tr.s - tr.dir * off), dx = q.dx * tr.dir, dz = q.dz * tr.dir;

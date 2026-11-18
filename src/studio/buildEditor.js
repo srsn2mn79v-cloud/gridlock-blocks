@@ -5,13 +5,15 @@
 import { put, h, View, SC, S } from './common.js';
 import refUrl from './ref-map.png';
 import { SHOP_KINDS } from '../chicago/chicago.js';
+import { nearestRoadPoint } from './snap.js';
 import { CLASSES } from '../chicago/network.js';
 
 const M_PER_U = 1.25;
 const ROAD_TYPES = [
   { id: 'six', name: 'Express avenue', color: '#e8a21a', pin: 'E', blurb: 'The widest street: fast traffic, long junction spacing.' },
   { id: 'four', name: 'Main avenue', color: '#f0d23c', pin: 'M', blurb: 'A main arterial: shops and bus routes line it.' },
-  { id: 'two', name: 'Local street', color: '#e8605f', pin: 'L', blurb: 'A quiet residential street, slow and narrow.' }
+  { id: 'two', name: 'Local street', color: '#e8605f', pin: 'L', blurb: 'A quiet residential street, slow and narrow.' },
+  { id: 'hw', name: 'Highway', color: '#2e9d5a', pin: 'H', blurb: 'Two carriageways of 3 lanes, 120 km/h, one-way each. It crosses other roads at ground level unless you put a bridge or tunnel there.', pair: true }
 ];
 const roadType = id => ROAD_TYPES.find(r => r.id === id) || ROAD_TYPES[2];
 const CATS = [
@@ -41,11 +43,11 @@ function iconFor(t, cv) {
   const lab = (s, col = '#fff') => { c.fillStyle = col; c.font = 'bold 15px system-ui'; c.textAlign = 'center'; c.textBaseline = 'middle'; c.fillText(s, W / 2, H / 2 + 2); };
   const id = t.id;
   if (t.road) { // top-down cross-section of the road
-    const k = CLASSES[t.road], lanes = k.lanes, wpx = Math.min(W - 10, 30 + k.width * 4.2), x0 = (W - wpx) / 2, sw = 5;
+    const k = CLASSES[t.road], hwy = t.road === 'hw', lanes = hwy ? 3 : k.lanes, wpx = Math.min(W - 10, 30 + (hwy ? 46 : k.width) * 4.2), x0 = (W - wpx) / 2, sw = 5;
     c.fillStyle = '#9aa0a6'; c.fillRect(x0 - sw, 4, wpx + 2 * sw, H - 8); c.fillStyle = '#3b4048'; c.fillRect(x0, 4, wpx, H - 8);
-    const n = lanes * 2, lw = wpx / n; c.strokeStyle = '#e9e9e4'; c.lineWidth = 1.2; c.setLineDash([5, 5]);
+    const n = lanes * 2, lw = wpx / n; if (hwy) { c.fillStyle = '#5b6068'; c.fillRect(x0 + wpx / 2 - 3, 4, 6, H - 8); } c.strokeStyle = '#e9e9e4'; c.lineWidth = 1.2; c.setLineDash([5, 5]);
     for (let i = 1; i < n; i++) { if (i === lanes) continue; c.beginPath(); c.moveTo(x0 + lw * i, 4); c.lineTo(x0 + lw * i, H - 4); c.stroke(); } c.setLineDash([]);
-    c.strokeStyle = '#f0c020'; c.lineWidth = 1.6; [-1.5, 1.5].forEach(o => { c.beginPath(); c.moveTo(x0 + wpx / 2 + o, 4); c.lineTo(x0 + wpx / 2 + o, H - 4); c.stroke(); });
+    c.strokeStyle = hwy ? 'rgba(0,0,0,0)' : '#f0c020'; c.lineWidth = 1.6; [-1.5, 1.5].forEach(o => { c.beginPath(); c.moveTo(x0 + wpx / 2 + o, 4); c.lineTo(x0 + wpx / 2 + o, H - 4); c.stroke(); });
     c.fillStyle = t.color || roadType(t.road).color; c.beginPath(); c.arc(14, 14, 7, 0, 7); c.fill(); c.fillStyle = '#000'; c.font = 'bold 9px system-ui'; c.textAlign = 'center'; c.textBaseline = 'middle'; c.fillText(roadType(t.road).pin, 14, 14.5); return;
   }
   if (id === 'bridge' || id === 'tunnel') {
@@ -67,14 +69,14 @@ function iconFor(t, cv) {
 }
 const card = (t, on, selected) => { const cv = h('canvas', { width: 130, height: 76 }); iconFor(t, cv); const specs = t.road ? roadSpec(t.road) : '';
   return h('button', { class: 'card2' + (selected ? ' sel' : ''), onclick: on, title: t.blurb || t.name }, cv, h('b', {}, t.name), specs ? h('em', {}, specs) : (t.blurb ? h('em', {}, t.blurb) : null)); };
-const roadSpec = id => { const k = CLASSES[id]; return `${k.lanes}+${k.lanes} lanes · ${Math.round(k.width * M_PER_U)} m · ${k.speedLimit} km/h`; };
+const roadSpec = id => { const k = CLASSES[id]; if (id === 'hw') return '3+3 lanes · 2 carriageways · ' + k.speedLimit + ' km/h'; return `${k.lanes}+${k.lanes} lanes · ${Math.round(k.width * M_PER_U)} m · ${k.speedLimit} km/h`; };
 
 export function createBuildEditor(ctx) {
   const root = h('div', { class: 'tab races' });
   const canvas = h('canvas'), wrap = h('div', { class: 'cv' }, canvas), side = h('div', { class: 'side', style: 'width:380px' });
   root.append(wrap, side);
   const img = new Image(); img.src = refUrl; img.onload = () => view.redraw();
-  let tool = 'road:four', cat = 'road', mouse = null, drag = null, busSel = 0, metroSel = 0, roadPts = null, roadName = '', selStreet = -1, showLanes = true, showSigns = true, showImg = true, sLen = 70, sH = 6, hist = [];
+  let tool = 'road:four', cat = 'road', curved = true, snapInfo = null, selStruct = -1, mouse = null, drag = null, busSel = 0, metroSel = 0, roadPts = null, roadName = '', selStreet = -1, showLanes = true, showSigns = true, showImg = true, sLen = 70, sH = 6, hist = [];
   const M = () => ctx.map();
   const T = () => { const t = (ctx.custom().transit ||= {}); t.bus ||= []; t.metro ||= []; return t; };
   const toWorld = p => [-(p[0] - M().origin[0]) * S, (M().origin[1] - p[1]) * S], toPx = w => [M().origin[0] - w[0] / S, M().origin[1] - w[1] / S];
@@ -91,7 +93,7 @@ export function createBuildEditor(ctx) {
     (md.shops || []).forEach((s, i) => out.push({ k: 'shop', px: s.at, label: s.kind, color: '#ffb02e', remove: () => md.shops.splice(i, 1), move: p => { s.at = p; } }));
     (md.stations || []).forEach((s, i) => out.push({ k: 'svc', px: s.at, label: s.kind, color: '#ff5555', remove: () => md.stations.splice(i, 1), move: p => { s.at = p; } }));
     (md.gas || []).forEach((g, i) => out.push({ k: 'gas', px: g, label: 'gas', color: '#ff7f2e', remove: () => md.gas.splice(i, 1), move: p => { md.gas[i] = p; } }));
-    (md.structs || []).forEach((s, i) => { if (s.at) out.push({ k: s.h < 0 ? 'tunnel' : 'bridge', px: s.at, label: (s.h < 0 ? 'Tunnel ' : 'Bridge ') + Math.round(s.len * M_PER_U) + ' m', color: s.h < 0 ? '#b08a5a' : '#6fb8ff', remove: () => md.structs.splice(i, 1), move: p => { s.at = p; } }); });
+    (md.structs || []).forEach((s, i) => { if (s.at) out.push({ k: s.h < 0 ? 'tunnel' : 'bridge', st: s, idx: i, px: s.at, label: (s.h < 0 ? 'Tunnel ' : 'Bridge ') + Math.round(s.len * M_PER_U) + ' m', color: s.h < 0 ? '#b08a5a' : '#6fb8ff', remove: () => md.structs.splice(i, 1), move: p => { s.at = p; } }); });
     T().bus.forEach(l => l.stops.forEach((s, i) => out.push({ k: 'busstop', px: toPx(s), label: l.name, color: '#ffd21f', remove: () => l.stops.splice(i, 1), move: p => { l.stops[i] = toWorld(p).map(rd); } })));
     T().metro.forEach(l => l.stations.forEach((s, i) => out.push({ k: 'metro', px: toPx(s.at), label: s.name || l.name, color: '#' + (l.color >>> 0).toString(16).padStart(6, '0').slice(-6), remove: () => l.stations.splice(i, 1), move: p => { s.at = toWorld(p).map(rd); } })));
     const d = T().depot; if (d && d.at) out.push({ k: 'depot', px: toPx(d.at), label: 'bus depot', color: '#9aa7b8', remove: () => { delete T().depot; }, move: p => { d.at = toWorld(p).map(rd); } });
@@ -101,19 +103,83 @@ export function createBuildEditor(ctx) {
   const hitThing = (mx, my) => { let b = null, bd = 14; things().forEach(t => { const q = sc(t.px), d = Math.hypot(q[0] - mx, q[1] - my); if (d < bd) { bd = d; b = t; } }); return b; };
   // streets: the pins sit on their points
   const streets = () => M().streets || [];
-  function hitStreetPin(mx, my) { let b = null, bd = 12; streets().forEach((s, i) => s.pts.forEach((p, j) => { const q = sc(p), d = Math.hypot(q[0] - mx, q[1] - my); if (d < bd) { bd = d; b = { i, j }; } })); return b; }
+  function hitStreetPin(mx, my) { let b = null, bd = 12; streets().forEach((s, i) => shownPts(s).forEach((p, j) => { const q = sc(p), d = Math.hypot(q[0] - mx, q[1] - my); if (d < bd) { bd = d; b = { i, j }; } })); return b; }
   function nearRoad(p, maxPx) {         // the nearest point on any street or built road (to snap to, and to drop bridges and tunnels onto)
     let best = null;
     const test = (a, b, ref) => { const dx = b[0] - a[0], dy = b[1] - a[1], l2 = dx * dx + dy * dy || 1, t = Math.max(0, Math.min(1, ((p[0] - a[0]) * dx + (p[1] - a[1]) * dy) / l2)), x = a[0] + dx * t, y = a[1] + dy * t, d = Math.hypot(x - p[0], y - p[1]) * view.k; if (d < maxPx && (!best || d < best.d)) best = { d, x, y, ref, ang: Math.atan2(dy, dx) }; };
     streets().forEach((s, i) => { for (let j = 1; j < s.pts.length; j++) test(s.pts[j - 1], s.pts[j], i); });
     return best;
   }
-  const snapPoint = p => {
-    let best = null, bd = 12; streets().forEach(s => s.pts.forEach(q => { const d = Math.hypot(q[0] - p[0], q[1] - p[1]) * view.k; if (d < bd) { bd = d; best = q; } }));
-    if (best) return [best[0], best[1]];
-    const r = nearRoad(p, 9); return r ? [r.x, r.y] : p;
+  // Snapping, in this order: the end of a road, an intersection (a built junction or a crossing of two roads), any other point of a road, and
+  // finally the middle of a road (the nearest point on it). `snapAt` returns where the point goes and what it snapped to.
+  const crossings = () => {                                  // where two drawn roads cross each other
+    const out = [], ss = streets(); const key = ss.length + ':' + ss.reduce((t, q) => t + q.pts.length, 0);
+    if (crossCache.key === key) return crossCache.v;
+    for (let i = 0; i < ss.length; i++) for (let j = i + 1; j < ss.length; j++) for (let a = 1; a < ss[i].pts.length; a++) for (let b = 1; b < ss[j].pts.length; b++) {
+      const A = ss[i].pts[a - 1], B = ss[i].pts[a], C = ss[j].pts[b - 1], D = ss[j].pts[b];
+      if (Math.max(A[0], B[0]) < Math.min(C[0], D[0]) || Math.max(C[0], D[0]) < Math.min(A[0], B[0]) || Math.max(A[1], B[1]) < Math.min(C[1], D[1]) || Math.max(C[1], D[1]) < Math.min(A[1], B[1])) continue;
+      const d = (B[0] - A[0]) * (D[1] - C[1]) - (B[1] - A[1]) * (D[0] - C[0]); if (Math.abs(d) < 1e-9) continue;
+      const t = ((C[0] - A[0]) * (D[1] - C[1]) - (C[1] - A[1]) * (D[0] - C[0])) / d, u = ((C[0] - A[0]) * (B[1] - A[1]) - (C[1] - A[1]) * (B[0] - A[0])) / d;
+      if (t > 0 && t < 1 && u > 0 && u < 1) out.push([A[0] + (B[0] - A[0]) * t, A[1] + (B[1] - A[1]) * t]);
+    }
+    crossCache = { key, v: out }; return out;
   };
+  let crossCache = {};
+  function snapAt(p) {
+    const k = view.k, near = (q, px) => Math.hypot(q[0] - p[0], q[1] - p[1]) * k < px, ss = streets();
+    let best = null, bd = 1e9; const tryPt = (q, kind, px) => { const d = Math.hypot(q[0] - p[0], q[1] - p[1]) * k; if (d < px && d < bd) { bd = d; best = { p: [q[0], q[1]], kind }; } };
+    ss.forEach(s => { tryPt(s.pts[0], 'end', 16); tryPt(s.pts[s.pts.length - 1], 'end', 16); });
+    if (best) return best;
+    const city = ctx.cityIfBuilt();
+    if (city && city.roadNodes) { const cnt = {}; city.roadEdges.forEach(e => { cnt[e.from] = (cnt[e.from] || 0) + 1; cnt[e.to] = (cnt[e.to] || 0) + 1; }); Object.keys(cnt).forEach(id => { if (cnt[id] >= 3) tryPt(toPx([city.roadNodes[id].x, city.roadNodes[id].z]), 'junction', 14); }); }
+    crossings().forEach(q => tryPt(q, 'junction', 14));
+    if (best) return best;
+    ss.forEach(s => s.pts.forEach(q => tryPt(q, 'point', 12)));
+    if (best) return best;
+    const r = nearRoad(p, 12); return r ? { p: [r.x, r.y], kind: 'middle', street: r.ref } : { p, kind: 'free' };
+  }
+  const snapPoint = p => snapAt(p).p;
 
+  // ---- bridges and tunnels: where they lie on their road, how long their ramps are, and what is wrong with them ----
+  const polyLen = pts => pts.reduce((t, q, i) => i ? t + Math.hypot(q[0] - pts[i - 1][0], q[1] - pts[i - 1][1]) : 0, 0);
+  function alongOf(pts, pt) {        // arclength (px) of the point on the polyline, and how far off it is
+    let acc = 0, best = { along: 0, d: 1e9 };
+    for (let j = 1; j < pts.length; j++) { const A = pts[j - 1], B = pts[j], dx = B[0] - A[0], dy = B[1] - A[1], L = Math.hypot(dx, dy) || 1e-9, t = Math.max(0, Math.min(1, ((pt[0] - A[0]) * dx + (pt[1] - A[1]) * dy) / (L * L))), x = A[0] + dx * t, y = A[1] + dy * t, d = Math.hypot(x - pt[0], y - pt[1]);
+      if (d < best.d) best = { along: acc + t * L, d, ang: Math.atan2(dy, dx) }; acc += L; }
+    return best;
+  }
+  function slicePoly(pts, a, b) {    // the part of a polyline between two arclengths
+    const out = []; let acc = 0;
+    for (let j = 1; j < pts.length; j++) { const A = pts[j - 1], B = pts[j], L = Math.hypot(B[0] - A[0], B[1] - A[1]) || 1e-9, s0 = acc, s1 = acc + L; acc = s1; if (s1 < a || s0 > b) continue;
+      const f = v => { const t = (Math.max(a, Math.min(b, v)) - s0) / L; return [A[0] + (B[0] - A[0]) * t, A[1] + (B[1] - A[1]) * t]; };
+      if (!out.length) out.push(f(Math.max(a, s0))); out.push(f(Math.min(b, s1))); }
+    return out;
+  }
+  function structGeo(st) {
+    let best = null; streets().forEach((s, i) => { const r = alongOf(s.pts, st.at); if (!best || r.d < best.d) best = { i, s, ...r }; });
+    if (!best || best.d > 6) return null;
+    const k = CLASSES[best.s.cls] || CLASSES.two, g = 0.95 * (k.maxGrade || 0.06), d1 = st.len / 2, ramp = Math.abs(st.h) / g, total = polyLen(best.s.pts) * S, along = best.along * S;
+    const warns = [], info = { ...best, d1, ramp, d2: d1 + ramp, g, total, along, warns };
+    if (along - info.d2 < 4 || along + info.d2 > total - 4) warns.push('The ramps run past the end of the road (' + Math.round(info.d2 * M_PER_U) + ' m each side of the middle): make the road longer or the structure lower.');
+    // junctions on the span or the ramps
+    const pts = [], city = ctx.cityIfBuilt();
+    streets().forEach((o, oi) => { if (oi === best.i) return; [o.pts[0], o.pts[o.pts.length - 1]].forEach(q => pts.push(q)); });
+    crossings().forEach(q => pts.push(q));
+    pts.forEach(q => { const r = alongOf(best.s.pts, q); if (r.d * S > 4) return; const dd = Math.abs(r.along * S - along); if (dd < d1) warns.push('A junction lies on the ' + (st.h < 0 ? 'tunnel' : 'bridge') + ' itself, ' + Math.round(dd * M_PER_U) + ' m from its middle.'); else if (dd < info.d2) warns.push('A junction lies on the ramp, ' + Math.round((dd - d1) * M_PER_U) + ' m from the ' + (st.h < 0 ? 'tunnel mouth' : 'bridge end') + ': the road would have to climb or dive through it.'); });
+    (M().structs || []).forEach(o => { if (o === st || !o.at) return; const r = alongOf(best.s.pts, o.at); if (r.d * S > 6) return; const od2 = o.len / 2 + Math.abs(o.h) / g; if (Math.abs(r.along * S - along) < info.d2 + od2) warns.push('Another ' + (o.h < 0 ? 'tunnel' : 'bridge') + ' is so close that the ramps overlap.'); });
+    return info;
+  }
+  function drawProfile(cv, st, geo) {      // side view of the road: ground, ramps, the structure and its height or depth
+    const c = cv.getContext('2d'), W = cv.width, H = cv.height; c.clearRect(0, 0, W, H); c.fillStyle = '#161c24'; c.fillRect(0, 0, W, H);
+    const d2 = (geo ? geo.d2 : st.len / 2 + Math.abs(st.h) / 0.057), X = u => W / 2 + u / (d2 * 1.25) * (W / 2 - 14), base = H * 0.55, hm = Math.abs(st.h) * M_PER_U, sy = Math.min(2.2, (H * 0.36) / Math.max(hm, 1)), top = base - Math.sign(st.h) * hm * sy, d1 = st.len / 2;
+    c.fillStyle = '#4a3b2e'; c.fillRect(0, base, W, H - base);
+    c.strokeStyle = '#8d9bb0'; c.setLineDash([4, 4]); c.beginPath(); c.moveTo(0, base); c.lineTo(W, base); c.stroke(); c.setLineDash([]);
+    c.lineWidth = 4; c.strokeStyle = st.h < 0 ? '#c9a46a' : '#6fb8ff'; c.lineJoin = 'round'; c.beginPath(); c.moveTo(X(-d2 * 1.25), base); c.lineTo(X(-d2), base); c.lineTo(X(-d1), top); c.lineTo(X(d1), top); c.lineTo(X(d2), base); c.lineTo(X(d2 * 1.25), base); c.stroke();
+    c.fillStyle = '#e8edf4'; c.font = '11px system-ui'; c.textAlign = 'center'; c.textBaseline = 'middle';
+    c.fillText((st.h < 0 ? 'depth ' : 'height ') + (hm).toFixed(1) + ' m', W / 2, top + (st.h < 0 ? 16 : -12));
+    c.fillText('span ' + Math.round(st.len * M_PER_U) + ' m', W / 2, st.h < 0 ? top - 10 : top + 14);
+    if (geo) { c.fillText('ramp ' + Math.round(geo.ramp * M_PER_U) + ' m @ ' + (geo.g * 100).toFixed(1) + '%', X(-(d1 + d2) / 2), base + (st.h < 0 ? -16 : 16)); c.fillText('ramp', X((d1 + d2) / 2), base + (st.h < 0 ? -16 : 16)); }
+  }
   // ---- drawing ----
   const pin = (c, x, y, col, ch, r = 9) => { c.fillStyle = col; c.strokeStyle = '#000'; c.lineWidth = 1.3; c.beginPath(); c.arc(x, y - r - 3, r, Math.PI * 0.82, Math.PI * 0.18 + Math.PI * 2); c.lineTo(x, y); c.closePath(); c.fill(); c.stroke(); c.fillStyle = '#000'; c.font = 'bold ' + (r + 1) + 'px system-ui'; c.textAlign = 'center'; c.textBaseline = 'middle'; c.fillText(ch, x, y - r - 2.5); };
   function drawBuilt(c, city) {
@@ -145,13 +211,18 @@ export function createBuildEditor(ctx) {
     const city = ctx.cityIfBuilt();
     if (city && city.roadNodes) drawBuilt(c, city);
     else { streets().forEach(s => { c.strokeStyle = roadType(s.cls).color; c.lineWidth = 3; c.beginPath(); s.pts.forEach((q, i) => { const o = sc(q); i ? c.lineTo(o[0], o[1]) : c.moveTo(o[0], o[1]); }); c.stroke(); }); }
+    (M().structs || []).forEach((st, i) => { if (!st.at) return; const geo = structGeo(st); if (!geo) return; const col = st.h < 0 ? '#c9a46a' : '#6fb8ff', P = geo.s.pts, a = geo.along / S;
+      const ramp = (from, to) => { const q = slicePoly(P, from, to); if (q.length < 2) return; c.beginPath(); q.forEach((z, j) => { const o = sc(z); j ? c.lineTo(o[0], o[1]) : c.moveTo(o[0], o[1]); }); c.stroke(); };
+      c.lineCap = 'butt'; c.setLineDash([]); c.lineWidth = (i === selStruct ? 12 : 8); c.strokeStyle = col + 'ee'; ramp(a - geo.d1 / S, a + geo.d1 / S);       // the structure itself
+      c.lineWidth = 6; c.strokeStyle = col + '66'; c.setLineDash([6, 5]); ramp(a - geo.d2 / S, a - geo.d1 / S); ramp(a + geo.d1 / S, a + geo.d2 / S); c.setLineDash([]);   // the ramps
+      if (geo.warns.length) { const o = sc(st.at); c.fillStyle = '#ff9f1a'; c.strokeStyle = '#000'; c.beginPath(); c.moveTo(o[0] + 14, o[1] - 24); c.lineTo(o[0] + 22, o[1] - 10); c.lineTo(o[0] + 6, o[1] - 10); c.closePath(); c.fill(); c.stroke(); } });
     streets().forEach(s => { c.strokeStyle = roadType(s.cls).color + 'aa'; c.lineWidth = 1.5; c.setLineDash([5, 4]); c.beginPath(); s.pts.forEach((q, i) => { const o = sc(q); i ? c.lineTo(o[0], o[1]) : c.moveTo(o[0], o[1]); }); c.stroke(); c.setLineDash([]); });
     // pins: one at each end of every street (coloured by type, with its letter), small dots on the points between
-    streets().forEach((s, i) => { const rt = roadType(s.cls); s.pts.forEach((q, j) => { const o = sc(q), end = j === 0 || j === s.pts.length - 1; if (end) pin(c, o[0], o[1], i === selStreet ? '#fff' : rt.color, rt.pin, view.k > 0.8 ? 8 : 5.5); else if (view.k > 1.2) { c.fillStyle = rt.color; c.strokeStyle = '#000'; c.lineWidth = 1; c.beginPath(); c.arc(o[0], o[1], 3, 0, 7); c.fill(); c.stroke(); } }); });
+    streets().forEach((s, i) => { const rt = roadType(s.cls); if (s.pair && streets().findIndex(q => q.pair === s.pair) !== i) return; const SP = shownPts(s); SP.forEach((q, j) => { const o = sc(q), end = j === 0 || j === SP.length - 1; if (end) pin(c, o[0], o[1], i === selStreet ? '#fff' : rt.color, rt.pin, view.k > 0.8 ? 8 : 5.5); else if (view.k > 1.2) { c.fillStyle = rt.color; c.strokeStyle = '#000'; c.lineWidth = 1; c.beginPath(); c.arc(o[0], o[1], 3, 0, 7); c.fill(); c.stroke(); } }); });
     things().forEach(t => {
       const [x, y] = sc(t.px);
       if (t.rect) { const a = sc([t.rect[0], t.rect[1]]), b = sc([t.rect[2], t.rect[3]]); c.fillStyle = t.color + '88'; c.strokeStyle = t.color; c.lineWidth = 1.5; c.fillRect(a[0], a[1], b[0] - a[0], b[1] - a[1]); c.strokeRect(a[0], a[1], b[0] - a[0], b[1] - a[1]); return; }
-      if (t.k === 'bridge' || t.k === 'tunnel') { pin(c, x, y, t.color, t.k === 'bridge' ? '≍' : '∩', 10); return; }
+      if (t.k === 'bridge' || t.k === 'tunnel') { pin(c, x, y, t.color, t.k === 'bridge' ? '≍' : '∩', 10); if (view.k > 0.5) { c.fillStyle = '#fff'; c.strokeStyle = '#000'; c.lineWidth = 3; c.font = 'bold 11px system-ui'; c.textAlign = 'left'; c.textBaseline = 'middle'; const lb = (t.k === 'bridge' ? '+' : '−') + (Math.abs(t.st.h) * M_PER_U).toFixed(1) + ' m  ·  ' + Math.round(t.st.len * M_PER_U) + ' m long'; c.strokeText(lb, x + 14, y - 14); c.fillText(lb, x + 14, y - 14); } return; }
       c.fillStyle = t.color; c.strokeStyle = '#000'; c.lineWidth = 1.5; c.beginPath();
       if (t.k === 'metro') c.rect(x - 8, y - 8, 16, 16); else if (t.k === 'depot') c.rect(x - 12, y - 8, 24, 16); else c.arc(x, y, t.k === 'busstop' ? 6 : 8, 0, 7);
       c.fill(); c.stroke(); c.fillStyle = '#fff'; c.font = 'bold 10px system-ui'; c.textAlign = 'center'; c.textBaseline = 'middle';
@@ -161,11 +232,12 @@ export function createBuildEditor(ctx) {
     // the road being drawn: pins, a smooth rubber band at the road's real width
     const t = toolById[tool];
     if (roadPts && roadPts.length) {
-      const k = CLASSES[t.road || 'four'], rt = roadType(t.road || 'four'), pts = mouse ? [...roadPts, snapPoint(view.toWorld(mouse[0], mouse[1]))] : roadPts;
+      const k = CLASSES[t.road || 'four'], rt = roadType(t.road || 'four'), ctl0 = mouse ? [...roadPts, snapPoint(view.toWorld(mouse[0], mouse[1]))] : roadPts, pts = curved && ctl0.length >= 3 ? curvePts(ctl0) : ctl0;
       c.lineCap = 'round'; c.lineJoin = 'round'; c.strokeStyle = rt.color + '55'; c.lineWidth = Math.max(4, k.width / S * view.k); c.beginPath(); pts.forEach((q, i) => { const o = sc(q); i ? c.lineTo(o[0], o[1]) : c.moveTo(o[0], o[1]); }); c.stroke();
       c.strokeStyle = rt.color; c.lineWidth = 2; c.setLineDash([8, 5]); c.beginPath(); pts.forEach((q, i) => { const o = sc(q); i ? c.lineTo(o[0], o[1]) : c.moveTo(o[0], o[1]); }); c.stroke(); c.setLineDash([]);
       roadPts.forEach((q, j) => { const o = sc(q); pin(c, o[0], o[1], rt.color, j === 0 ? rt.pin : '•', 8); });
     }
+    if (mouse && t && (t.road || t.struct)) { const sn = snapAt(view.toWorld(mouse[0], mouse[1])); if (sn.kind !== 'free') { const o = sc(sn.p); c.strokeStyle = { end: '#5dff9a', junction: '#ffd23c', point: '#8fc8ff', middle: '#ffffff' }[sn.kind]; c.lineWidth = 2.5; c.beginPath(); c.arc(o[0], o[1], sn.kind === 'middle' ? 6 : 11, 0, 7); c.stroke(); c.fillStyle = c.strokeStyle; c.font = '10px system-ui'; c.textAlign = 'left'; c.textBaseline = 'alphabetic'; c.fillText({ end: 'end of road', junction: 'junction', point: 'road point', middle: 'on the road' }[sn.kind], o[0] + 15, o[1] + 14); } }
     if (mouse && t) {
       c.globalAlpha = 0.65; c.fillStyle = t.cat.color; c.strokeStyle = '#fff'; c.lineWidth = 1.5;
       if (t.size) { const w = t.size[0] * view.k, hh = t.size[1] * view.k; c.fillRect(mouse[0] - w / 2, mouse[1] - hh / 2, w, hh); c.strokeRect(mouse[0] - w / 2, mouse[1] - hh / 2, w, hh); }
@@ -176,26 +248,60 @@ export function createBuildEditor(ctx) {
     c.textAlign = 'left'; c.textBaseline = 'alphabetic';
   }
 
+  function spliceOnto(pt, except) {     // a point that lies inside another road's segment becomes a point of that road too, so the two really meet there
+    streets().forEach((s, si) => { if (si === except) return; for (let j = 1; j < s.pts.length; j++) { const A = s.pts[j - 1], B = s.pts[j]; if (Math.hypot(pt[0] - A[0], pt[1] - A[1]) < 0.25 || Math.hypot(pt[0] - B[0], pt[1] - B[1]) < 0.25) return;
+      const dx = B[0] - A[0], dy = B[1] - A[1], l2 = dx * dx + dy * dy || 1, t = ((pt[0] - A[0]) * dx + (pt[1] - A[1]) * dy) / l2; if (t <= 0 || t >= 1) continue;
+      if (Math.hypot(A[0] + dx * t - pt[0], A[1] + dy * t - pt[1]) < 0.4) { s.pts.splice(j, 0, [rd(pt[0]), rd(pt[1])]); if (s.ctl) s.ctl = undefined; return; } } });
+  }
+  // a curve through the control points (centripetal Catmull-Rom), as points about every `step` px
+  function curvePts(ctl, step = 6) {
+    if (ctl.length < 3) return ctl.map(q => [q[0], q[1]]);
+    const P = [ctl[0], ...ctl, ctl[ctl.length - 1]].map(q => ({ x: q[0], y: q[1] })), out = [[ctl[0][0], ctl[0][1]]];
+    const kn = (a, b) => Math.pow(Math.hypot(b.x - a.x, b.y - a.y), 0.5) || 1e-3;
+    for (let i = 1; i < P.length - 2; i++) {
+      const p0 = i === 1 ? { x: 2 * P[1].x - P[2].x, y: 2 * P[1].y - P[2].y } : P[i - 1], p1 = P[i], p2 = P[i + 1], p3 = i === P.length - 3 ? { x: 2 * P[i + 1].x - P[i].x, y: 2 * P[i + 1].y - P[i].y } : P[i + 2];
+      const t0 = 0, t1 = t0 + kn(p0, p1), t2 = t1 + kn(p1, p2), t3 = t2 + kn(p2, p3), n = Math.max(2, Math.ceil(Math.hypot(p2.x - p1.x, p2.y - p1.y) / step));
+      for (let k = 1; k <= n; k++) { const t = t1 + (t2 - t1) * k / n, L = (a, b, ta, tb) => ({ x: (a.x * (tb - t) + b.x * (t - ta)) / (tb - ta), y: (a.y * (tb - t) + b.y * (t - ta)) / (tb - ta) }), A1 = L(p0, p1, t0, t1), A2 = L(p1, p2, t1, t2), A3 = L(p2, p3, t2, t3), B1 = L({ x: A1.x, y: A1.y }, A2, t0, t2), B2 = L(A2, A3, t1, t3), C = L(B1, B2, t1, t2); out.push([C.x, C.y]); }
+    }
+    out[out.length - 1] = [ctl[ctl.length - 1][0], ctl[ctl.length - 1][1]]; return out;
+  }
+  const offsetLine = (pts, off) => pts.map((q, i) => { const a = pts[Math.max(0, i - 1)], b = pts[Math.min(pts.length - 1, i + 1)], dx = b[0] - a[0], dy = b[1] - a[1], l = Math.hypot(dx, dy) || 1; return [q[0] - dy / l * off, q[1] + dx / l * off]; });
+  const shownPts = s => s.ctl || s.pts;
   // ---- actions ----
   function finishRoad() {
     const t = toolById[tool];
-    if (roadPts && roadPts.length >= 2 && t && t.road) { snap(); (M().streets ||= []).push({ cls: t.road, pts: roadPts.map(q => [rd(q[0]), rd(q[1])]), name: roadName || undefined }); selStreet = M().streets.length - 1; dirtyMap(); autoBuild(); }
+    if (roadPts && roadPts.length >= 2 && t && t.road) {
+      snap(); const ctl = roadPts.map(q => [rd(q[0]), rd(q[1])]), pts = (curved && ctl.length >= 3 ? curvePts(ctl) : ctl).map(q => [rd(q[0]), rd(q[1])]), ss = (M().streets ||= []);
+      const rt = roadType(t.road);
+      if (rt.pair) {     // a highway is two one-way carriageways, driving on the right
+        const id = 'hw' + Date.now().toString(36), off = 11.5 / S / 2 * 1.0 + 0.4, A = offsetLine(pts, off), B = offsetLine(pts, -off).reverse();
+        ss.push({ cls: 'hw', pts: A.map(q => [rd(q[0]), rd(q[1])]), pair: id, name: roadName || undefined, ctl: curved && ctl.length >= 3 ? ctl : undefined }, { cls: 'hw', pts: B.map(q => [rd(q[0]), rd(q[1])]), pair: id, name: roadName || undefined });
+      } else { ss.push({ cls: t.road, pts, name: roadName || undefined, ctl: curved && ctl.length >= 3 ? ctl : undefined }); }
+      const ni = ss.length - 1; [pts[0], pts[pts.length - 1]].forEach(q => spliceOnto(q, rt.pair ? -1 : ni));
+      selStreet = ni; dirtyMap(); autoBuild();
+    }
     roadPts = null; roadName = ''; renderSide(); view.redraw();
+  }
+  function place2(t, w) {      // bus stops and metro stations sit on the road they snapped to
+    if (t.id === 'busstop') { const L = T().bus; if (!L.length) L.push({ name: 'My bus line 1', color: 0xff7a1a, stops: [] }); L[Math.min(busSel, L.length - 1)].stops.push(w); ctx.dirty('transit'); }
+    else { const L = T().metro; if (!L.length) L.push({ name: 'My metro line 1', color: 0x8e44ad, stations: [] }); const l = L[Math.min(metroSel, L.length - 1)]; l.stations.push({ at: w, name: 'Station ' + (l.stations.length + 1) }); ctx.dirty('transit'); }
   }
   function place(p) {
     const t = toolById[tool]; if (!t) return; const m = M(), w = toWorld(p).map(rd);
-    if (t.road) { (roadPts ||= []).push(snapPoint(p)); renderSide(); view.redraw(); return; }
+    if (t.road) { const sn = snapAt(p); (roadPts ||= []).push(sn.p); renderSide(); view.redraw(); return; }
     snap();
     if (t.struct) { const r = nearRoad(p, 30); if (!r) { hist.pop(); return; } (m.structs ||= []).push({ at: [rd(r.x), rd(r.y)], len: Math.round(sLen / M_PER_U), h: t.struct * Math.round(sH / M_PER_U * 10) / 10 }); dirtyMap(); autoBuild(); }
     else if (t.cat.id === 'build') { m.landmarks.push([t.name, rd(p[0] - t.size[0] / 2), rd(p[1] - t.size[1] / 2), rd(p[0] + t.size[0] / 2), rd(p[1] + t.size[1] / 2), t.hgt]); dirtyMap(); }
     else if (t.cat.id === 'shop') { (m.shops ||= []).push({ kind: t.kind, at: [rd(p[0]), rd(p[1])], r: 60 }); dirtyMap(); }
     else if (t.cat.id === 'svc' && t.kind) { (m.stations ||= []).push({ kind: t.kind, at: [rd(p[0]), rd(p[1])], r: 101 }); dirtyMap(); }
     else if (t.id === 'gas') { (m.gas ||= []).push([rd(p[0]), rd(p[1])]); dirtyMap(); }
-    else if (t.id === 'busstop') { const L = T().bus; if (!L.length) L.push({ name: 'My bus line 1', color: 0xff7a1a, stops: [] }); L[Math.min(busSel, L.length - 1)].stops.push(w); ctx.dirty('transit'); }
+    else if (t.id === 'busstop' || t.id === 'metro') { const r = nearestRoadPoint(ctx.cityIfBuilt(), w[0], w[1], 60); if (r) { w[0] = rd(r.x); w[1] = rd(r.z); } place2(t, w); }
+    else if (false) { const L = T().bus; if (!L.length) L.push({ name: 'My bus line 1', color: 0xff7a1a, stops: [] }); L[Math.min(busSel, L.length - 1)].stops.push(w); ctx.dirty('transit'); }
     else if (t.id === 'metro') { const L = T().metro; if (!L.length) L.push({ name: 'My metro line 1', color: 0x8e44ad, stations: [] }); const l = L[Math.min(metroSel, L.length - 1)]; l.stations.push({ at: w, name: 'Station ' + (l.stations.length + 1) }); ctx.dirty('transit'); }
     else if (t.id === 'depot') { T().depot = { at: w }; ctx.dirty('transit'); }
     renderSide(); view.redraw();
   }
+  function delStreet(i) { const ss = M().streets, pr = ss[i] && ss[i].pair; if (pr) { for (let k = ss.length - 1; k >= 0; k--) if (ss[k].pair === pr) ss.splice(k, 1); } else ss.splice(i, 1); }
   function undo() { if (roadPts && roadPts.length) { roadPts.pop(); if (!roadPts.length) roadPts = null; renderSide(); view.redraw(); return; } if (!hist.length) return; ctx.setMap(JSON.parse(hist.pop())); dirtyMap(); renderSide(); view.redraw(); }
 
   canvas.addEventListener('contextmenu', e => e.preventDefault());
@@ -205,10 +311,11 @@ export function createBuildEditor(ctx) {
     if (e.button === 2) {
       if (roadPts) { finishRoad(); return; }
       if (hit) { snap(); hit.remove(); ctx.dirty(isTransit(hit.k) ? 'transit' : 'map'); renderSide(); view.redraw(); return; }
-      const sp = hitStreetPin(mx, my); if (sp) { snap(); M().streets.splice(sp.i, 1); selStreet = -1; dirtyMap(); renderSide(); view.redraw(); } return;
+      const sp = hitStreetPin(mx, my); if (sp) { snap(); delStreet(sp.i); selStreet = -1; dirtyMap(); autoBuild(); renderSide(); view.redraw(); } return;
     }
     if (e.button === 1 || e.shiftKey) { view.panStart(e); return; }
     if (!roadPts && hit && e.ctrlKey) { snap(); drag = hit; return; }
+    if (!roadPts && e.altKey && hit && hit.st) { selStruct = hit.idx; selStreet = -1; renderSide(); view.redraw(); return; }
     if (!roadPts && e.altKey) { const sp = hitStreetPin(mx, my); if (sp) { selStreet = sp.i; renderSide(); view.redraw(); return; } }
     const w = view.toWorld(mx, my); place([w[0], w[1]]);
   });
@@ -221,6 +328,16 @@ export function createBuildEditor(ctx) {
   addEventListener('keydown', e => { if (root.style.display === 'none') return; if (e.target && /INPUT|TEXTAREA|SELECT/.test(e.target.tagName)) return;
     if (e.key === 'Enter') finishRoad(); else if (e.key === 'Backspace' && roadPts) { e.preventDefault(); undo(); } else if (e.key === 'Escape') { roadPts = null; renderSide(); view.redraw(); } else if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'z') { e.preventDefault(); undo(); } });
 
+  function selStructPanel() {
+    const sS = (M().structs || [])[selStruct]; if (!sS) return null;
+    const geo = structGeo(sS), cv = h('canvas', { width: 280, height: 130, style: 'width:100%;border-radius:6px' }); setTimeout(() => drawProfile(cv, sS, geo), 0);
+    const re = () => { dirtyMap(); autoBuild(); renderSide(); view.redraw(); };
+    return h('div', { class: 'grp' }, h('h4', {}, 'Selected ' + (sS.h < 0 ? 'tunnel' : 'bridge')), cv,
+      h('div', { class: 'row' }, 'Length ', h('input', { type: 'number', value: Math.round(sS.len * M_PER_U), step: 10, min: 20, style: 'width:70px', onchange: e => { snap(); sS.len = Math.max(20, +e.target.value || 70) / M_PER_U; re(); } }), ' m   ', sS.h < 0 ? 'Depth ' : 'Height ', h('input', { type: 'number', value: +(Math.abs(sS.h) * M_PER_U).toFixed(1), step: 1, min: 2, style: 'width:60px', onchange: e => { snap(); sS.h = Math.sign(sS.h) * Math.max(2, +e.target.value || 6) / M_PER_U; re(); } }), ' m'),
+      geo ? h('p', { class: 'hint' }, 'Each ramp is ' + Math.round(geo.ramp * M_PER_U) + ' m long at the ' + (geo.g * 100).toFixed(1) + '% grade limit, so the road is level again ' + Math.round(geo.d2 * M_PER_U) + ' m from the middle.') : h('p', { class: 'hint' }, 'This pin is not on a road any more.'),
+      ...(geo ? geo.warns.map(w => h('p', { class: 'hint', style: 'color:#ff9f1a' }, '⚠ ' + w)) : []),
+      h('div', { class: 'row' }, h('button', { class: 'btn danger', onclick: () => { snap(); M().structs.splice(selStruct, 1); selStruct = -1; re(); } }, 'Delete')));
+  }
   function renderSide() {
     const counts = {}; things().forEach(t => { counts[t.k] = (counts[t.k] || 0) + 1; });
     const cur = toolById[tool], c0 = CATS.find(c => c.id === cat), st = streets()[selStreet];
@@ -229,6 +346,7 @@ export function createBuildEditor(ctx) {
       h('div', { class: 'cards' }, c0.tools.map(t => card({ ...t, color: t.color }, () => { tool = t.id; roadPts = null; renderSide(); view.redraw(); }, tool === t.id))),
       cur && cur.road ? h('div', {}, h('p', { class: 'hint' }, roadPts ? `Drawing: ${roadPts.length} point${roadPts.length > 1 ? 's' : ''}. Click to add a point (it snaps to existing roads), double-click or Enter to finish, Esc to cancel, Backspace/Ctrl+Z removes a point.` : 'Click the map to start a road. Each click drops a pin; the road is drawn at its real width. Click near an existing road to join it. Alt + click a pin to select that road.'),
         h('div', { class: 'row' }, 'Name ', h('input', { type: 'text', value: roadName, placeholder: '(optional)', style: 'width:150px', oninput: e => { roadName = e.target.value; } })),
+        h('div', { class: 'row' }, h('label', {}, h('input', { type: 'checkbox', checked: curved, onchange: e => { curved = e.target.checked; view.redraw(); } }), ' Curved road (smooth curve through 3+ points)')),
         roadPts && roadPts.length >= 2 ? h('div', { class: 'row' }, h('button', { class: 'btn pri', onclick: finishRoad }, 'Finish road')) : null) : null,
       cur && cur.struct ? h('div', {}, h('p', { class: 'hint' }, cur.blurb),
         h('div', { class: 'row' }, 'Length ', h('input', { type: 'number', value: sLen, step: 10, min: 20, style: 'width:70px', oninput: e => { sLen = +e.target.value || 70; view.redraw(); } }), ' m   ', cur.struct > 0 ? 'Height ' : 'Depth ', h('input', { type: 'number', value: sH, step: 1, min: 2, style: 'width:60px', oninput: e => { sH = +e.target.value || 6; } }), ' m')) : null,
@@ -237,7 +355,8 @@ export function createBuildEditor(ctx) {
       cur && cur.id === 'metro' ? h('div', { class: 'row' }, 'Line ', h('select', { onchange: e => { metroSel = +e.target.value; } }, (T().metro.length ? T().metro : [{ name: 'a new line' }]).map((l, i) => h('option', { value: i, selected: i === metroSel }, l.name)))) : null,
       st ? h('div', { class: 'grp' }, h('h4', {}, 'Selected road'), h('div', { class: 'row' }, 'Type ', h('select', { onchange: e => { snap(); st.cls = e.target.value; dirtyMap(); renderSide(); view.redraw(); } }, ROAD_TYPES.map(r => h('option', { value: r.id, selected: r.id === st.cls }, r.name)))),
         h('div', { class: 'row' }, 'Name ', h('input', { type: 'text', value: st.name || '', style: 'width:150px', oninput: e => { st.name = e.target.value || undefined; dirtyMap(); } })),
-        h('div', { class: 'row' }, h('button', { class: 'btn danger', onclick: () => { snap(); M().streets.splice(selStreet, 1); selStreet = -1; dirtyMap(); renderSide(); view.redraw(); } }, 'Delete road'))) : null,
+        h('div', { class: 'row' }, h('button', { class: 'btn danger', onclick: () => { snap(); delStreet(selStreet); selStreet = -1; dirtyMap(); autoBuild(); renderSide(); view.redraw(); } }, 'Delete road'))) : null,
+      selStructPanel(),
       h('h4', {}, 'Map'),
       h('div', { class: 'row', style: 'flex-wrap:wrap;gap:10px' },
         h('label', {}, h('input', { type: 'checkbox', checked: showLanes, onchange: e => { showLanes = e.target.checked; view.redraw(); } }), ' lanes'),

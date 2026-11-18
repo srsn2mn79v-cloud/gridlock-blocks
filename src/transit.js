@@ -217,12 +217,12 @@ export function buildTransit(city, custom) {
   }
   const metroLines = [];
   metroDefs.forEach((d, k) => {
-    const line = { id: k, name: d.name || 'Metro ' + (k + 1), color: d.color != null ? d.color : METRO_COLORS[k % 4], stations: [] };
+    const line = { id: k, name: d.name || 'Metro ' + (k + 1), color: d.color != null ? d.color : METRO_COLORS[k % 4], loop: !!d.loop, stations: [] };
     d.stations.forEach(q => {
       const sp = stationSpot(q.at[0], q.at[1]); if (!sp) { problems.push('a metro station near ' + Math.round(q.at[0]) + ',' + Math.round(q.at[1]) + ' has no free ground'); return; }
       line.stations.push({ id: 'metro' + k + '_' + line.stations.length, name: q.name || STATION_NAMES[nameK++ % STATION_NAMES.length], line: k, x: sp.x, z: sp.z, h: sp.h });
     });
-    if (line.stations.length >= 2) metroLines.push(line);
+    if (line.stations.length >= (line.loop ? 3 : 2)) metroLines.push(line); else if (line.loop && line.stations.length === 2) { line.loop = false; metroLines.push(line); }
   });
   return { lines, stops, stopAt, depot, stands, metro: { lines: metroLines }, problems };
 }

@@ -5,6 +5,7 @@ import { put, h, View, SC, S, field, textInput, selectInput, colorInput, distSeg
 import { makeRouter } from '../routeTool.js';
 import { buildTransit } from '../transit.js';
 import { metroPath } from '../tunnels.js';
+import { nearestRoadPoint } from './snap.js';
 import refUrl from './ref-map.png';
 
 const hexStr = n => '#' + (n >>> 0).toString(16).padStart(6, '0').slice(-6);
@@ -15,6 +16,7 @@ export function createTransitEditor(ctx) {
   root.append(wrap, side);
   const img = new Image(); img.src = refUrl; img.onload = () => view.redraw();
   let pathR = 0, pathFits = true, kind = 'bus', sel = 0, addMode = true, drag = null, router = null, routeCache = null, cityRef = null, note = '';
+  const snapW = w => { const r = nearestRoadPoint(ctx.cityIfBuilt(), w[0], w[1], 60); return r ? [rd(r.x), rd(r.z)] : w; };      // stops and stations snap onto the nearest road
   const T = () => { const t = (ctx.custom().transit ||= {}); t.bus ||= []; t.metro ||= []; return t; };
   const lines = () => T()[kind];
   const cur = () => lines()[sel];
@@ -55,7 +57,7 @@ export function createTransitEditor(ctx) {
     } else if (l.stations.length >= 2) {
       // the tunnel as the game builds it: straight through each station, circular arcs of at least 90 m between them
       c.lineCap = 'round'; c.lineJoin = 'round'; c.strokeStyle = col; c.lineWidth = 5; c.beginPath();
-      try { const mp = metroPath(l.stations.map(s => ({ x: s.at[0], z: s.at[1] }))); mp.pts.forEach((q, i) => { const o = sc([q.x, q.z]); i ? c.lineTo(o[0], o[1]) : c.moveTo(o[0], o[1]); }); pathR = mp.R * 1.25; pathFits = mp.fits; }
+      try { const mp = metroPath(l.stations.map(s => ({ x: s.at[0], z: s.at[1] })), l.loop); mp.pts.forEach((q, i) => { const o = sc([q.x, q.z]); i ? c.lineTo(o[0], o[1]) : c.moveTo(o[0], o[1]); }); pathR = mp.R * 1.25; pathFits = mp.fits; }
       catch (e) { l.stations.forEach((s, i) => { const q = sc(s.at); i ? c.lineTo(q[0], q[1]) : c.moveTo(q[0], q[1]); }); }
       c.stroke();
     }
@@ -77,11 +79,11 @@ export function createTransitEditor(ctx) {
     const i = hit(mx, my);
     if (e.button === 2) { if (l && i >= 0) { (kind === 'bus' ? l.stops : l.stations).splice(i, 1); changed(); } return; }
     if (i >= 0) { drag = i; return; }
-    if (l && addMode && e.button === 0) { if (kind === 'bus') l.stops.push(w); else l.stations.push({ at: w, name: '' }); changed(); return; }
+    if (l && addMode && e.button === 0) { const sw = snapW(w); if (kind === 'bus') l.stops.push(sw); else l.stations.push({ at: sw, name: '' }); changed(); return; }
     view.panStart(e);
   });
   addEventListener('mousemove', e => {
-    if (drag != null) { const l = cur(), [mx, my] = view.mouse(e), [wx, wy] = view.toWorld(mx, my); if (l) { setPt(l, drag, toWorld(wx, wy).map(rd)); routeCache = null; ctx.dirty('transit'); view.redraw(); } return; }
+    if (drag != null) { const l = cur(), [mx, my] = view.mouse(e), [wx, wy] = view.toWorld(mx, my); if (l) { setPt(l, drag, snapW(toWorld(wx, wy).map(rd))); routeCache = null; ctx.dirty('transit'); view.redraw(); } return; }
     view.panMove(e);
   });
   addEventListener('mouseup', () => { if (drag != null) { drag = null; renderSide(); } view.panEnd(); });
@@ -124,6 +126,9 @@ export function createTransitEditor(ctx) {
       l ? h('div', { class: 'props' },
         field('Name', textInput(l.name, v => { l.name = v; ctx.dirty('transit'); }, '150px')),
         field('Colour', colorInput(l.color ?? 0xff7a1a, v => { l.color = v; ctx.dirty('transit'); view.redraw(); })),
+        kind === 'metro' ? h('div', { class: 'row' }, h('label', {}, h('input', { type: 'checkbox', checked: !!l.loop, onchange: e => { l.loop = e.target.checked; ctx.dirty('transit'); renderSide(); view.redraw(); } }), ' Loop line (the last station connects back to the first)')) : null,
+        kind === 'metro' && l.loop && l.stations.length < 3 ? h('p', { class: 'hint warn' }, 'A loop needs at least 3 stations.') : null,
+        kind === 'metro' && pathFits === false ? h('p', { class: 'hint warn' }, 'These stations are too close together for 90 m curves: spread them out (the tunnel is bent as gently as it can be).') : null,
         kind === 'metro' ? l.stations.map((s, i) => field('Station ' + (i + 1), textInput(s.name || '', v => { s.name = v; ctx.dirty('transit'); view.redraw(); }, '150px'), '')) : null,
         h('div', { class: 'row' },
           h('button', { class: 'btn' + (addMode ? ' pri' : ''), onclick: () => { addMode = !addMode; renderSide(); } }, addMode ? 'Placing (click the map)' : 'Click to place'),

@@ -804,6 +804,17 @@ async function checkMetro() {
       y = f; prev = f;
     }
   });
+  // a loop line: the first and last stations are joined, and the tunnel is one closed circuit
+  { const tl = JSON.parse(JSON.stringify({ metro: transit.metro })); const t2 = { ...transit, metro: { lines: transit.metro.lines.map((l, i) => ({ ...l, loop: i === 0 })) } };
+    const tn2 = createTunnels({ city, scene: new THREE.Scene(), transit: t2, collisionWorld: [], parcels: [], props: [], cityHeight: heightAt });
+    const lc = (tn2.chains || []).find(c => c.line && c.loop);
+    { const { metroPath } = await imp('src/tunnels.js'); const sq = metroPath([{ x: -300, z: -300 }, { x: 300, z: -280 }, { x: 320, z: 300 }, { x: -280, z: 320 }, { x: -320, z: 0 }], true).pts;      // a loop of well-spaced stations
+      for (let i = 1; i < sq.length - 1; i++) { const A = sq[i - 1], B = sq[i], D = sq[i + 1], ab = Math.hypot(B.x - A.x, B.z - A.z), bd = Math.hypot(D.x - B.x, D.z - B.z), ad = Math.hypot(D.x - A.x, D.z - A.z), cr = Math.abs((B.x - A.x) * (D.z - A.z) - (B.z - A.z) * (D.x - A.x)); if (cr > 1e-6 && ab * bd * ad / (2 * cr) < MINR - 0.5) { bad.push('loop path bends with radius ' + r1(ab * bd * ad / (2 * cr) * 1.25) + ' m'); break; } }
+      if (Math.hypot(sq[0].x - sq[sq.length - 1].x, sq[0].z - sq[sq.length - 1].z) > 1) bad.push('loop path does not close'); }
+    if (!lc) bad.push('loop line: no closed circuit was built');
+    else { const a = lc.pts[0], z = lc.pts[lc.pts.length - 1]; if (Math.hypot(a.x - z.x, a.z - z.z) > 1) bad.push('loop line: the circuit does not close');
+      const n0 = (tn2.trains || []).filter(t => t.loop).length; if (n0 < 2) bad.push('loop line: trains do not run both ways'); }
+    const nT = (tn.trains || []).length; if (nT < 2 * chains.length) bad.push('trains: expected one per direction on every line, got ' + nT); }
   return { name: 'metro', count: chains.length + ' lines, ' + segs + ' tunnel parts, ' + st.length + ' stations, tightest curve ' + r1(minR * 1.25) + ' m', bad };
 }
 
