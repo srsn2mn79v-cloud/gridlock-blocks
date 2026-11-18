@@ -6,7 +6,7 @@
 // lines (roads.js) and the stop-sign props (signs.js) so all three always agree.
 import { buildEdgesByNode } from './roadMath.js';
 
-export const roadRank = e => (e.type === 'highway' || e.interstate ? 3 : e.type === 'avenue' ? 2 : 1);
+export const roadRank = e => (e.ring ? 4 : e.type === 'highway' || e.interstate ? 3 : e.type === 'avenue' ? 2 : 1);
 
 export const stopKey = (nodeId, edgeId) => nodeId + '|' + edgeId;
 
@@ -26,6 +26,7 @@ export function computeStopApproaches(city) {
       if (e.oneWay && e.from === nodeId) return;
       // slip roads merge into the highway without a stop sign
       if (e.ramp && edges.some(o => o.type === 'highway' || o.interstate)) return;
+      if (e.ring) return;                                        // traffic on a roundabout's ring has the right of way
       if (max === min || roadRank(e) < max) stops.add(stopKey(nodeId, e.id));
     });
   });

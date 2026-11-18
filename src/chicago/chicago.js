@@ -60,6 +60,8 @@ export function buildChicago() {
     if (e.line.cls === 'hw' || e.line.cls === 'hwEnd2' || e.line.cls === 'hwMid' || e.line.cls === 'ramp') o.sidewalks = false;
     if (e.line.cls === 'ramp') { o.oneWay = true; o.ramp = true; o.lanes = 1; }
     if (e.line.cls === 'hw' || e.line.cls === 'hwEnd' || e.line.cls === 'hwEnd2' || e.line.cls === 'hwMid') o.oneWay = true;
+    if (e.line.oneWay) o.oneWay = true;
+    if (e.line.ring) { o.ring = true; o.speedLimit = 40; }          // a roundabout's ring: one way, and the traffic on it has the right of way
     o.cls = e.line.cls;
     if (c.type === 'highway' || e.line.cls === 'hwEnd2' || e.line.cls === 'hwMid') o.interstate = true;       // interstate-class for the traffic: lane choice, exits, merging (the two end sections are arterial-class roads)
     return o;
@@ -144,7 +146,7 @@ export function buildChicago() {
     const es = byNode[id];
     if (es.length < 3 || nodes[id].elevation > 0.5) return;
     const art = es.filter(arterial);
-    if (art.length >= 2 && es.length <= 5 && !es.some(e => e.ramp || e.cls === 'hw') && es.every(e => e.structure !== 'bridge')) signalNodes.push(id);
+    if (art.length >= 2 && es.length <= 5 && !es.some(e => e.ramp || e.cls === 'hw' || e.ring) && es.every(e => e.structure !== 'bridge')) signalNodes.push(id);
   });
   const spawnC = T(X0, Y0);
   function signalPole(nodeId, approachId) {

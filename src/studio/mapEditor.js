@@ -34,6 +34,7 @@ export const LAYERS = {
   gas: { name: 'Gas stations', color: '#ff7f2e', items: m => m.gas.map((g, i) => point(() => g, p => { m.gas[i] = p; }, { label: 'Gas ' + (i + 1), props: [] })), add: m => ({ type: 'point', make: p => m.gas.push(p) }), del: (m, i) => m.gas.splice(i, 1) },
   slips: { name: 'Harbour slips', color: '#27c4c4', items: m => m.harbour.slips.map((g, i) => point(() => g, p => { m.harbour.slips[i] = p; }, { label: 'Slip ' + (i + 1), props: [] })), add: m => ({ type: 'point', make: p => m.harbour.slips.push(p) }), del: (m, i) => m.harbour.slips.splice(i, 1) }
 };
+const OLD = new Set(['streets', 'highway', 'interchanges']);      // roads are drawn in the City builder now; these stay for fine-tuning the traced originals
 const STREET_COL = { six: '#e0a23a', four: '#c9a063', two: '#9a3f45', ramp: '#888' };
 
 export function createMapEditor(ctx) {
@@ -41,7 +42,7 @@ export function createMapEditor(ctx) {
   const canvas = h('canvas'), wrap = h('div', { class: 'cv' }, canvas), side = h('div', { class: 'side' });
   root.append(wrap, side);
   const img = new Image(); img.src = refUrl; img.onload = () => view.redraw();
-  let layer = 'streets', selIdx = 0, selV = -1, drawing = null, dragging = null, alpha = 0.55, showImg = true, showBuilt = true, hist = [], builtEdges = null, showAll = true;
+  let layer = 'lake', selIdx = 0, selV = -1, drawing = null, dragging = null, alpha = 0.55, showImg = true, showBuilt = true, hist = [], builtEdges = null, showAll = true;
   const m = () => ctx.map();
 
   const view = new View(canvas, draw);
@@ -155,7 +156,7 @@ export function createMapEditor(ctx) {
     const L = LAYERS[layer], its = items(); if (selIdx >= its.length) selIdx = Math.max(0, its.length - 1);
     put(side, 
       h('h3', {}, 'Map'),
-      field('Layer', selectInput(layer, Object.entries(LAYERS).map(([k, v]) => [k, v.name]), v => { layer = v; selIdx = 0; selV = -1; drawing = null; renderSide(); view.redraw(); })),
+      field('Layer', selectInput(layer, Object.entries(LAYERS).map(([k, v]) => [k, (OLD.has(k) ? 'Old tracing: ' : '') + v.name]), v => { layer = v; selIdx = 0; selV = -1; drawing = null; renderSide(); view.redraw(); })),
       h('div', { class: 'row' },
         h('label', { class: 'chk' }, h('input', { type: 'checkbox', checked: showImg, onchange: e => { showImg = e.target.checked; view.redraw(); } }), 'Your map image'),
         h('input', { type: 'range', min: 0.05, max: 1, step: 0.05, value: alpha, oninput: e => { alpha = +e.target.value; view.redraw(); } })),

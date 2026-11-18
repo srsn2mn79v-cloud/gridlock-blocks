@@ -12,7 +12,7 @@ import { createUpgradeEditor } from './upgradeEditor.js';
 import { createTransitEditor } from './transitEditor.js';
 import { createBuildEditor } from './buildEditor.js';
 
-let S = loadCustom(), city = null, cityStale = true, building = false, flags = new Set(), cur = 'map';
+let S = loadCustom(), city = null, cityStale = true, building = false, flags = new Set(), cur = 'build';
 const statusEl = h('span', { class: 'status' }), saveBtn = h('button', { class: 'btn pri', onclick: () => save() }, 'Save');
 const status = m => { statusEl.textContent = m || ''; };
 const ctx = {
@@ -51,8 +51,8 @@ function resetAll() {
 }
 
 const maps = createMapEditor(ctx), races = createRaceEditor(ctx), cars = createCarEditor(ctx), upg = createUpgradeEditor(ctx), transitTab = createTransitEditor(ctx), buildTab = createBuildEditor(ctx);
-const tabs = { map: maps, build: buildTab, races, transit: transitTab, cars, upgrades: upg };
-const NAMES = { map: 'Map', build: 'City builder', races: 'Races', transit: 'Transit', cars: 'Cars', upgrades: 'Upgrades' };
+const tabs = { build: buildTab, map: maps, races, transit: transitTab, cars, upgrades: upg };
+const NAMES = { build: 'City builder', map: 'Terrain & areas', races: 'Races', transit: 'Transit', cars: 'Cars', upgrades: 'Upgrades' };
 const nav = h('div', { class: 'tabs' });
 function go(k) {
   cur = k; Object.entries(tabs).forEach(([n, t]) => (n === k ? t.show() : t.hide()));
@@ -65,7 +65,7 @@ const bar = h('header', {}, h('b', { class: 'logo' }, 'Gridlock Studio'), nav, s
   h('button', { class: 'btn', onclick: () => fileIn.click() }, 'Import'), h('button', { class: 'btn', onclick: exportJson }, 'Export'), h('button', { class: 'btn danger', onclick: resetAll }, 'Reset all'), saveBtn,
   h('button', { class: 'btn go', onclick: () => { save(); location.href = './index.html'; } }, 'Save & play ▶'));
 document.body.append(bar, h('main', {}, maps.el, buildTab.el, races.el, transitTab.el, cars.el, upg.el), fileIn);
-go('map');
+go('build');
 addEventListener('beforeunload', e => { if (flags.size) { e.preventDefault(); e.returnValue = ''; } });
 setTimeout(() => rebuild(), 300);       // so the road network is ready for the road overlay and the race editor
 window.__studio = { ctx, rebuild, go, S: () => S };
