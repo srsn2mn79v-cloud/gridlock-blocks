@@ -590,12 +590,6 @@ function spreadMarkers(list) {
   return out;
 }
 const transitScene = createTransitScene({ scene, transit, heightAt });
-// metro entrances are solid (a 6 x 5 m building each, front toward the road)
-((transit.metro && transit.metro.lines) || []).forEach(l => l.stations.forEach(st => {
-  const fx = Math.cos(st.h), fz = Math.sin(st.h), rx = -fz, rz = fx, hw = 3.1, hd = 2.6;
-  const corner = (a, b) => [st.x + rx * hw * a + fx * hd * b, st.z + rz * hw * a + fz * hd * b];
-  collisionWorld.push({ kind: 'parcel', instance: null, footprint: [corner(-1, -1), corner(1, -1), corner(1, 1), corner(-1, 1)], blocksCar: true, destructible: false, response: 'bounce', destroyed: false });
-}));
 // transport markers on the minimap: bus depot, and cab stands / bus stops only when you zoom out to the whole map
 const transitMarkers = all => {
   const out = [];
@@ -603,7 +597,7 @@ const transitMarkers = all => {
   if (airport && airport.gate) out.push({ x: airport.gate.px, z: airport.gate.pz, color: '#ffffff', label: '✈', big: true });   // the airport (Departures gate)
   tunnels.portals.forEach(q => out.push({ x: q.x, z: q.z, color: '#ffcc00', label: '▼' }));
   if (transit.depot) out.push({ x: transit.depot.x, z: transit.depot.z, color: '#ffffff', label: '🚌', big: true });   // the bus depot (a white pin with a bus, so it is not mistaken for a bus stop)
-  ((transit.metro && transit.metro.lines) || []).forEach(l => l.stations.forEach(s => out.push({ x: s.x, z: s.z, color: '#' + l.color.toString(16).padStart(6, '0'), label: 'M' })));
+  ((transit.metro && transit.metro.lines) || []).forEach(l => l.stations.forEach(s => { const sh = (tunnels.stairs || []).find(t => t.S.st === s); out.push({ x: sh ? sh.px : s.x, z: sh ? sh.pz : s.z, color: '#' + l.color.toString(16).padStart(6, '0'), label: 'M' }); }));
   transit.stands.forEach(s => { if (all || Math.hypot(s.x - car.x, s.z - car.z) < 500) out.push({ x: s.x, z: s.z, color: '#f2c200', label: 'T' }); });
   if (!all) transit.stops.forEach(s => { if (Math.hypot(s.x - car.x, s.z - car.z) < 260) out.push({ x: s.x, z: s.z, color: '#4aa3ff', label: 'b' }); });
   return out;

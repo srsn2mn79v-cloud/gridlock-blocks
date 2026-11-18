@@ -10,6 +10,7 @@
 //   node tools/check.mjs sidewalks every pavement leads somewhere (no stubs / islands, none beside slip roads)
 //   node tools/check.mjs water      no road surface lies under water without a bridge
 //   node tools/check.mjs transit    bus loops are legal, metro stations stand on free ground, custom lines build
+//   node tools/check.mjs metro      every metro tunnel has rails, no curve is tighter than 90 m, every station has a walk-down shaft
 //   node tools/check.mjs drift      the three drift circuits: corner radius, walls, start
 //   node tools/check.mjs rivals     race rivals run their routes without errors
 //   node tools/check.mjs pavementgaps  no gaps in the pavement at bends, joins and junction corners
@@ -772,6 +773,29 @@ async function checkHwFlow(cars = 500, minutes = 4) {
   return { name: 'hwflow', count: 'highway ' + r1(hwSec.n / 60) + ' car-min at ' + km(hwSec.sp / Math.max(1, hwSec.n)) + ' km/h avg, stalled ' + r1(hwSec.stall) + ' s; slip roads ' + r1(rampSec.n / 60) + ' car-min at ' + km(rampSec.sp / Math.max(1, rampSec.n)) + ' km/h, stalled ' + r1(rampSec.stall) + ' s; ' + lc + ' lane changes, ' + hardBrake + ' hard-brake frames, ' + stuck + ' cars stuck', bad };
 }
 
+
+// ---- metro: rails in every tunnel part, no sharp turns (radius >= 90 m = 72 u), every station reached by a walk-down shaft ----------------------------------------
+async function checkMetro() {
+  const { createTunnels } = await imp('src/tunnels.js'); const { buildTransit, clearTransitSpots } = await imp('src/transit.js');
+  const transit = buildTransit(city); clearTransitSpots(city, transit);
+  const tn = createTunnels({ city, scene: new THREE.Scene(), transit, collisionWorld: [], parcels: [], props: [], cityHeight: heightAt });
+  const bad = [], MINR = 72, chains = (tn.chains || []).filter(c => c.line);
+  let segs = 0, minR = 1e9;
+  chains.forEach(c => {
+    const P = c.pts;
+    for (let i = 1; i < P.length - 1; i++) {                       // circumradius of every three neighbouring points
+      const a = P[i - 1], b = P[i], d = P[i + 1], ab = Math.hypot(b.x - a.x, b.z - a.z), bd = Math.hypot(d.x - b.x, d.z - b.z), ad = Math.hypot(d.x - a.x, d.z - a.z);
+      const cr = Math.abs((b.x - a.x) * (d.z - a.z) - (b.z - a.z) * (d.x - a.x)); if (cr < 1e-6) continue;
+      const R = ab * bd * ad / (2 * cr); if (R < minR) minR = R;
+      if (R < MINR - 0.5) { bad.push('line ' + (c.line.name || c.line.id) + ' bends with radius ' + r1(R * 1.25) + ' m (min 90) @' + r1(b.x) + ',' + r1(b.z)); break; }
+    }
+  });
+  (tn.segs || []).forEach(s => { if (s.chain !== undefined && !s.feeder) { segs++; if (!s.rails) bad.push('tunnel part without rails @' + r1(s.x || 0) + ',' + r1(s.z || 0)); } });
+  const st = (transit.metro && transit.metro.lines || []).flatMap(l => l.stations);
+  st.forEach(s => { if (!(tn.stairs || []).some(h => Math.hypot(h.S.x - s.x, h.S.z - s.z) < 1)) bad.push('station ' + s.name + ' has no walk-down shaft'); });
+  return { name: 'metro', count: chains.length + ' lines, ' + segs + ' tunnel parts, ' + st.length + ' stations, tightest curve ' + r1(minR * 1.25) + ' m', bad };
+}
+
 // ---- every shop car park meets a street: lane, stop line and STOP sign are on clear ground ----------------------------------------------------------------------
 async function checkLotGeo() {
   await world();
@@ -956,12 +980,12 @@ async function checkSongs() {
   return { name: 'songs', count: SONGS.length + ' songs (' + styles.join('/') + ' per station), ' + SONGS.filter(s => !s.melody).length + ' instrumental grooves', bad };
 }
 
-const CHECKS = { songs: checkSongs,  stops: checkStops,  outroad: checkOutroad, transit: checkTransit, rivals: checkRivals, sidewalks: checkSidewalks, gas: checkGas, races: checkRaces, drift: checkDrift, covered: checkCovered,  signs: checkSigns, signfacing: checkSignFacing, lamps: checkLamps, buildings: checkBuildings, traffic: () => checkTraffic(+process.argv[3] || 40, +process.argv[4] || 5), markings: checkMarkings, bridges: checkBridges, solid: checkSolid, water: checkWater, rules: checkRules, driveways: checkDriveways, smooth: checkSmooth, mesh: checkMesh, pavement: checkPavement, connected: checkConnected, lots: checkLots, doors: checkDoors, pavementgaps: checkPavementGaps, riverbanks: checkRiverBanks, bridgewalls: checkBridgeWalls, obstacles: checkObstacles, hwflow: () => checkHwFlow(+process.argv[3] || 500, +process.argv[4] || 4), lotgeo: checkLotGeo };
+const CHECKS = { songs: checkSongs,  stops: checkStops,  outroad: checkOutroad, transit: checkTransit, rivals: checkRivals, sidewalks: checkSidewalks, gas: checkGas, races: checkRaces, drift: checkDrift, covered: checkCovered,  signs: checkSigns, signfacing: checkSignFacing, lamps: checkLamps, buildings: checkBuildings, traffic: () => checkTraffic(+process.argv[3] || 40, +process.argv[4] || 5), markings: checkMarkings, bridges: checkBridges, solid: checkSolid, water: checkWater, rules: checkRules, driveways: checkDriveways, smooth: checkSmooth, mesh: checkMesh, pavement: checkPavement, connected: checkConnected, lots: checkLots, doors: checkDoors, pavementgaps: checkPavementGaps, riverbanks: checkRiverBanks, bridgewalls: checkBridgeWalls, obstacles: checkObstacles, hwflow: () => checkHwFlow(+process.argv[3] || 500, +process.argv[4] || 4), lotgeo: checkLotGeo, metro: checkMetro };
 // groups: run several related checks at once
 const GROUPS = {
   placement: ['signs', 'signfacing', 'lamps', 'driveways', 'buildings', 'pavement', 'sidewalks', 'pavementgaps', 'lotgeo'],   // nothing stands where it shouldn't
   roads: ['markings', 'bridges', 'bridgewalls', 'riverbanks', 'water', 'smooth', 'mesh', 'connected', 'rules'],    // road geometry and connections
-  quick: ['placement', 'roads', 'gas', 'transit', 'drift', 'covered', 'outroad', 'songs'],                           // all static checks, seconds
+  quick: ['placement', 'roads', 'gas', 'transit', 'metro', 'drift', 'covered', 'outroad', 'songs'],                           // all static checks, seconds
   sim: ['traffic', 'stops', 'solid', 'obstacles', 'rivals', 'races', 'lots', 'doors'],                                       // simulations, minutes
   all: ['quick', 'sim']
 };

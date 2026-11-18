@@ -735,11 +735,7 @@ export function createWorld({ tunnels = null, transit = null, setGarageHoles, ci
     const mk = arrowMarker(st.gym ? 0xff7a1a : 0xff5fa8); mk.position.set(st.door.x, 0.02, st.door.z); scene.add(mk);
     targets.push({ kind: 'store', id: st.id, name: st.name, x: st.door.x, z: st.door.z, data: st, mk });
   });
-  // metro: an entrance per station (on foot or in the car); the panel lists every other station on the line
-  ((transit && transit.metro && transit.metro.lines) || []).forEach(line => line.stations.forEach(st => {
-    const mk = arrowMarker(line.color); mk.position.set(st.x, 0.02, st.z); scene.add(mk);
-    targets.push({ kind: 'metro', id: st.id, name: st.name + ' station', x: st.x, z: st.z, data: { st, line }, mk, onFootOnly: true });
-  }));
+  // metro: no entrance on the street any more - you walk down the stair shaft (tunnels.js) and board from the platform
   ((tunnels && tunnels.platTargets && tunnels.platTargets()) || []).forEach(q => {       // the platforms: board a train down there too
     const mk = arrowMarker(q.line.color); mk.position.set(q.x, q.y + 0.02, q.z); scene.add(mk);
     targets.push({ kind: 'metro', id: q.key, name: q.st.name + ' platform', x: q.x, z: q.z, data: { st: q.st, line: q.line }, mk, onFootOnly: true });
@@ -1166,7 +1162,7 @@ export function createWorld({ tunnels = null, transit = null, setGarageHoles, ci
   }
   const METRO_FARE = 3;
   function metroSpec({ st, line }) {
-    const idx = line.stations.indexOf(st), rows = [{ hint: `${line.name} - ride to any station on the line for ${money(METRO_FARE)}. You step out on foot at the entrance.` }];
+    const idx = line.stations.indexOf(st), rows = [{ hint: `${line.name} - ride to any station on the line for ${money(METRO_FARE)}. You step out on the platform.` }];
     line.stations.forEach((q, i) => {
       if (q === st) { rows.push({ name: q.name, sub: 'You are here', btn: '', disabled: true }); return; }
       const km = (Math.hypot(q.x - st.x, q.z - st.z) * 1.25 / 1000).toFixed(1);
@@ -1180,8 +1176,9 @@ export function createWorld({ tunnels = null, transit = null, setGarageHoles, ci
     transition(() => {
       taxi.addCash(-METRO_FARE);
       leaveMode(); mode = 'city'; cur = null;
-      foot.x = q.x + Math.cos(q.h) * 5; foot.z = q.z + Math.sin(q.h) * 5; foot.y = hAt(foot.x, foot.z); foot.speed = 0;
-      foot.heading = foot.camH = Math.atan2(Math.cos(q.h), Math.sin(q.h));
+      const pl = tunnels && tunnels.platTargets ? tunnels.platTargets().find(p => p.st === q) : null;
+      if (pl) { foot.x = pl.x; foot.z = pl.z; foot.y = pl.y; foot.speed = 0; foot.heading = foot.camH = Math.atan2(pl.nx || 0, pl.nz || 1); }       // out of the train onto the platform
+      else { foot.x = q.x + Math.cos(q.h) * 5; foot.z = q.z + Math.sin(q.h) * 5; foot.y = hAt(foot.x, foot.z); foot.speed = 0; foot.heading = foot.camH = Math.atan2(Math.cos(q.h), Math.sin(q.h)); }
       onFoot = true; avatar.visible = true; stepFoot(0);
       toast('Arrived at ' + q.name);
     });
