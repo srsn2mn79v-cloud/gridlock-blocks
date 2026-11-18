@@ -228,7 +228,7 @@ export function createBuildEditor(ctx) {
     if (!best || best.d > 6) return null;
     const k = CLASSES[best.s.cls] || CLASSES.two, g = 0.95 * (k.maxGrade || 0.06), d1 = st.len / 2, ramp = Math.abs(st.h) / g, total = polyLen(best.s.pts) * S, along = best.along * S;
     const warns = [], info = { ...best, d1, ramp, d2: (st.plat || d1) + ramp, g, total, along, warns };
-    if (along - info.d2 < 4 || along + info.d2 > total - 4) warns.push('The ramps run past the end of the road (' + Math.round(info.d2 * M_PER_U) + ' m each side of the middle): make the road longer or the structure lower.');
+    if (along - info.d2 < 4 || along + info.d2 > total - 4) warns.push('The ramps run past the end of the road (' + Math.round(info.d2 * M_PER_U) + ' m each side of the middle): the game now shortens it to fit; make the road longer or the structure shorter or lower to keep your size.');
     // junctions on the span or the ramps
     const pts = [], city = ctx.cityIfBuilt();
     streets().forEach((o, oi) => { if (oi === best.i) return; [o.pts[0], o.pts[o.pts.length - 1]].forEach(q => pts.push(q)); });

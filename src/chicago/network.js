@@ -82,6 +82,14 @@ export function buildNetwork(lines, barriers, opts = {}) {
     };
     const extra = [], cut = [];
     events.forEach(ev => {
+      if (ev.custom && !ev.prof.plat) {   // a bridge or tunnel from the city builder that is too long for its street (deck plus both ramps): shorten the deck, then the height, until it fits
+        const { d1, d2, h } = ev.prof, room = Math.min(ev.sc, total - ev.sc) - 5, g = Math.abs(h) / Math.max(0.001, d2 - d1);
+        if (d2 > room) {
+          let nd1 = room - Math.abs(h) / g, nh = h;
+          if (nd1 < 3) { nd1 = 3; nh = Math.sign(h) * Math.max(0, (room - 3) * g); }
+          if (Math.abs(nh) >= 1.2) { ev.prof = { d1: nd1, d2: nd1 + Math.abs(nh) / g, h: nh }; warn((h < 0 ? 'tunnel' : 'bridge') + ' shortened to fit its street: ' + L.id); }
+        }
+      }
       const { d1, d2, h } = ev.prof;
       if (ev.sc - d2 < 4 || ev.sc + d2 > total - 4) { warn('bridge zone leaves the line: ' + L.id + ' (' + ev.B.kind + ')'); L.pendingTrim = L.pendingTrim || []; L.pendingTrim.push(ev); return; }
       cut.push([ev.sc - d2 - 1, ev.sc + d2 + 1]);
