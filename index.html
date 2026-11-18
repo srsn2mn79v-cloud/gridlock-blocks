@@ -122,6 +122,6 @@
   <div id="splash"></div>
   <div id="wrongway">WRONG WAY</div>
   <script type="module" src="/src/main.js"></script>
-  <script>if ("serviceWorker" in navigator && location.protocol.startsWith("http")) navigator.serviceWorker.register("sw.js").catch(()=>{});</script>
+  <script>if ("serviceWorker" in navigator && location.protocol.startsWith("http")) navigator.serviceWorker.register("sw.js",{updateViaCache:"none"}).then(r=>r.update()).catch(()=>{});</script>
 </body>
 </html>
