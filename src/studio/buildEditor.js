@@ -23,6 +23,7 @@ const rtOfStreet = s => (s.tram ? ROAD_TYPES.find(r => r.id === 'tram') : s.ped 
 const roadType = id => ROAD_TYPES.find(r => r.id === id) || ROAD_TYPES[2];
 const CATS = [
   { id: 'road', name: 'Roads', color: '#f0d23c', tools: [
+    { id: 'select', name: 'Select', blurb: 'Click a road pin or a bridge/tunnel pin to select it: change its type, rename it, edit a bridge, or delete it. Right-click a pin also deletes.' },
     ...ROAD_TYPES.map(r => ({ id: 'road:' + r.id, name: r.name, road: r.id, blurb: r.blurb })),
     { id: 'grid', name: 'Street grid', rect: 'grid', blurb: 'Click two corners: a block of streets, one every 90 m (set below). Ends join the roads they touch.' },
     { id: 'bridge', name: 'Bridge', blurb: 'Click a road: that stretch is lifted over what it crosses, with ramps up and down.', struct: 1 },
@@ -400,8 +401,9 @@ export function createBuildEditor(ctx) {
     }
     if (e.button === 1 || e.shiftKey) { view.panStart(e); return; }
     if (!roadPts && hit && e.ctrlKey) { snap(); drag = hit; return; }
-    if (!roadPts && e.altKey && hit && hit.st) { selStruct = hit.idx; selStreet = -1; renderSide(); view.redraw(); return; }
-    if (!roadPts && e.altKey) { const sp = hitStreetPin(mx, my); if (sp) { selStreet = sp.i; renderSide(); view.redraw(); return; } }
+    const pick = e.altKey || tool === 'select';
+    if (!roadPts && pick && hit && hit.st) { selStruct = hit.idx; selStreet = -1; renderSide(); view.redraw(); return; }
+    if (!roadPts && pick) { const sp = hitStreetPin(mx, my); if (sp) { selStreet = sp.i; selStruct = -1; renderSide(); view.redraw(); } return; }
     const w = view.toWorld(mx, my); place([w[0], w[1]]);
   });
   addEventListener('mousemove', e => {
