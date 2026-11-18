@@ -4,6 +4,7 @@
 import { put, h, View, SC, S, field, textInput, selectInput, colorInput, distSeg } from './common.js';
 import { makeRouter } from '../routeTool.js';
 import { buildTransit } from '../transit.js';
+import { metroPath } from '../tunnels.js';
 import refUrl from './ref-map.png';
 
 const hexStr = n => '#' + (n >>> 0).toString(16).padStart(6, '0').slice(-6);
@@ -13,7 +14,7 @@ export function createTransitEditor(ctx) {
   const canvas = h('canvas'), wrap = h('div', { class: 'cv' }, canvas), side = h('div', { class: 'side' });
   root.append(wrap, side);
   const img = new Image(); img.src = refUrl; img.onload = () => view.redraw();
-  let kind = 'bus', sel = 0, addMode = true, drag = null, router = null, routeCache = null, cityRef = null, note = '';
+  let pathR = 0, pathFits = true, kind = 'bus', sel = 0, addMode = true, drag = null, router = null, routeCache = null, cityRef = null, note = '';
   const T = () => { const t = (ctx.custom().transit ||= {}); t.bus ||= []; t.metro ||= []; return t; };
   const lines = () => T()[kind];
   const cur = () => lines()[sel];
@@ -52,8 +53,11 @@ export function createTransitEditor(ctx) {
         route.segs.forEach(s => { c.beginPath(); s.pts.forEach((p, i) => { const q = sc(p); i ? c.lineTo(q[0], q[1]) : c.moveTo(q[0], q[1]); }); c.stroke(); });
       }
     } else if (l.stations.length >= 2) {
-      c.lineCap = 'round'; c.lineJoin = 'round'; c.strokeStyle = col; c.lineWidth = 5; c.setLineDash([10, 6]); c.beginPath();
-      l.stations.forEach((s, i) => { const q = sc(s.at); i ? c.lineTo(q[0], q[1]) : c.moveTo(q[0], q[1]); }); c.stroke(); c.setLineDash([]);
+      // the tunnel as the game builds it: straight through each station, circular arcs of at least 90 m between them
+      c.lineCap = 'round'; c.lineJoin = 'round'; c.strokeStyle = col; c.lineWidth = 5; c.beginPath();
+      try { const mp = metroPath(l.stations.map(s => ({ x: s.at[0], z: s.at[1] }))); mp.pts.forEach((q, i) => { const o = sc([q.x, q.z]); i ? c.lineTo(o[0], o[1]) : c.moveTo(o[0], o[1]); }); pathR = mp.R * 1.25; pathFits = mp.fits; }
+      catch (e) { l.stations.forEach((s, i) => { const q = sc(s.at); i ? c.lineTo(q[0], q[1]) : c.moveTo(q[0], q[1]); }); }
+      c.stroke();
     }
     pts(l).forEach((p, i) => {
       const [x, y] = sc(p);
@@ -128,7 +132,7 @@ export function createTransitEditor(ctx) {
         note ? h('p', { class: 'hint' + (note.startsWith('Works') ? '' : ' warn') }, note) : null) : h('p', { class: 'hint' }, 'Make a new line, then click on the map.'),
       h('p', { class: 'hint' }, kind === 'bus'
         ? 'Click the map to add stops in order. The bus drives the shortest avenues between them and returns another way (a loop). It cannot cross its own route or turn back on itself - "Check" tells you. Your lines replace the four built-in ones.'
-        : 'Click the map to add stations in order; each gets an entrance building beside the nearest avenue. In the game walk up to an entrance and press E to ride to any other station on the line ($3).'),
+        : 'Click the map to add stations in order. The tunnel runs straight through each station and curves between them with a radius of at least 90 m (the game bends it for you; the line drawn here is the real tunnel). Each station gets a walk-down stair shaft with two escalators on free ground beside it; there is no street entrance, people and you walk down and board on the platform. Lines run at different depths so they can cross.'),
       h('p', { class: 'hint' }, 'Drag a point to move it, right-click to delete. Press "Save" (top right), then play.')
     );
   }

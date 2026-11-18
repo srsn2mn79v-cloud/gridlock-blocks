@@ -10,6 +10,7 @@ import { createRaceEditor } from './raceEditor.js';
 import { createCarEditor } from './carEditor.js';
 import { createUpgradeEditor } from './upgradeEditor.js';
 import { createTransitEditor } from './transitEditor.js';
+import { createBuildEditor } from './buildEditor.js';
 
 let S = loadCustom(), city = null, cityStale = true, building = false, flags = new Set(), cur = 'map';
 const statusEl = h('span', { class: 'status' }), saveBtn = h('button', { class: 'btn pri', onclick: () => save() }, 'Save');
@@ -27,7 +28,7 @@ function rebuild(after) {
   setTimeout(() => {
     try { setMapData(ctx.map()); city = buildChicago(); cityStale = false; status('Road network built: ' + city.roadEdges.length + ' road pieces' + (city.warnings.length ? ', ' + city.warnings.length + ' warning(s)' : '')); }
     catch (e) { console.error(e); status('The map could not be built: ' + e.message); }
-    building = false; maps.refresh(); races.refresh(); transitTab.refresh(); after && after();
+    building = false; maps.refresh(); races.refresh(); transitTab.refresh(); buildTab.refresh(); after && after();
   }, 40);
 }
 function save() {
@@ -49,21 +50,21 @@ function resetAll() {
   location.reload();
 }
 
-const maps = createMapEditor(ctx), races = createRaceEditor(ctx), cars = createCarEditor(ctx), upg = createUpgradeEditor(ctx), transitTab = createTransitEditor(ctx);
-const tabs = { map: maps, races, transit: transitTab, cars, upgrades: upg };
-const NAMES = { map: 'Map', races: 'Races', transit: 'Transit', cars: 'Cars', upgrades: 'Upgrades' };
+const maps = createMapEditor(ctx), races = createRaceEditor(ctx), cars = createCarEditor(ctx), upg = createUpgradeEditor(ctx), transitTab = createTransitEditor(ctx), buildTab = createBuildEditor(ctx);
+const tabs = { map: maps, build: buildTab, races, transit: transitTab, cars, upgrades: upg };
+const NAMES = { map: 'Map', build: 'City builder', races: 'Races', transit: 'Transit', cars: 'Cars', upgrades: 'Upgrades' };
 const nav = h('div', { class: 'tabs' });
 function go(k) {
   cur = k; Object.entries(tabs).forEach(([n, t]) => (n === k ? t.show() : t.hide()));
   [...nav.children].forEach(b => b.classList.toggle('on', b.dataset.k === k));
-  if ((k === 'races' || k === 'transit') && (cityStale || !city)) rebuild();
+  if ((k === 'races' || k === 'transit' || k === 'build') && (cityStale || !city)) rebuild();
 }
 Object.keys(NAMES).forEach(k => nav.append(h('button', { 'data-k': k, class: 'tab-btn', onclick: () => go(k) }, NAMES[k])));
 const fileIn = h('input', { type: 'file', accept: 'application/json', style: 'display:none', onchange: e => e.target.files[0] && importJson(e.target.files[0]) });
 const bar = h('header', {}, h('b', { class: 'logo' }, 'Gridlock Studio'), nav, statusEl, h('span', { class: 'sp' }),
   h('button', { class: 'btn', onclick: () => fileIn.click() }, 'Import'), h('button', { class: 'btn', onclick: exportJson }, 'Export'), h('button', { class: 'btn danger', onclick: resetAll }, 'Reset all'), saveBtn,
   h('button', { class: 'btn go', onclick: () => { save(); location.href = './index.html'; } }, 'Save & play ▶'));
-document.body.append(bar, h('main', {}, maps.el, races.el, transitTab.el, cars.el, upg.el), fileIn);
+document.body.append(bar, h('main', {}, maps.el, buildTab.el, races.el, transitTab.el, cars.el, upg.el), fileIn);
 go('map');
 addEventListener('beforeunload', e => { if (flags.size) { e.preventDefault(); e.returnValue = ''; } });
 setTimeout(() => rebuild(), 300);       // so the road network is ready for the road overlay and the race editor

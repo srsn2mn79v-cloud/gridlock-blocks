@@ -10,11 +10,50 @@ import * as THREE from 'three';
 export const TUN = { W: 10.5, DROP: 9, CEIL: 5.4, RAMP_L: 58, MAX_PORTALS: 0 };
 const sm = k => k * k * (3 - 2 * k);
 
+// ---- the path of one metro line: a straight through every station (the platforms) joined by circular arcs of radius >= 72 u (90 m) ----
+export const METRO_MIN_R = 72;   // 90 m            // 95 m: no curve of a line is tighter than 90 m (72 u); the check in tools/check.mjs measures it
+const unit = (a, b) => { const dx = b.x - a.x, dz = b.z - a.z, l = Math.hypot(dx, dz) || 1; return { x: dx / l, z: dz / l, l }; };
+const angBetween = (u, v) => Math.acos(Math.max(-1, Math.min(1, u.x * v.x + u.z * v.z)));
+// the path of one line: a straight through every station (the platforms), joined by arcs; the arc radius is shrunk (never below 72 u) when stations are close
+export function metroPath(st) {
+  const P = st.map(s => ({ x: s.x, z: s.z })), n = P.length;
+  const T = P.map((p, i) => { if (i === 0) return unit(P[0], P[1]); if (i === n - 1) return unit(P[n - 2], P[n - 1]); const u = unit(P[i - 1], p), v = unit(p, P[i + 1]), x = u.x + v.x, z = u.z + v.z, l = Math.hypot(x, z) || 1; return { x: x / l, z: z / l }; });
+  let best = null;
+  for (let R = 84; R >= 72; R -= 2) {
+    let ok = true, V;
+    const aB = P.map(() => 30), aA = P.map(() => 30);
+    for (let it = 0; it < 6; it++) {                                          // the corner points depend on the angles between them: iterate until they settle
+      V = [{ x: P[0].x - T[0].x * 30, z: P[0].z - T[0].z * 30, f: 0 }];
+      for (let i = 0; i < n; i++) { if (i) V.push({ x: P[i].x - T[i].x * aA[i], z: P[i].z - T[i].z * aA[i], f: 1, i, side: 'A' }); V.push({ x: P[i].x, z: P[i].z, f: 0, st: 1 }); if (i < n - 1) V.push({ x: P[i].x + T[i].x * aB[i], z: P[i].z + T[i].z * aB[i], f: 1, i, side: 'B' }); }
+      V.push({ x: P[n - 1].x + T[n - 1].x * 30, z: P[n - 1].z + T[n - 1].z * 30, f: 0 });
+      for (let k = 1; k < V.length - 1; k++) { if (V[k].st) continue; const th = angBetween(unit(V[k - 1], V[k]), unit(V[k], V[k + 1])), a = Math.max(30, 26 + R * Math.tan(th / 2)); if (V[k].side === 'A') aA[V[k].i] = a; else aB[V[k].i] = a; }
+    }
+    // corners: the vertices that are not station points
+    const arcs = []; let used = new Array(V.length).fill(0);
+    for (let k = 1; k < V.length - 1; k++) { if (V[k].st) continue; const d1 = unit(V[k - 1], V[k]), d2 = unit(V[k], V[k + 1]), th = angBetween(d1, d2); if (th < 0.01) continue; used[k] = R * Math.tan(th / 2); }
+    for (let k = 1; k < V.length - 1; k++) { if (!used[k]) continue; const before = unit(V[k - 1], V[k]).l - (V[k - 1].st ? 25 : 0), after = unit(V[k], V[k + 1]).l - (V[k + 1].st || V[k + 1].f === 0 ? 25 : 0); if (used[k] + (used[k - 1] || 0) > before - 0.5 || used[k] + (used[k + 1] || 0) > after - 0.5) { ok = false; break; } }
+    if (ok || R === 72) { best = { V, R, ok }; if (ok) break; }
+  }
+  const { V, R } = best, out = [{ x: V[0].x, z: V[0].z }];
+  for (let k = 1; k < V.length - 1; k++) {
+    const d1 = unit(V[k - 1], V[k]), d2 = unit(V[k], V[k + 1]), th = angBetween(d1, d2);
+    if (V[k].st || th < 0.01) { out.push({ x: V[k].x, z: V[k].z }); continue; }
+    const lim1 = V[k - 1].st ? d1.l - 25 : d1.l - 0.5, lim2 = V[k + 1].st || V[k + 1].f === 0 ? d2.l - 25 : d2.l - 0.5, tl = Math.min(R * Math.tan(th / 2), lim1, lim2), r = tl / Math.tan(th / 2);      // (a corner too tight for R would be rounded with a smaller r; the check reports it)
+    const T1 = { x: V[k].x - d1.x * tl, z: V[k].z - d1.z * tl }, T2 = { x: V[k].x + d2.x * tl, z: V[k].z + d2.z * tl };
+    const dd = d1.x * d2.x + d1.z * d2.z, nx = d2.x - d1.x * dd, nz = d2.z - d1.z * dd, nl = Math.hypot(nx, nz) || 1, C = { x: T1.x + nx / nl * r, z: T1.z + nz / nl * r };
+    const p0 = Math.atan2(T1.z - C.z, T1.x - C.x); let dl = Math.atan2(T2.z - C.z, T2.x - C.x) - p0; while (dl > Math.PI) dl -= 2 * Math.PI; while (dl < -Math.PI) dl += 2 * Math.PI;
+    const m = Math.max(3, Math.ceil(r * Math.abs(dl) / 3));
+    for (let q = 0; q <= m; q++) { const a = p0 + dl * q / m; out.push({ x: C.x + Math.cos(a) * r, z: C.z + Math.sin(a) * r }); }
+  }
+  out.push({ x: V[V.length - 1].x, z: V[V.length - 1].z });
+  return { pts: out, R: best.R, fits: best.ok };
+}
+
 export function createTunnels({ city, scene, transit, collisionWorld, parcels = [], props = [], cityHeight, toast = () => {} }) {
   const lines = (transit && transit.metro && transit.metro.lines) || [];
   const none = { active: false, height: () => null, constrain() {}, update() {}, holes: [], portals: [], segs: [] };
   if (!lines.length) return none;
-  const { W, DROP, CEIL, RAMP_L: L } = TUN, FLOOR = -DROP, TOP = FLOOR + CEIL;
+  const { W, DROP, CEIL, RAMP_L: L } = TUN, FLOOR = -DROP, TOP = FLOOR + CEIL, FL0 = FLOOR;
   const seg = (ax, az, bx, bz, extra = {}) => { const dx = bx - ax, dz = bz - az, len = Math.hypot(dx, dz) || 1; return { ax, az, bx, bz, dx: dx / len, dz: dz / len, len, ...extra }; };
   const distSeg = (s, x, z) => { const t = Math.max(0, Math.min(s.len, (x - s.ax) * s.dx + (z - s.az) * s.dz)); return Math.hypot(x - (s.ax + s.dx * t), z - (s.az + s.dz * t)); };
 
@@ -32,46 +71,10 @@ export function createTunnels({ city, scene, transit, collisionWorld, parcels = 
     for (let i = 0; i < n; i++) segs.push(seg(sp[i].x, sp[i].z, sp[i + 1].x, sp[i + 1].z, { chain: id, idx: i, last: i === n - 1, ...extra }));
     chains.push({ id, pts: sp.map(v => ({ x: v.x, z: v.z })), ...extra });
   };
-  const MIN_R = 76;            // 95 m: no curve of a line is tighter than 90 m (72 u); the check in tools/check.mjs measures it
-  const unit = (a, b) => { const dx = b.x - a.x, dz = b.z - a.z, l = Math.hypot(dx, dz) || 1; return { x: dx / l, z: dz / l, l }; };
-  const angBetween = (u, v) => Math.acos(Math.max(-1, Math.min(1, u.x * v.x + u.z * v.z)));
-  // the path of one line: a straight through every station (the platforms), joined by arcs; the arc radius is shrunk (never below 72 u) when stations are close
-  function linePath(st) {
-    const P = st.map(s => ({ x: s.x, z: s.z })), n = P.length;
-    const T = P.map((p, i) => { if (i === 0) return unit(P[0], P[1]); if (i === n - 1) return unit(P[n - 2], P[n - 1]); const u = unit(P[i - 1], p), v = unit(p, P[i + 1]), x = u.x + v.x, z = u.z + v.z, l = Math.hypot(x, z) || 1; return { x: x / l, z: z / l }; });
-    let best = null;
-    for (let R = 84; R >= 72; R -= 2) {
-      let ok = true, V;
-      const aB = P.map(() => 30), aA = P.map(() => 30);
-      for (let it = 0; it < 6; it++) {                                          // the corner points depend on the angles between them: iterate until they settle
-        V = [{ x: P[0].x - T[0].x * 30, z: P[0].z - T[0].z * 30, f: 0 }];
-        for (let i = 0; i < n; i++) { if (i) V.push({ x: P[i].x - T[i].x * aA[i], z: P[i].z - T[i].z * aA[i], f: 1, i, side: 'A' }); V.push({ x: P[i].x, z: P[i].z, f: 0, st: 1 }); if (i < n - 1) V.push({ x: P[i].x + T[i].x * aB[i], z: P[i].z + T[i].z * aB[i], f: 1, i, side: 'B' }); }
-        V.push({ x: P[n - 1].x + T[n - 1].x * 30, z: P[n - 1].z + T[n - 1].z * 30, f: 0 });
-        for (let k = 1; k < V.length - 1; k++) { if (V[k].st) continue; const th = angBetween(unit(V[k - 1], V[k]), unit(V[k], V[k + 1])), a = Math.max(30, 26 + R * Math.tan(th / 2)); if (V[k].side === 'A') aA[V[k].i] = a; else aB[V[k].i] = a; }
-      }
-      // corners: the vertices that are not station points
-      const arcs = []; let used = new Array(V.length).fill(0);
-      for (let k = 1; k < V.length - 1; k++) { if (V[k].st) continue; const d1 = unit(V[k - 1], V[k]), d2 = unit(V[k], V[k + 1]), th = angBetween(d1, d2); if (th < 0.01) continue; used[k] = R * Math.tan(th / 2); }
-      for (let k = 1; k < V.length - 1; k++) { if (!used[k]) continue; const before = unit(V[k - 1], V[k]).l - (V[k - 1].st ? 25 : 0), after = unit(V[k], V[k + 1]).l - (V[k + 1].st || V[k + 1].f === 0 ? 25 : 0); if (used[k] + (used[k - 1] || 0) > before - 0.5 || used[k] + (used[k + 1] || 0) > after - 0.5) { ok = false; break; } }
-      if (ok || R === 72) { best = { V, R, ok }; if (ok) break; }
-    }
-    const { V, R } = best, out = [{ x: V[0].x, z: V[0].z }];
-    for (let k = 1; k < V.length - 1; k++) {
-      const d1 = unit(V[k - 1], V[k]), d2 = unit(V[k], V[k + 1]), th = angBetween(d1, d2);
-      if (V[k].st || th < 0.01) { out.push({ x: V[k].x, z: V[k].z }); continue; }
-      const lim1 = V[k - 1].st ? d1.l - 25 : d1.l - 0.5, lim2 = V[k + 1].st || V[k + 1].f === 0 ? d2.l - 25 : d2.l - 0.5, tl = Math.min(R * Math.tan(th / 2), lim1, lim2), r = tl / Math.tan(th / 2);      // (a corner too tight for R would be rounded with a smaller r; the check reports it)
-      const T1 = { x: V[k].x - d1.x * tl, z: V[k].z - d1.z * tl }, T2 = { x: V[k].x + d2.x * tl, z: V[k].z + d2.z * tl };
-      const dd = d1.x * d2.x + d1.z * d2.z, nx = d2.x - d1.x * dd, nz = d2.z - d1.z * dd, nl = Math.hypot(nx, nz) || 1, C = { x: T1.x + nx / nl * r, z: T1.z + nz / nl * r };
-      const p0 = Math.atan2(T1.z - C.z, T1.x - C.x); let dl = Math.atan2(T2.z - C.z, T2.x - C.x) - p0; while (dl > Math.PI) dl -= 2 * Math.PI; while (dl < -Math.PI) dl += 2 * Math.PI;
-      const m = Math.max(3, Math.ceil(r * Math.abs(dl) / 3));
-      for (let q = 0; q <= m; q++) { const a = p0 + dl * q / m; out.push({ x: C.x + Math.cos(a) * r, z: C.z + Math.sin(a) * r }); }
-    }
-    out.push({ x: V[V.length - 1].x, z: V[V.length - 1].z });
-    return { pts: out, R: best.R, fits: best.ok };
-  }
   lines.forEach(l => {
-    l.stations.forEach(s => stationsAt.push({ x: s.x, z: s.z, name: s.name, color: l.color, st: s, line: l }));
-    const lp = linePath(l.stations); addChain(lp.pts, { line: l, poly: true, radius: lp.R, fits: lp.fits });
+    l.dy = (lines.indexOf(l) % 3) * -7;                                  // lines run at different depths (0, -7, -14 u): crossings pass over / under each other
+    l.stations.forEach(s => stationsAt.push({ x: s.x, z: s.z, name: s.name, color: l.color, st: s, line: l, dy: l.dy }));
+    const lp = metroPath(l.stations); addChain(lp.pts, { line: l, poly: true, radius: lp.R, fits: lp.fits });
   });
 
   // ---- where a ramp can go: free ground beside a road, near a station ----
@@ -149,9 +152,10 @@ export function createTunnels({ city, scene, transit, collisionWorld, parcels = 
   });
 
   // ---- walkable stations: a raised platform on both sides of the tracks, and for each station a stair-and-escalator shaft from the street, a concourse and an opening in the tunnel wall ----
-  const SL = 22, SHW = 1.85, PFH = 1.1, FP = FLOOR + PFH, PLH = 23, PL0 = 3.25, PL1 = W / 2 - 0.05, DOWN = -FP, SHAFT_OPEN = 11, CHW = 2.4;
+  const SL = 22, SHW = 2.75, PFH = 1.1, FP = FLOOR + PFH, PLH = 23, PL0 = 3.25, PL1 = W / 2 - 0.05, DOWN = -FP, SHAFT_OPEN = 11, CHW = 2.4;
   const stairs = [], platforms = [], openings = [];
   stationsAt.forEach((S, si) => {
+    S.fp = FL0 + S.dy + PFH; const SL = S.SL = Math.max(22, -S.fp * 2.4);      // a deeper station gets a longer stair (same slope)
     const near = segs.find(q => !q.feeder && distSeg(q, S.x, S.z) < 2); if (!near) return;
     const tx = near.dx, tz = near.dz, nx = -tz, nz = tx; S.fr = { tx, tz, nx, nz };
     [-1, 1].forEach(sd => platforms.push({ S, sd, ax: S.x - tx * PLH + nx * sd * (PL0 + PL1) / 2, az: S.z - tz * PLH + nz * sd * (PL0 + PL1) / 2, dx: tx, dz: tz, len: 2 * PLH, hw: (PL1 - PL0) / 2, mx: S.x + nx * sd * (PL0 + PL1) / 2, mz: S.z + nz * sd * (PL0 + PL1) / 2 }));
@@ -170,7 +174,7 @@ export function createTunnels({ city, scene, transit, collisionWorld, parcels = 
         const cx = (ex - fx) / cl, cz = (ez - fz) / cl, al = dx * cx + dz * cz; if (al < RX.al || Math.abs(cx * nx + cz * nz) < 0.5) continue;
         const score = r + cl * 0.3 + (1 - al) * 40; if (best && score >= best.score) continue;
         let ok = true;
-        for (let u = 0; u <= SL && ok; u += 2.5) for (const lat of [-3.4, 0, 3.4]) {
+        for (let u = 0; u <= SL && ok; u += 2.5) for (const lat of [-4.2, 0, 4.2]) {
           const x = px + dx * u - dz * lat, z = pz + dz * u + dx * lat;
           if (lotAt(x, z) !== null || propHit(x, z, 0.7) || nearKeep(x, z) && u > 0) { ok = false; break; }
           const q = roadNear(x, z); if (q && q.d < RX.rd) { ok = false; break; }
@@ -181,19 +185,19 @@ export function createTunnels({ city, scene, transit, collisionWorld, parcels = 
         if (ok) best = { score, S, px, pz, dx, dz, fx, fz, ex, ez, cx, cz, cl, side };
       }
     } }
-    if (best) { stairs.push(best); S.stair = best; openings.push({ x: S.x + nx * best.side * (W / 2), z: S.z + nz * best.side * (W / 2) }); }
+    if (best) { best.SL = SL; stairs.push(best); S.stair = best; openings.push({ x: S.x + nx * best.side * (W / 2), z: S.z + nz * best.side * (W / 2) }); }
   });
   const sideP = (S, x, z) => (x - S.x) * S.fr.nx + (z - S.z) * S.fr.nz;
   const rectOf = (ax, az, dx, dz, len, hw) => ({ ax, az, dx, dz, len, hw });
   const inRect = (x, z, o, hw = o.hw) => { const rx = x - o.ax, rz = z - o.az, u = rx * o.dx + rz * o.dz, l = -rx * o.dz + rz * o.dx; return u >= -0.01 && u <= o.len && Math.abs(l) <= hw; };
-  stairs.forEach(t => { t.sr = rectOf(t.px, t.pz, t.dx, t.dz, SL, SHW); t.cr = rectOf(t.fx, t.fz, t.cx, t.cz, t.cl, CHW - 0.1); });
+  stairs.forEach(t => { t.sr = rectOf(t.px, t.pz, t.dx, t.dz, t.SL, SHW); t.cr = rectOf(t.fx, t.fz, t.cx, t.cz, t.cl, CHW - 0.1); });
   stairs.forEach(t => {         // the shaft's mouth is a hole in the ground plane, with a kerb along both sides (a car cannot drive into it)
     const o = (u, l) => [t.px + t.dx * u - t.dz * l, t.pz + t.dz * u + t.dx * l];
-    holes.push([[0.05, -1], [SHAFT_OPEN, -1], [SHAFT_OPEN, 1], [0.05, 1]].map(([u, sd]) => o(u, sd * 2.6)));
-    [-1, 1].forEach(sd => collisionWorld.push({ kind: 'parcel', instance: null, tunnelRim: true, footprint: [o(-0.6, sd * 3.05 - 0.4), o(SHAFT_OPEN + 0.4, sd * 3.05 - 0.4), o(SHAFT_OPEN + 0.4, sd * 3.05 + 0.4), o(-0.6, sd * 3.05 + 0.4)], blocksCar: true, destructible: false, response: 'bounce', destroyed: false }));
+    holes.push([[0.05, -1], [SHAFT_OPEN, -1], [SHAFT_OPEN, 1], [0.05, 1]].map(([u, sd]) => o(u, sd * 3.1)));
+    [-1, 1].forEach(sd => collisionWorld.push({ kind: 'parcel', instance: null, tunnelRim: true, footprint: [o(-0.6, sd * 3.55 - 0.4), o(SHAFT_OPEN + 0.4, sd * 3.55 - 0.4), o(SHAFT_OPEN + 0.4, sd * 3.55 + 0.4), o(-0.6, sd * 3.55 + 0.4)], blocksCar: true, destructible: false, response: 'bounce', destroyed: false }));
   });
-  stairs.forEach(t => { [-3, -1.5, 0, 1.5, 3].forEach(lat => { const x = t.px - t.dx * 0.6 - t.dz * lat, z = t.pz - t.dz * 0.6 + t.dx * lat; collisionWorld.push({ kind: 'prop', x, z, radius: 0.32, blocksCar: true, destructible: false, response: 'bounce', destroyed: false, tunnelRim: true }); (t.bol = t.bol || []).push([x, z]); }); });      // bollards across the mouth: a pedestrian fits between them, a car does not
-  const stairY = (t, u) => -DOWN * Math.max(0, Math.min(1, u / SL));
+  stairs.forEach(t => { [-3.6, -2.4, -1.2, 0, 1.2, 2.4, 3.6].forEach(lat => { const x = t.px - t.dx * 0.6 - t.dz * lat, z = t.pz - t.dz * 0.6 + t.dx * lat; collisionWorld.push({ kind: 'prop', x, z, radius: 0.32, blocksCar: true, destructible: false, response: 'bounce', destroyed: false, tunnelRim: true }); (t.bol = t.bol || []).push([x, z]); }); });      // bollards across the mouth: a pedestrian fits between them, a car does not
+  const stairY = (t, u) => t.S.fp * Math.max(0, Math.min(1, u / t.SL));
   const api = {
     segs, ramps, holes, portals: ramps.map(p => ({ x: p.x + p.dx * 3, z: p.z + p.dz * 3, h: Math.atan2(p.dx, p.dz) })), stations: stationsAt, active: false,
     height(x, z, refY) {
@@ -228,6 +232,7 @@ export function createTunnels({ city, scene, transit, collisionWorld, parcels = 
   const hiddenAt = (x, z, s) => openings.some(o => Math.hypot(o.x - x, o.z - z) < 2.9) || nearSegs(x, z).some(o => o !== s && (o.chain !== s.chain || Math.abs(o.idx - s.idx) > 2) && distSeg(o, x, z) < W / 2 - 0.5) || ramps.some(p => distSeg(p.rampSeg, x, z) < W / 2 - 0.5 && p.feeder !== s.feeder);
   const TR = 1.9;                                          // two tracks, this far either side of the centre line
   segs.forEach((s, i) => {
+    const FLOOR = FL0 + (s.line ? s.line.dy || 0 : 0), TOP = FLOOR + CEIL;
     const free0 = s.idx === 0 && !s.noExtStart && !joinedOther(s.ax, s.az, s), free1 = s.last && !joinedOther(s.bx, s.bz, s);
     const ry = Math.atan2(-s.dz, s.dx), e0 = free0 ? 0 : 0.7, e1 = free1 ? 0 : 0.7, len = s.len + e0 + e1, m0 = (s.len + e1 - e0) / 2, cx = s.ax + s.dx * m0, cz = s.az + s.dz * m0, j = (i % 7) * 0.003;
     const at = (t, lat) => [s.ax + s.dx * t - s.dz * lat, s.az + s.dz * t + s.dx * lat];
@@ -253,6 +258,7 @@ export function createTunnels({ city, scene, transit, collisionWorld, parcels = 
   // ---- station meshes: platforms, the shaft (stairs, two escalators, trench walls, roof), the concourse and an entrance sign ----
   const platM = B(0x9a9ea3), platEdgeM = B(0xf0c020), benchM = B(0x3d6b8f), pillarM = B(0x5a5f66), rimM = B(0xb9bdc2), tileM = B(0x6d7176), ceilM2 = B(0x3a3d42);
   platforms.forEach(pl => {
+    const FLOOR = FL0 + pl.S.dy, FP = pl.S.fp;
     const S = pl.S, { tx, tz, nx, nz } = S.fr, ry = Math.atan2(-tz, tx), at = (t, lat) => [S.x + tx * t + nx * lat, S.z + tz * t + nz * lat], sd = pl.sd;
     { const q = at(0, sd * (PL0 + PL1) / 2); bxi(platM, PLH * 2, PFH, PL1 - PL0, q[0], FLOOR + PFH / 2, q[1], ry); }
     { const q = at(0, sd * (PL0 + 0.18)); bxi(platEdgeM, PLH * 2, 0.04, 0.3, q[0], FP + 0.02, q[1], ry); }
@@ -261,16 +267,17 @@ export function createTunnels({ city, scene, transit, collisionWorld, parcels = 
   });
   const shafts = [];
   stairs.forEach(t => {
+    const FLOOR = FL0 + t.S.dy, FP = t.S.fp, DOWN = -FP, SL = t.SL;
     const ry = Math.atan2(-t.dz, t.dx), th = Math.atan2(t.dx, t.dz), col = t.S.color;
     const P3 = (u, lat) => [t.px + t.dx * u - t.dz * lat, t.pz + t.dz * u + t.dx * lat];
     for (let u = 0; u < SL; u += 1) {      // trench walls from the street down to the steps, and the roof once the shaft goes under the pavement
       const h = DOWN * (u + 1) / SL + 0.5;
-      [-1, 1].forEach(sd => { const q = P3(u + 0.5, sd * 2.55); bxi(wallM, 1.08, h, 0.3, q[0], -h / 2, q[1], ry); });
-      if (u >= SHAFT_OPEN) { const q = P3(u + 0.5, 0), y = -DOWN * (u + 0.5) / SL + 3.2; bxi(ceilM2, 1.08, 0.3, 5.0, q[0], y + 0.15, q[1], ry); if (u % 5 === 0) bxi(lampM, 1.2, 0.08, 0.8, q[0], y - 0.04, q[1], ry); }
+      [-1, 1].forEach(sd => { const q = P3(u + 0.5, sd * 3.05); bxi(wallM, 1.08, h, 0.3, q[0], -h / 2, q[1], ry); });
+      if (u >= SHAFT_OPEN) { const q = P3(u + 0.5, 0), y = -DOWN * (u + 0.5) / SL + 3.2; bxi(ceilM2, 1.08, 0.3, 6.2, q[0], y + 0.15, q[1], ry); if (u % 5 === 0) bxi(lampM, 1.2, 0.08, 0.8, q[0], y - 0.04, q[1], ry); }
     }
-    { const q = P3(SHAFT_OPEN, 0), y = -DOWN * SHAFT_OPEN / SL + 3.2; bxi(wallM, 0.4, -y + 0.1, 5.0, q[0], y / 2 + 0.05, q[1], ry); }          // the face of the roof at the edge of the opening
+    { const q = P3(SHAFT_OPEN, 0), y = -DOWN * SHAFT_OPEN / SL + 3.2; bxi(wallM, 0.4, -y + 0.1, 6.2, q[0], y / 2 + 0.05, q[1], ry); }          // the face of the roof at the edge of the opening
     (t.bol || []).forEach(q => bxi(B(0xf0c020), 0.4, 1.0, 0.4, q[0], 0.5, q[1], ry));
-    for (let u = 0; u < SHAFT_OPEN; u += 1.9) [-1, 1].forEach(sd => { const q = P3(u + 0.95, sd * 3.05); bxi(rimM, 1.85, 0.7, 0.8, q[0], 0.35, q[1], ry); });
+    for (let u = 0; u < SHAFT_OPEN; u += 1.9) [-1, 1].forEach(sd => { const q = P3(u + 0.95, sd * 3.55); bxi(rimM, 1.85, 0.7, 0.8, q[0], 0.35, q[1], ry); });
     // the two escalators (the right-hand one goes down), tilted to the slope
     const grp = new THREE.Group(); grp.position.set(t.px, 0, t.pz); grp.rotation.y = th; g.add(grp);
     const pitch = new THREE.Group(); pitch.rotation.x = Math.atan2(DOWN, SL); grp.add(pitch);
@@ -279,17 +286,18 @@ export function createTunnels({ city, scene, transit, collisionWorld, parcels = 
       const c = document.createElement('canvas'); c.width = 64; c.height = 32; const x = c.getContext('2d');
       if (x && x.fillRect) { x.fillStyle = '#4b4f55'; x.fillRect(0, 0, 64, 32); x.fillStyle = '#c9ccd1'; x.fillRect(0, 22, 64, 8); x.fillStyle = '#26292d'; x.fillRect(0, 30, 64, 2); }
       const tx2 = new THREE.CanvasTexture(c); tx2.wrapS = tx2.wrapT = THREE.RepeatWrapping; tx2.repeat.set(1, Math.round(Ls / 0.6)); tex.push(tx2);
-      const geo = new THREE.PlaneGeometry(1.55, Ls); geo.rotateX(-Math.PI / 2);
-      const m = new THREE.Mesh(geo, new THREE.MeshBasicMaterial({ map: tx2 })); m.position.set(i ? -1.0 : 1.0, 0.02, Ls / 2); pitch.add(m);
+      const geo = new THREE.PlaneGeometry(1.3, Ls); geo.rotateX(-Math.PI / 2);
+      const m = new THREE.Mesh(geo, new THREE.MeshBasicMaterial({ map: tx2 })); m.position.set(i ? -1.85 : 1.85, 0.02, Ls / 2); pitch.add(m);
     }
     const pb = (w, h, d, x, y, zc, c) => { const m = new THREE.Mesh(boxGeo, B(c)); m.scale.set(w, h, d); m.position.set(x, y, zc); pitch.add(m); return m; };
-    pb(3.7, 0.3, Ls, 0, -0.17, Ls / 2, 0x2b2e33);
-    [-1.9, 0, 1.9].forEach(x => { pb(0.2, 0.95, Ls, x, 0.5, Ls / 2, 0x8b939b); pb(0.2, 0.1, Ls, x, 1.02, Ls / 2, 0x111111); });
+    pb(5.5, 0.3, Ls, 0, -0.17, Ls / 2, 0x2b2e33);
+    [-2.6, -1.2, 1.2, 2.6].forEach(x => { pb(0.2, 0.95, Ls, x, 0.5, Ls / 2, 0x8b939b); pb(0.2, 0.1, Ls, x, 1.02, Ls / 2, 0x111111); });
+    for (let i = 0, ns = Math.round(Ls / 0.62); i < ns; i++) pb(2.3, 0.05, Ls / ns * 0.5, 0, 0.0, (i + 0.5) * Ls / ns + Ls / ns * 0.25, i % 2 ? 0xa7abb0 : 0x80858b);   // the car-wide stairs between the escalators: alternating treads
     // entrance sign: two posts, a lintel and the board, facing the street
     const c = document.createElement('canvas'); c.width = 512; c.height = 128; const x = c.getContext('2d');
     if (x && x.fillRect) { x.fillStyle = '#' + col.toString(16).padStart(6, '0'); x.fillRect(0, 0, 512, 128); x.fillStyle = '#fff'; x.fillRect(0, 0, 512, 10); x.fillRect(0, 118, 512, 10); x.font = 'bold 50px sans-serif'; x.textAlign = 'center'; x.textBaseline = 'middle'; x.fillText('Ⓜ ' + String(t.S.name).toUpperCase(), 256, 62, 490); }
-    [-1, 1].forEach(sd => { const q = P3(0.8, sd * 2.75); bx(B(0x3a3f45), 0.4, 4.6, 0.4, q[0], 2.3, q[1], ry); });
-    { const q = P3(0.8, 0); bx(B(0x3a3f45), 0.4, 0.5, 5.9, q[0], 4.55, q[1], ry); const sg = new THREE.Mesh(new THREE.PlaneGeometry(5.2, 1.3), new THREE.MeshBasicMaterial({ map: new THREE.CanvasTexture(c), side: THREE.DoubleSide })); sg.position.set(q[0], 3.7, q[1]); sg.rotation.y = Math.atan2(-t.dx, -t.dz); g.add(sg); }
+    [-1, 1].forEach(sd => { const q = P3(0.8, sd * 3.35); bx(B(0x3a3f45), 0.4, 4.6, 0.4, q[0], 2.3, q[1], ry); });
+    { const q = P3(0.8, 0); bx(B(0x3a3f45), 0.4, 0.5, 7.1, q[0], 4.55, q[1], ry); const sg = new THREE.Mesh(new THREE.PlaneGeometry(5.2, 1.3), new THREE.MeshBasicMaterial({ map: new THREE.CanvasTexture(c), side: THREE.DoubleSide })); sg.position.set(q[0], 3.7, q[1]); sg.rotation.y = Math.atan2(-t.dx, -t.dz); g.add(sg); }
     // the concourse from the foot of the stairs to the platform
     const cry = Math.atan2(-t.cz, t.cx), C3 = (u, lat) => [t.fx + t.cx * u - t.cz * lat, t.fz + t.cz * u + t.cx * lat];
     for (let u = 0; u < t.cl; u += 4) {
@@ -305,6 +313,7 @@ export function createTunnels({ city, scene, transit, collisionWorld, parcels = 
     const lg = new THREE.InstancedMesh(boxGeo, lampM, Math.max(1, lamps.length)); lamps.forEach((q, k) => { mat.compose(p3.set(q[0], TOP - 0.1, q[1]), qt.setFromEuler(eu.set(0, q[2], 0)), s3.set(2.4, 0.12, W * 0.55)); lg.setMatrixAt(k, mat); }); lg.count = lamps.length; lg.frustumCulled = false; g.add(lg); }
   // station signs: a coloured light bar and a hanging name board over the lane at each station
   stationsAt.forEach(s => {
+    const FLOOR = FL0 + s.dy, TOP = FLOOR + CEIL;
     const c = document.createElement('canvas'); c.width = 512; c.height = 128; const x = c.getContext('2d');
     if (x && x.fillRect) { x.fillStyle = '#' + s.color.toString(16).padStart(6, '0'); x.fillRect(0, 0, 512, 128); x.fillStyle = '#fff'; x.fillRect(0, 0, 512, 10); x.fillRect(0, 118, 512, 10); x.font = 'bold 54px sans-serif'; x.textAlign = 'center'; x.textBaseline = 'middle'; x.fillText('Ⓜ ' + String(s.name).toUpperCase(), 256, 66, 490); }
     const tex = new THREE.CanvasTexture(c), sg = new THREE.Mesh(new THREE.PlaneGeometry(7, 1.75), new THREE.MeshBasicMaterial({ map: tex, side: THREE.DoubleSide })); sg.position.set(s.x, TOP - 1.3, s.z);
@@ -355,7 +364,7 @@ export function createTunnels({ city, scene, transit, collisionWorld, parcels = 
       if (k === 0 || k === 3) { const e = k === 0 ? 1 : -1; add(win, 0.1, 0.9, 2.2, e * 6.72, 2.55, 0); add(B(0xffffff), 0.12, 0.25, 0.4, e * 6.74, 1.0, 0.9); add(B(0xffffff), 0.12, 0.25, 0.4, e * 6.74, 1.0, -0.9); }
       g.add(grp); cars.push(grp);
     }
-    trains.push({ at, total, stops, cars, s: Math.max(30, Math.min(total - 30, stops[0] || 40)), dir: 1, v: 0, wait: 4 });
+    trains.push({ fl: FL0 + (c.line.dy || 0), at, total, stops, cars, s: Math.max(30, Math.min(total - 30, stops[0] || 40)), dir: 1, v: 0, wait: 4 });
   });
   const TRAIN_V = 19, CAR_GAP = 14.2; let warnT = 0;
   function stepTrains(dt, car) {
@@ -374,7 +383,7 @@ export function createTunnels({ city, scene, transit, collisionWorld, parcels = 
       }
       tr.cars.forEach((grp, k) => {
         const off = (k - 1.5) * CAR_GAP, q = tr.at(tr.s - tr.dir * off), dx = q.dx * tr.dir, dz = q.dz * tr.dir;
-        grp.position.set(q.x - dz * TR, FLOOR + 0.28, q.z + dx * TR); grp.rotation.y = Math.atan2(-dz, dx);
+        grp.position.set(q.x - dz * TR, tr.fl + 0.28, q.z + dx * TR); grp.rotation.y = Math.atan2(-dz, dx);
         // a car that is in the way all the same gets shoved to the side walkway
         if (car.y < -3) { const rx = car.x - grp.position.x, rz = car.z - grp.position.z, fwd = rx * dx + rz * dz, lat = -rx * dz + rz * dx; if (Math.abs(fwd) < 8.2 && Math.abs(lat) < 2.5) { const sd = lat >= 0 ? 1 : -1; car.x += -dz * sd * (2.5 - Math.abs(lat)); car.z += dx * sd * (2.5 - Math.abs(lat)); car.speed *= 0.9; if (warnT <= 0) { warnT = 4; toast('Mind the train!'); } } }
       });
@@ -390,18 +399,18 @@ export function createTunnels({ city, scene, transit, collisionWorld, parcels = 
     const blink = (performance.now() % 900) < 450; gates.forEach(gt => { const near = Math.hypot(car.x - gt.x, car.z - gt.z) < 20 && car.y > -6; gt.open += ((near ? 1 : 0) - gt.open) * Math.min(1, dt * 3.5); gt.arm.rotation.z = gt.open * 1.38; gt.lamp.color.setHex(blink && near ? 0xffd060 : 0x8a5a10); });
     if (under) { const s = stationsAt.find(q => Math.hypot(q.x - car.x, q.z - car.z) < 6); if (s && nameShown !== s.name) { nameShown = s.name; toast(s.name + ' station'); } else if (!s) nameShown = null; }
   };
-  api.trains = trains; api.gates = gates; api.platforms = platforms; api.stairs = stairs; api.chains = chains; api.segs = segs; api.constants = { SL, FP, MIN_R };
+  api.trains = trains; api.gates = gates; api.platforms = platforms; api.stairs = stairs; api.chains = chains; api.segs = segs; api.constants = { SL, MIN_R: METRO_MIN_R, FL0 };
   // walking: the floor under a pedestrian (stairs always; concourse and platforms once underground), which places a walker may stand, and the escalator's drift
   api.footFloor = (x, z, refY) => {
     for (const t of stairs) { if (inRect(x, z, t.sr)) { const u = (x - t.px) * t.dx + (z - t.pz) * t.dz; return stairY(t, u); } }
     if (refY > -3) return null;
-    for (const t of stairs) if (inRect(x, z, t.cr) && Math.abs(sideP(t.S, x, z)) > 3.1) return FP;
-    for (const p of platforms) if (inRect(x, z, p)) return FP;
+    for (const t of stairs) if (inRect(x, z, t.cr) && Math.abs(sideP(t.S, x, z)) > 3.1) return t.S.fp;
+    for (const p of platforms) if (inRect(x, z, p)) return p.S.fp;
     return null;
   };
   api.footOK = (x, z) => { for (const t of stairs) if (inRect(x, z, t.sr) || (inRect(x, z, t.cr) && Math.abs(sideP(t.S, x, z)) > 3.1)) return true; for (const p of platforms) if (inRect(x, z, p)) return true; return false; };
-  api.footDrift = (x, z) => { for (const t of stairs) { if (!inRect(x, z, t.sr)) continue; const lat = -(x - t.px) * t.dz + (z - t.pz) * t.dx; if (Math.abs(lat) < 0.2 || Math.abs(lat) > 1.9) return null; const k = lat < 0 ? 2.4 : -2.4; return [t.dx * k, t.dz * k]; } return null; };
-  api.platTargets = () => platforms.map(p => ({ x: p.mx, z: p.mz, y: FP, st: p.S.st, line: p.S.line, key: p.S.st.id + ':' + p.sd, nx: p.dx, nz: p.dz }));
+  api.footDrift = (x, z) => { for (const t of stairs) { if (!inRect(x, z, t.sr)) continue; const lat = -(x - t.px) * t.dz + (z - t.pz) * t.dx; if (Math.abs(lat) < 1.2 || Math.abs(lat) > 2.5) return null; const k = lat < 0 ? 2.4 : -2.4; return [t.dx * k, t.dz * k]; } return null; };
+  api.platTargets = () => platforms.map(p => ({ x: p.mx, z: p.mz, y: p.S.fp, st: p.S.st, line: p.S.line, key: p.S.st.id + ':' + p.sd, nx: p.dx, nz: p.dz }));
   const stepAnim = dt => shafts.forEach(sh => { sh.tex[0].offset.y += dt * 2.4 / 0.6; sh.tex[1].offset.y -= dt * 2.4 / 0.6; });
   return api;
 }

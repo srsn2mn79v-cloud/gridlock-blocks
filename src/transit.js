@@ -160,7 +160,9 @@ export function buildTransit(city, custom) {
   let depot = null;
   const onLine = new Set(); lines.forEach(l => l.steps.forEach(st => onLine.add(st.edge.id)));
   const dc = e => Math.hypot((N[e.from].x + N[e.to].x) / 2 - cx, (N[e.from].z + N[e.to].z) / 2 - cz);
-  const cand = ave.filter(e => len(e) > 110).sort((p, q) => (onLine.has(q.id) ? 1 : 0) - (onLine.has(p.id) ? 1 : 0) || dc(p) - dc(q));
+  const wantD = custom && custom.depot && Array.isArray(custom.depot.at) ? custom.depot.at : null;      // a depot placed in the Studio's city builder: the nearest long avenue to it
+  const dd = e => wantD ? Math.hypot((N[e.from].x + N[e.to].x) / 2 - wantD[0], (N[e.from].z + N[e.to].z) / 2 - wantD[1]) : 0;
+  const cand = ave.filter(e => len(e) > 110).sort((p, q) => wantD ? dd(p) - dd(q) : (onLine.has(q.id) ? 1 : 0) - (onLine.has(p.id) ? 1 : 0) || dc(p) - dc(q));
   outer: for (const e of cand) {
     const a = N[e.from], b = N[e.to], h = Math.atan2(b.z - a.z, b.x - a.x), w = e.width || 20;
     for (const side of [1, -1]) for (const f of [0.5, 0.35, 0.65]) {

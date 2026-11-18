@@ -345,9 +345,45 @@ export function createPedestrianSystem(cityData, scene, count = 14, maxCount = c
     for (const e of entrances) { const d = Math.hypot(e.x - w.x, e.z - w.z); if (d < bd) { bd = d; best = e; } }
     return best;
   }
+  // the metro: people walk to a station's shaft, down the stairs, vanish for the ride and come up the stairs of another station
+  const metroEntrances = [];
+  function setMetro(shafts) {
+    metroEntrances.length = 0;
+    (shafts || []).forEach(t => metroEntrances.push({ x: t.px, z: t.pz, metro: t }));
+  }
+  const nearestWaypoint = (x, z) => { let bi = 0, bd = 1e9; waypoints.forEach((w, i) => { const d = Math.hypot(w.x - x, w.z - z); if (d < bd) { bd = d; bi = i; } }); return bi; };
+  function stepMetro(p, dt, car) {
+    const en = p.enter, t = en.e.metro, w = waypoints[en.wp], spd = p.speed * 0.9, step = spd * dt;
+    const onStairs = u => { const lat = en.lat || 0, x = t.px + t.dx * u - t.dz * lat, z = t.pz + t.dz * u + t.dx * lat, y = t.S.fp * Math.max(0, Math.min(1, u / t.SL)); p.renderX = x; p.renderZ = z; p.mesh.position.set(x, y, z); if (p.lod < 2) animate(p, dt, true, spd); return [x, z]; };
+    const face = (dx, dz) => { const want = Math.atan2(dx, dz); let d = want - p.yaw; d = Math.atan2(Math.sin(d), Math.cos(d)); p.yaw += d * Math.min(1, dt * 8); p.mesh.rotation.y = p.yaw; };
+    if (car && en.phase !== 1) setLod(p, Math.hypot(p.renderX - car.x, p.renderZ - car.z));
+    if (en.phase === 0) {                              // to the top of the stairs
+      const dx = en.e.x - p.renderX, dz = en.e.z - p.renderZ, d = Math.hypot(dx, dz);
+      if (d <= Math.max(step, 0.4)) { en.phase = 3; en.u = 0; en.lat = (Math.random() - 0.5) * 1.5; return; }
+      p.renderX += dx / d * step; p.renderZ += dz / d * step; if (p.lod < 2) animate(p, dt, true, spd);
+      p.mesh.position.set(p.renderX, w.elevation, p.renderZ); face(dx, dz); return;
+    }
+    if (en.phase === 3) {                              // down the stairs
+      en.u += step; onStairs(Math.min(en.u, t.SL)); face(t.dx, t.dz);
+      if (en.u >= t.SL) { en.phase = 1; en.timer = 14 + Math.random() * 50; p.mesh.visible = false; stats.entered++; }
+      return;
+    }
+    if (en.phase === 1) {                              // on the train: back up at another station
+      en.timer -= dt; if (en.timer > 0) return;
+      const others = metroEntrances.filter(o => o !== en.e && Math.hypot(o.x - en.e.x, o.z - en.e.z) > 150), pick = others.length ? others : metroEntrances;
+      const o = pick[Math.floor(Math.random() * pick.length)] || en.e;
+      en.e = o; en.wp = nearestWaypoint(o.x, o.z); en.phase = 4; en.u = o.metro.SL; en.lat = (Math.random() - 0.5) * 1.5;
+      p.mesh.visible = p.active && p.lod < 2; return;
+    }
+    if (en.phase === 4) {                              // up the stairs
+      en.u -= step; onStairs(Math.max(en.u, 0)); face(-t.dx, -t.dz);
+      if (en.u <= 0) { en.phase = 2; p.renderX = t.px; p.renderZ = t.pz; }
+    }
+  }
   // walking into a door: straight to it, vanish for a while, come back out and rejoin the pavement
   function stepEnter(p, dt, car) {
     const en = p.enter, w = waypoints[en.wp];
+    if (en.e.metro && en.phase !== 2) return stepMetro(p, dt, car);
     if (en.phase === 1) {
       en.timer -= dt;
       if (en.timer <= 0) { en.phase = 2; p.renderX = en.e.x; p.renderZ = en.e.z; p.mesh.visible = p.active && p.lod < 2; }
@@ -475,6 +511,10 @@ export function createPedestrianSystem(cityData, scene, count = 14, maxCount = c
             }
           }
 
+          if (metroEntrances.length && Math.random() < 0.35) {      // a station shaft close by: walk down and take the metro
+            let m = null, md = 70; for (const e of metroEntrances) { const d = Math.hypot(e.x - waypoints[arrivedAt].x, e.z - waypoints[arrivedAt].z); if (d < md) { md = d; m = e; } }
+            if (m) { p.state = 'enter'; p.enter = { e: m, wp: arrivedAt, phase: 0, timer: 0 }; p.renderX = waypoints[arrivedAt].x; p.renderZ = waypoints[arrivedAt].z; return; }
+          }
           if (entrances.length && Math.random() < 0.3) {
             const e = nearestEntrance(waypoints[arrivedAt], 35);
             if (e) { p.state = 'enter'; p.enter = { e, wp: arrivedAt, phase: 0, timer: 0 }; p.renderX = waypoints[arrivedAt].x; p.renderZ = waypoints[arrivedAt].z; return; }
@@ -587,5 +627,5 @@ export function createPedestrianSystem(cityData, scene, count = 14, maxCount = c
       dispose() { scene.remove(mesh); }
     };
   }
-  return { update, peds, setCount, createActor, entrances, stats, maxCount: waypoints.length ? CAP : 0 };
+  return { update, peds, setCount, createActor, entrances, stats, setMetro, metroEntrances, maxCount: waypoints.length ? CAP : 0 };
 }
