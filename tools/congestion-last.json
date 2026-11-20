@@ -1,79 +1,79 @@
 {
- "when": "2026-11-20T13:39:08.774Z",
- "label": "leadlag",
+ "when": "2026-11-20T13:55:58.658Z",
+ "label": "baseline-3runs",
  "score": {
-  "highway": 70,
-  "arterial": 60,
+  "highway": 69,
+  "arterial": 59,
   "small": 58
  },
  "detail": {
   "100": {
    "highway": {
     "score": 78,
-    "flow": 78.1,
-    "stopped": 0.9,
+    "flow": 78.2,
+    "stopped": 1.2,
     "jammed": 0,
-    "waitAtJunction": 0.9
+    "waitAtJunction": 1.4
    },
    "arterial": {
-    "score": 70,
-    "flow": 72.3,
-    "stopped": 6.4,
+    "score": 67,
+    "flow": 71,
+    "stopped": 5.8,
     "jammed": 0,
-    "waitAtJunction": 7.4
+    "waitAtJunction": 12.7
    },
    "small": {
-    "score": 61,
-    "flow": 74.1,
-    "stopped": 13.9,
+    "score": 60,
+    "flow": 73.2,
+    "stopped": 14.3,
     "jammed": 0,
-    "waitAtJunction": 35.3
+    "waitAtJunction": 36.1
    }
   },
   "250": {
    "highway": {
-    "score": 69,
-    "flow": 71.7,
-    "stopped": 5.6,
-    "jammed": 1.21,
-    "waitAtJunction": 5
+    "score": 71,
+    "flow": 73.3,
+    "stopped": 3.9,
+    "jammed": 0.49,
+    "waitAtJunction": 4.4
    },
    "arterial": {
-    "score": 59,
-    "flow": 65.7,
-    "stopped": 10.6,
-    "jammed": 0.54,
-    "waitAtJunction": 19
+    "score": 56,
+    "flow": 63.9,
+    "stopped": 14,
+    "jammed": 1.35,
+    "waitAtJunction": 22
    },
    "small": {
-    "score": 58,
-    "flow": 71.7,
-    "stopped": 15.7,
-    "jammed": 0.01,
-    "waitAtJunction": 38
+    "score": 57,
+    "flow": 71,
+    "stopped": 16,
+    "jammed": 0.1,
+    "waitAtJunction": 38.3
    }
   },
   "450": {
    "highway": {
-    "score": 62,
-    "flow": 65.8,
-    "stopped": 10.3,
-    "jammed": 0.29,
-    "waitAtJunction": 12.3
+    "score": 57,
+    "flow": 62.5,
+    "stopped": 12.9,
+    "jammed": 0.7,
+    "waitAtJunction": 15.8
    },
    "arterial": {
-    "score": 50,
-    "flow": 57.7,
-    "stopped": 19.8,
-    "jammed": 0.04,
-    "waitAtJunction": 27.9
+    "score": 54,
+    "flow": 62.4,
+    "stopped": 15,
+    "jammed": 0.31,
+    "waitAtJunction": 26
    },
    "small": {
-    "score": 55,
-    "flow": 69,
-    "stopped": 18.2,
+    "score": 56,
+    "flow": 69.6,
+    "stopped": 17.4,
     "jammed": 0.04,
-    "waitAtJunction": 40.9
+    "waitAtJunction": 40.2
    }
   }
  }
