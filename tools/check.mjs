@@ -991,10 +991,14 @@ async function checkCongestion() {
   const DENS = (process.env.DENS || '100,250,450').split(',').map(Number), MIN = +process.env.MINUTES || 3, dt = 1 / 15;
   const clsOf = e => (e.type === 'highway' || e.ramp || e.interstate) ? 'highway' : (e.lanes || 1) >= 3 ? 'arterial' : 'small';
   const player = { x: 9999, z: 9999, y: 0, heading: 0, speed: 0 }, res = {};
+  const RUNS = +process.env.RUNS || 3;      // each density is simulated RUNS times with different random seeds and averaged (one run varies by ~10 points)
   for (const n of DENS) {
-    const tr = createTrafficSystem(city, new THREE.Scene(), heightAt, n, n, null);
     const acc = { highway: { r: 0, k: 0, stop: 0, jam: 0, wait: 0, wk: 0 }, arterial: { r: 0, k: 0, stop: 0, jam: 0, wait: 0, wk: 0 }, small: { r: 0, k: 0, stop: 0, jam: 0, wait: 0, wk: 0 } };
-    const still = new Map(), hot = new Map(); let warm = 15 * 30;
+    const hot = new Map();
+    for (let run = 0; run < RUNS; run++) {
+    { let a = ((+process.env.SEED || 1) * 7919 + run * 104729) >>> 0; Math.random = () => { a = (a + 0x6D2B79F5) >>> 0; let t = Math.imul(a ^ (a >>> 15), 1 | a); t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t; return ((t ^ (t >>> 14)) >>> 0) / 4294967296; }; }
+    const tr = createTrafficSystem(city, new THREE.Scene(), heightAt, n, n, null);
+    const still = new Map(); let warm = 15 * 30;
     for (let k = 0; k < 15 * 60 * MIN + warm; k++) {
       T += dt * 1000; tr.update(dt, player); if (k < warm) continue;
       tr.cars.forEach((c, i) => {
@@ -1006,7 +1010,8 @@ async function checkCongestion() {
         if (toNode < 40 && !c.conn) A.wk += dt;
       });
     }
-    res[n] = {}; if (n === DENS[Math.floor(DENS.length / 2)]) { const { fromWorld } = await imp('src/chicago/map.js'); const top = [...hot].sort((a, b) => b[1] - a[1]).slice(0, +process.env.HOT || 10); console.log('  worst junctions at ' + n + ' cars (car-seconds stopped per minute):'); top.forEach(([id, sec]) => { const N = city.roadNodes[id], es = city.roadEdges.filter(e => e.from === id || e.to === id), m = fromWorld(N.x, N.z); console.log('   ' + id + ' map ' + Math.round(m[0]) + ',' + Math.round(m[1]) + ': ' + Math.round(sec / MIN) + '  ' + es.map(e => (e.type === 'highway' || e.ramp ? 'hw' : (e.lanes || 1) + 'L') + (e.oneWay ? '1w' : '')).join(' ') + (city.signals.some(q => q.nodeId === id) ? ' lights' : '')); }); }
+    }
+    res[n] = {}; if (n === DENS[Math.floor(DENS.length / 2)]) { const { fromWorld } = await imp('src/chicago/map.js'); const top = [...hot].sort((a, b) => b[1] - a[1]).slice(0, +process.env.HOT || 10); console.log('  worst junctions at ' + n + ' cars (car-seconds stopped per minute):'); top.forEach(([id, sec]) => { const N = city.roadNodes[id], es = city.roadEdges.filter(e => e.from === id || e.to === id), m = fromWorld(N.x, N.z); console.log('   ' + id + ' map ' + Math.round(m[0]) + ',' + Math.round(m[1]) + ': ' + Math.round(sec / MIN / RUNS) + '  ' + es.map(e => (e.type === 'highway' || e.ramp ? 'hw' : (e.lanes || 1) + 'L') + (e.oneWay ? '1w' : '')).join(' ') + (city.signals.some(q => q.nodeId === id) ? ' lights' : '')); }); }
     for (const cl in acc) { const A = acc[cl]; if (!A.k) continue; const flow = A.r / A.k, jam = A.jam / A.k, waitShare = A.wk ? A.wait / A.wk : 0;
       res[n][cl] = { score: Math.round(100 * flow * (1 - jam) * (1 - 0.5 * waitShare)), flow: +(flow * 100).toFixed(1), stopped: +(A.stop / A.k * 100).toFixed(1), jammed: +(jam * 100).toFixed(2), waitAtJunction: +(waitShare * 100).toFixed(1) }; }
   }
