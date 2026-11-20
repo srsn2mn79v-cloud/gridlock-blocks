@@ -994,7 +994,7 @@ async function checkCongestion() {
   for (const n of DENS) {
     const tr = createTrafficSystem(city, new THREE.Scene(), heightAt, n, n, null);
     const acc = { highway: { r: 0, k: 0, stop: 0, jam: 0, wait: 0, wk: 0 }, arterial: { r: 0, k: 0, stop: 0, jam: 0, wait: 0, wk: 0 }, small: { r: 0, k: 0, stop: 0, jam: 0, wait: 0, wk: 0 } };
-    const still = new Map(); let warm = 15 * 30;
+    const still = new Map(), hot = new Map(); let warm = 15 * 30;
     for (let k = 0; k < 15 * 60 * MIN + warm; k++) {
       T += dt * 1000; tr.update(dt, player); if (k < warm) continue;
       tr.cars.forEach((c, i) => {
@@ -1002,11 +1002,11 @@ async function checkCongestion() {
         const A = acc[clsOf(c.edge)], vmax = (c.edge.speedLimit || 50) / 3.6 / 1.25;
         A.r += Math.min(1, c.speed / vmax); A.k++;
         const toNode = c.path ? c.path.length - c.s : 99;
-        if (c.speed < 0.5) { A.stop++; const s0 = (still.get(i) || 0) + dt; still.set(i, s0); if (s0 > 30) A.jam++; if (toNode < 40 && !c.conn) { A.wait += dt; } } else still.set(i, 0);
+        if (c.speed < 0.5) { A.stop++; hot.set(c.to, (hot.get(c.to) || 0) + dt); const s0 = (still.get(i) || 0) + dt; still.set(i, s0); if (s0 > 30) A.jam++; if (toNode < 40 && !c.conn) { A.wait += dt; } } else still.set(i, 0);
         if (toNode < 40 && !c.conn) A.wk += dt;
       });
     }
-    res[n] = {};
+    res[n] = {}; if (n === DENS[Math.floor(DENS.length / 2)]) { const { fromWorld } = await imp('src/chicago/map.js'); const top = [...hot].sort((a, b) => b[1] - a[1]).slice(0, +process.env.HOT || 10); console.log('  worst junctions at ' + n + ' cars (car-seconds stopped per minute):'); top.forEach(([id, sec]) => { const N = city.roadNodes[id], es = city.roadEdges.filter(e => e.from === id || e.to === id), m = fromWorld(N.x, N.z); console.log('   ' + id + ' map ' + Math.round(m[0]) + ',' + Math.round(m[1]) + ': ' + Math.round(sec / MIN) + '  ' + es.map(e => (e.type === 'highway' || e.ramp ? 'hw' : (e.lanes || 1) + 'L') + (e.oneWay ? '1w' : '')).join(' ') + (city.signals.some(q => q.nodeId === id) ? ' lights' : '')); }); }
     for (const cl in acc) { const A = acc[cl]; if (!A.k) continue; const flow = A.r / A.k, jam = A.jam / A.k, waitShare = A.wk ? A.wait / A.wk : 0;
       res[n][cl] = { score: Math.round(100 * flow * (1 - jam) * (1 - 0.5 * waitShare)), flow: +(flow * 100).toFixed(1), stopped: +(A.stop / A.k * 100).toFixed(1), jammed: +(jam * 100).toFixed(2), waitAtJunction: +(waitShare * 100).toFixed(1) }; }
   }
