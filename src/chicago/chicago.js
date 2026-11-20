@@ -195,9 +195,12 @@ export function buildChicago() {
     // lags by LEAD ms, so each direction gets a few seconds with the oncoming traffic held at red and its left-turners can clear.
     const grpOf = e => { const o = nodes[other(e, id)]; return Math.abs(Math.cos(Math.atan2(o.z - nodes[id].z, o.x - nodes[id].x) - ra)) > 0.7071; };
     const LEAD = globalThis.process?.env?.NO_LEADLAG ? 0 : 5000, wide = g => es.some(e => grpOf(e) === g && (e.lanes || 1) >= 3), LA = wide(true) ? LEAD : 0, LB = wide(false) ? LEAD : 0;
-    const CYC = 2 * HALF + 2 * LA + 2 * LB, seen = { true: 0, false: 0 };
+    // green split by road size: where a 3-lane road crosses only 1-lane streets, the big road gets 6 s more and the side street 2 s less
+    const lanesOf = g => Math.max(0, ...es.filter(e => grpOf(e) === g).map(e => e.lanes || 1)), mA = lanesOf(true), mB = lanesOf(false);
+    const XA = mA >= 3 && mB <= 1 ? 6000 : mB >= 3 && mA <= 1 ? -2000 : 0, XB = mB >= 3 && mA <= 1 ? 6000 : mA >= 3 && mB <= 1 ? -2000 : 0;
+    const GA = GREEN + LA + XA, GB = GREEN + LB + XB, DA = GA + LA + YELLOW + CLEAR, CYC = DA + GB + LB + YELLOW + CLEAR, seen = { true: 0, false: 0 };
     es.forEach((e, k) => {
-      const grpA = grpOf(e), L = grpA ? LA : LB, lag = seen[grpA]++ > 0 ? L : 0, start = (grpA ? 0 : HALF + 2 * LA) + lag, green = GREEN + L;
+      const grpA = grpOf(e), L = grpA ? LA : LB, lag = seen[grpA]++ > 0 ? L : 0, start = (grpA ? 0 : DA) + lag, green = grpA ? GA : GB;
       signals.push({ id: 'sig_' + id + '_' + k, nodeId: id, edgeId: e.id, greenMs: green, yellowMs: YELLOW, redMs: CYC - green - YELLOW, offsetMs: (CYC - start) % CYC, ...(L ? { protectedLeft: lag ? 'lag' : 'lead' } : {}) });
       const sp0 = signalPole(id, other(e, id));
       props.push(sp0);
