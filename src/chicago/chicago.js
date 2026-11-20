@@ -191,10 +191,14 @@ export function buildChicago() {
     const es = byNode[id].filter(e => !(e.oneWay && e.from === id));
     const ref = byNode[id].find(arterial);
     const ro = nodes[other(ref, id)], ra = Math.atan2(ro.z - nodes[id].z, ro.x - nodes[id].x);
+    // On a wide road (3 lanes each way) the two opposite approaches do not turn green together: one leads by LEAD ms and the other
+    // lags by LEAD ms, so each direction gets a few seconds with the oncoming traffic held at red and its left-turners can clear.
+    const grpOf = e => { const o = nodes[other(e, id)]; return Math.abs(Math.cos(Math.atan2(o.z - nodes[id].z, o.x - nodes[id].x) - ra)) > 0.7071; };
+    const LEAD = 5000, wide = g => es.some(e => grpOf(e) === g && (e.lanes || 1) >= 3), LA = wide(true) ? LEAD : 0, LB = wide(false) ? LEAD : 0;
+    const CYC = 2 * HALF + 2 * LA + 2 * LB, seen = { true: 0, false: 0 };
     es.forEach((e, k) => {
-      const o = nodes[other(e, id)], a = Math.atan2(o.z - nodes[id].z, o.x - nodes[id].x);
-      const grpA = Math.abs(Math.cos(a - ra)) > 0.7071;
-      signals.push({ id: 'sig_' + id + '_' + k, nodeId: id, edgeId: e.id, greenMs: GREEN, yellowMs: YELLOW, redMs: RED, offsetMs: grpA ? 0 : HALF });
+      const grpA = grpOf(e), L = grpA ? LA : LB, lag = seen[grpA]++ > 0 ? L : 0, start = (grpA ? 0 : HALF + 2 * LA) + lag, green = GREEN + L;
+      signals.push({ id: 'sig_' + id + '_' + k, nodeId: id, edgeId: e.id, greenMs: green, yellowMs: YELLOW, redMs: CYC - green - YELLOW, offsetMs: (CYC - start) % CYC, ...(L ? { protectedLeft: lag ? 'lag' : 'lead' } : {}) });
       const sp0 = signalPole(id, other(e, id));
       props.push(sp0);
       if (sp0.pair) props.push({ type: 'trafficlight', spanPole: true, x: sp0.pair.x, z: sp0.pair.z, rotation: sp0.pair.rotation, owner: sp0 });
