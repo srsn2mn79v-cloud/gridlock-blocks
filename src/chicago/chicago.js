@@ -391,7 +391,7 @@ export function buildChicago() {
       const x = cx + ox, z = cz + oz;
       if (roadClear(x, z) < 4.0 || inWater(x, z, 3) || parkAt(x, z) || outsideHW(x, z, 14)) { ok = false; break; }
     }
-    if (ok && roadClear(cx, cz) > 75) ok = false;
+    if (ok && roadClear(cx, cz) > 30) ok = false;   // only a block deep: further from every road the inside of the block stays open (yards, courtyards), as in real cities
     if (ok && (blockedRects.some(r => inRect(cx, cz, r)) || lmRects.some(r => inRect(cx, cz, r)))) ok = false;
     if (ok) { const [X, Y] = fromWorld(cx, cz); if (Y > MAP.image.h * MAP.scale + 20 || Y < 0) ok = false; }
     free[i * NZ + j] = ok ? 1 : 0;

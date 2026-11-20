@@ -1,3 +1,4 @@
+import { createPerfHud } from './perfHud.js';
 import { createSprays } from './spray.js';
 import { KMH_PER_U } from './units.js';
 import * as THREE from 'three';
@@ -917,7 +918,9 @@ function audioFrame(dt) {
 let fpsFrames = 0, fpsT = 0, plowT = 0, audioT = 0;
 const audioCtx = { density: 0, crowd: 0, sirens: [] };
 let perfAcc = 0, perfN = 0, perfBloomOff = false;
+const perfTick = createPerfHud(renderer);
 function animate() {
+  perfTick();
   if (arrivalFrames < 4 && ++arrivalFrames === 4) endTravel();
   const rawDt = clock.getDelta();
   input.poll(world.onFoot);
