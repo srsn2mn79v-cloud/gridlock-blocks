@@ -152,7 +152,8 @@ export function buildChicago() {
     const es = byNode[id];
     if (es.length < 3 || nodes[id].elevation > 0.5) return;
     const art = es.filter(arterial);
-    if (art.length >= 2 && es.length <= 5 && !es.some(e => e.ramp || e.cls === 'hw' || e.ring) && es.every(e => e.structure !== 'bridge')) signalNodes.push(id);
+    const big = es.filter(e => e.type === 'avenue' && (e.lanes || 1) >= 3);      // also: where the highway's end section (a 3-lane one-way pair) meets a city avenue
+    if ((art.length >= 2 || big.length >= 3) && es.length <= 5 && !es.some(e => e.ramp || e.cls === 'hw' || e.ring) && es.every(e => e.structure !== 'bridge')) signalNodes.push(id);
   });
   const spawnC = T(X0, Y0);
   function signalPole(nodeId, approachId) {
@@ -189,7 +190,7 @@ export function buildChicago() {
   }
   signalNodes.forEach(id => {
     const es = byNode[id].filter(e => !(e.oneWay && e.from === id));
-    const ref = byNode[id].find(arterial);
+    const ref = byNode[id].find(arterial) || byNode[id].find(e => e.type === 'avenue' && (e.lanes || 1) >= 3 && !e.oneWay) || byNode[id].find(e => (e.lanes || 1) >= 3);
     const ro = nodes[other(ref, id)], ra = Math.atan2(ro.z - nodes[id].z, ro.x - nodes[id].x);
     // On a wide road (3 lanes each way) the two opposite approaches do not turn green together: one leads by LEAD ms and the other
     // lags by LEAD ms, so each direction gets a few seconds with the oncoming traffic held at red and its left-turners can clear.
