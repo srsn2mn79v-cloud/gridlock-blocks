@@ -495,7 +495,12 @@ export function createPedestrianSystem(cityData, scene, count = 14, maxCount = c
       if (p.react === 'look' || p.react === 'brace') waiting = true;
       if (p.state === 'waitSignal') {
         const sig = findSignalForApproach(cityData, p.link.nodeId, p.link.otherNodeId);
-        if (!sig || (isApproachClear(sig, now) && redRemainingMs(sig, now) >= crossMs(p.link))) p.state = 'walk';
+        p.sigWait = (p.sigWait || 0) + dt;
+        if (!sig || (isApproachClear(sig, now) && redRemainingMs(sig, now) >= crossMs(p.link))) { p.state = 'walk'; p.sigWait = 0; }
+        else if (p.sigWait > 25) {       // a crossing so long the red phase never covers it: give up and walk back the other way (no queue builds up)
+          p.sigWait = 0; p.state = 'walk'; const back = p.from; p.from = p.to; p.to = back; p.t = 1 - p.t;
+          const rev = waypoints[p.from].links.find(l => l.to === p.to); p.link = rev || { kind: 'walk' };
+        }
         else waiting = true;
       }
       if (p.state === 'waitLook') {
@@ -535,7 +540,7 @@ export function createPedestrianSystem(cityData, scene, count = 14, maxCount = c
           }
           if (Math.random() < 0.07) p.pause = 1 + Math.random() * 3.5;   // window-shopping / checking a phone
           const next = pickNextLink(waypoints, arrivedAt, p.from);
-          if (!next) { p.t = 1; } else {
+          if (!next) { const back = p.from; p.from = arrivedAt; p.to = back; p.t = 0; p.link = { kind: 'walk' }; } else {   // a dead end: turn round instead of standing there (walkers used to pile up)
             p.from = arrivedAt; p.to = next.to; p.link = next; p.t = 0;
             if (next.kind === 'cross') {
               const sig = findSignalForApproach(cityData, next.nodeId, next.otherNodeId);
