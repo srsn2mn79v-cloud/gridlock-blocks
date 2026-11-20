@@ -1,0 +1,80 @@
+{
+ "when": "2026-11-20T13:39:08.774Z",
+ "label": "leadlag",
+ "score": {
+  "highway": 70,
+  "arterial": 60,
+  "small": 58
+ },
+ "detail": {
+  "100": {
+   "highway": {
+    "score": 78,
+    "flow": 78.1,
+    "stopped": 0.9,
+    "jammed": 0,
+    "waitAtJunction": 0.9
+   },
+   "arterial": {
+    "score": 70,
+    "flow": 72.3,
+    "stopped": 6.4,
+    "jammed": 0,
+    "waitAtJunction": 7.4
+   },
+   "small": {
+    "score": 61,
+    "flow": 74.1,
+    "stopped": 13.9,
+    "jammed": 0,
+    "waitAtJunction": 35.3
+   }
+  },
+  "250": {
+   "highway": {
+    "score": 69,
+    "flow": 71.7,
+    "stopped": 5.6,
+    "jammed": 1.21,
+    "waitAtJunction": 5
+   },
+   "arterial": {
+    "score": 59,
+    "flow": 65.7,
+    "stopped": 10.6,
+    "jammed": 0.54,
+    "waitAtJunction": 19
+   },
+   "small": {
+    "score": 58,
+    "flow": 71.7,
+    "stopped": 15.7,
+    "jammed": 0.01,
+    "waitAtJunction": 38
+   }
+  },
+  "450": {
+   "highway": {
+    "score": 62,
+    "flow": 65.8,
+    "stopped": 10.3,
+    "jammed": 0.29,
+    "waitAtJunction": 12.3
+   },
+   "arterial": {
+    "score": 50,
+    "flow": 57.7,
+    "stopped": 19.8,
+    "jammed": 0.04,
+    "waitAtJunction": 27.9
+   },
+   "small": {
+    "score": 55,
+    "flow": 69,
+    "stopped": 18.2,
+    "jammed": 0.04,
+    "waitAtJunction": 40.9
+   }
+  }
+ }
+}
