@@ -3,6 +3,7 @@
 // bridges and tunnels are dropped onto a road, and the map can show the roads the game really builds: every lane, the traffic lights, the stop signs
 // and where the road changes width (the lanes merge there).
 import { BKINDS, FIELDS } from '../buildKinds.js';
+import { fitStruct } from '../structFit.js';
 import { put, h, View, SC, S } from './common.js';
 import refUrl from './ref-map.png';
 import { SHOP_KINDS } from '../chicago/chicago.js';
@@ -161,7 +162,7 @@ export function createBuildEditor(ctx) {
     (md.props || []).forEach((q, i) => out.push({ k: 'prop', px: q.at, label: q.type, color: '#6aa56b', remove: () => md.props.splice(i, 1), move: p => { q.at = p; } }));
     (md.stations || []).forEach((s, i) => out.push({ k: 'svc', px: s.at, label: s.kind, color: '#ff5555', remove: () => md.stations.splice(i, 1), move: p => { s.at = p; } }));
     (md.gas || []).forEach((g, i) => out.push({ k: 'gas', px: g, label: 'gas', color: '#ff7f2e', remove: () => md.gas.splice(i, 1), move: p => { md.gas[i] = p; } }));
-    (md.structs || []).forEach((s, i) => { if (s.at) out.push({ k: s.h < 0 ? 'tunnel' : 'bridge', st: s, idx: i, px: s.at, label: (s.h < 0 ? 'Tunnel ' : 'Bridge ') + Math.round(s.len * M_PER_U) + ' m', color: s.h < 0 ? '#b08a5a' : '#6fb8ff', remove: () => md.structs.splice(i, 1), move: p => { s.at = p; } }); });
+    (md.structs || []).forEach((s, i) => { if (s.at) out.push({ k: s.h < 0 ? 'tunnel' : 'bridge', st: s, idx: i, geo: structGeo(s), px: s.at, label: (s.h < 0 ? 'Tunnel ' : 'Bridge ') + Math.round(s.len * M_PER_U) + ' m', color: s.h < 0 ? '#b08a5a' : '#6fb8ff', remove: () => md.structs.splice(i, 1), move: p => { s.at = p; } }); });
     T().bus.forEach(l => l.stops.forEach((s, i) => out.push({ k: 'busstop', px: toPx(s), label: l.name, color: '#ffd21f', remove: () => l.stops.splice(i, 1), move: p => { l.stops[i] = toWorld(p).map(rd); } })));
     T().metro.forEach(l => l.stations.forEach((s, i) => out.push({ k: 'metro', px: toPx(s.at), label: s.name || l.name, color: '#' + (l.color >>> 0).toString(16).padStart(6, '0').slice(-6), remove: () => l.stations.splice(i, 1), move: p => { s.at = toWorld(p).map(rd); } })));
     const d = T().depot; if (d && d.at) out.push({ k: 'depot', px: toPx(d.at), label: 'bus depot', color: '#9aa7b8', remove: () => { delete T().depot; }, move: p => { d.at = toWorld(p).map(rd); } });
@@ -227,8 +228,14 @@ export function createBuildEditor(ctx) {
     let best = null; streets().forEach((s, i) => { const r = alongOf(s.pts, st.at); if (!best || r.d < best.d) best = { i, s, ...r }; });
     if (!best || best.d > 6) return null;
     const k = CLASSES[best.s.cls] || CLASSES.two, g = 0.95 * (k.maxGrade || 0.06), d1 = st.len / 2, ramp = Math.abs(st.h) / g, total = polyLen(best.s.pts) * S, along = best.along * S;
-    const warns = [], info = { ...best, d1, ramp, d2: (st.plat || d1) + ramp, g, total, along, warns };
-    if (along - info.d2 < 4 || along + info.d2 > total - 4) warns.push('The ramps run past the end of the road (' + Math.round(info.d2 * M_PER_U) + ' m each side of the middle): the game now shortens it to fit; make the road longer or the structure shorter or lower to keep your size.');
+    const fit = fitStruct({ d1, h: st.h, g, plat: st.plat || 0, along, total });
+    const warns = [], info = { ...best, d1, ramp, d2: (st.plat || d1) + ramp, g, total, along, warns, fit, bad: !fit.fits };
+    if (!fit.fits) {
+      const kind = st.h < 0 ? 'tunnel' : 'bridge', need = Math.round(fit.needTotal * M_PER_U), have = Math.round(total * M_PER_U), asked = Math.round(st.len * M_PER_U);
+      warns.push(fit.built
+        ? 'Does not fit this road. A ' + asked + ' m ' + kind + ' with ' + Math.round(ramp * M_PER_U) + ' m ramps needs about ' + need + ' m of road; this road is ' + have + ' m. The game will only build ' + Math.round(fit.builtLen * M_PER_U) + ' m of it' + (Math.abs(fit.h) < Math.abs(st.h) - 0.05 ? ', ' + (Math.abs(fit.h) * M_PER_U).toFixed(1) + ' m ' + (st.h < 0 ? 'deep' : 'high') : '') + '. Lengthen the road to ' + need + ' m, make it shallower, or use a shorter span.'
+        : 'Does not fit this road, so it is NOT built. It needs about ' + need + ' m of road; this one is ' + have + ' m. Lengthen the road or make it much lower.');
+    }
     // junctions on the span or the ramps
     const pts = [], city = ctx.cityIfBuilt();
     streets().forEach((o, oi) => { if (oi === best.i) return; [o.pts[0], o.pts[o.pts.length - 1]].forEach(q => pts.push(q)); });
@@ -281,16 +288,23 @@ export function createBuildEditor(ctx) {
     else { streets().forEach(s => { c.strokeStyle = rtOfStreet(s).color; c.lineWidth = 3; c.beginPath(); s.pts.forEach((q, i) => { const o = sc(q); i ? c.lineTo(o[0], o[1]) : c.moveTo(o[0], o[1]); }); c.stroke(); }); }
     (M().structs || []).forEach((st, i) => { if (!st.at) return; const geo = structGeo(st); if (!geo) return; const col = st.h < 0 ? '#c9a46a' : '#6fb8ff', P = geo.s.pts, a = geo.along / S;
       const ramp = (from, to) => { const q = slicePoly(P, from, to); if (q.length < 2) return; c.beginPath(); q.forEach((z, j) => { const o = sc(z); j ? c.lineTo(o[0], o[1]) : c.moveTo(o[0], o[1]); }); c.stroke(); };
-      c.lineCap = 'butt'; c.setLineDash([]); c.lineWidth = (i === selStruct ? 12 : 8); c.strokeStyle = col + 'ee'; ramp(a - geo.d1 / S, a + geo.d1 / S);       // the structure itself
-      c.lineWidth = 6; c.strokeStyle = col + '66'; c.setLineDash([6, 5]); ramp(a - geo.d2 / S, a - geo.d1 / S); ramp(a + geo.d1 / S, a + geo.d2 / S); c.setLineDash([]);   // the ramps
-      if (geo.warns.length) { const o = sc(st.at); c.fillStyle = '#ff9f1a'; c.strokeStyle = '#000'; c.beginPath(); c.moveTo(o[0] + 14, o[1] - 24); c.lineTo(o[0] + 22, o[1] - 10); c.lineTo(o[0] + 6, o[1] - 10); c.closePath(); c.fill(); c.stroke(); } });
+      c.lineCap = 'butt'; c.setLineDash([]);
+      if (geo.bad) {      // it does not fit its street: show what was asked for in red, and below it what the game will really build
+        c.lineWidth = 12; c.strokeStyle = '#ff3b3bcc'; c.setLineDash([3, 5]); ramp(a - geo.d2 / S, a + geo.d2 / S); c.setLineDash([]);
+      }
+      const bd1 = geo.bad ? (geo.fit.built ? geo.fit.d1 : 0) : geo.d1, bd2 = geo.bad ? (geo.fit.built ? geo.fit.d2 : 0) : geo.d2;
+      if (bd1 > 0) {
+        c.lineWidth = (i === selStruct ? 12 : 8); c.strokeStyle = col + 'ee'; ramp(a - bd1 / S, a + bd1 / S);       // the structure itself
+        c.lineWidth = 6; c.strokeStyle = col + '66'; c.setLineDash([6, 5]); ramp(a - bd2 / S, a - bd1 / S); ramp(a + bd1 / S, a + bd2 / S); c.setLineDash([]);   // the ramps
+      }
+      if (geo.warns.length) { const o = sc(st.at); c.fillStyle = geo.bad ? '#ff3b3b' : '#ff9f1a'; c.strokeStyle = '#000'; c.beginPath(); c.moveTo(o[0] + 14, o[1] - 24); c.lineTo(o[0] + 22, o[1] - 10); c.lineTo(o[0] + 6, o[1] - 10); c.closePath(); c.fill(); c.stroke(); } });
     streets().forEach(s => { c.strokeStyle = rtOfStreet(s).color + 'aa'; c.lineWidth = 1.5; c.setLineDash([5, 4]); c.beginPath(); s.pts.forEach((q, i) => { const o = sc(q); i ? c.lineTo(o[0], o[1]) : c.moveTo(o[0], o[1]); }); c.stroke(); c.setLineDash([]); });
     // pins: one at each end of every street (coloured by type, with its letter), small dots on the points between
     streets().forEach((s, i) => { const rt = rtOfStreet(s); if (s.pair && streets().findIndex(q => q.pair === s.pair) !== i) return; const SP = shownPts(s); SP.forEach((q, j) => { const o = sc(q), end = j === 0 || j === SP.length - 1; if (end) pin(c, o[0], o[1], i === selStreet ? '#fff' : rt.color, rt.pin, view.k > 0.8 ? 8 : 5.5); else if (view.k > 1.2) { c.fillStyle = rt.color; c.strokeStyle = '#000'; c.lineWidth = 1; c.beginPath(); c.arc(o[0], o[1], 3, 0, 7); c.fill(); c.stroke(); } }); });
     things().forEach(t => {
       const [x, y] = sc(t.px);
       if (t.rect) { const a = sc([t.rect[0], t.rect[1]]), b = sc([t.rect[2], t.rect[3]]); c.fillStyle = t.color + '88'; c.strokeStyle = t.color; c.lineWidth = 1.5; c.fillRect(a[0], a[1], b[0] - a[0], b[1] - a[1]); c.strokeRect(a[0], a[1], b[0] - a[0], b[1] - a[1]); return; }
-      if (t.k === 'bridge' || t.k === 'tunnel') { pin(c, x, y, t.color, t.k === 'bridge' ? '≍' : '∩', 10); if (view.k > 0.5) { c.fillStyle = '#fff'; c.strokeStyle = '#000'; c.lineWidth = 3; c.font = 'bold 11px system-ui'; c.textAlign = 'left'; c.textBaseline = 'middle'; const lb = (t.k === 'bridge' ? '+' : '−') + (Math.abs(t.st.h) * M_PER_U).toFixed(1) + ' m  ·  ' + Math.round(t.st.len * M_PER_U) + ' m long'; c.strokeText(lb, x + 14, y - 14); c.fillText(lb, x + 14, y - 14); } return; }
+      if (t.k === 'bridge' || t.k === 'tunnel') { pin(c, x, y, t.color, t.k === 'bridge' ? '≍' : '∩', 10); if (view.k > 0.5) { c.fillStyle = '#fff'; c.strokeStyle = '#000'; c.lineWidth = 3; c.font = 'bold 11px system-ui'; c.textAlign = 'left'; c.textBaseline = 'middle'; const lb = (t.k === 'bridge' ? '+' : '−') + (Math.abs(t.st.h) * M_PER_U).toFixed(1) + ' m  ·  ' + (t.geo && t.geo.bad ? (t.geo.fit.built ? 'only ' + Math.round(t.geo.fit.builtLen * M_PER_U) + ' of ' : 'NOT BUILT, ') : '') + Math.round(t.st.len * M_PER_U) + ' m long'; c.strokeText(lb, x + 14, y - 14); if (t.geo && t.geo.bad) c.fillStyle = '#ff9a9a'; c.fillText(lb, x + 14, y - 14); } return; }
       c.fillStyle = t.color; c.strokeStyle = '#000'; c.lineWidth = 1.5; c.beginPath();
       if (t.k === 'metro') c.rect(x - 8, y - 8, 16, 16); else if (t.k === 'depot') c.rect(x - 12, y - 8, 24, 16); else c.arc(x, y, t.k === 'busstop' ? 6 : 8, 0, 7);
       c.fill(); c.stroke(); c.fillStyle = '#fff'; c.font = 'bold 10px system-ui'; c.textAlign = 'center'; c.textBaseline = 'middle';
@@ -426,7 +440,7 @@ export function createBuildEditor(ctx) {
     return h('div', { class: 'grp' }, h('h4', {}, 'Selected ' + (sS.h < 0 ? 'tunnel' : 'bridge')), cv,
       h('div', { class: 'row' }, 'Length ', h('input', { type: 'number', value: Math.round(sS.len * M_PER_U), step: 10, min: 20, style: 'width:70px', onchange: e => { snap(); sS.len = Math.max(20, +e.target.value || 70) / M_PER_U; re(); } }), ' m   ', sS.h < 0 ? 'Depth ' : 'Height ', h('input', { type: 'number', value: +(Math.abs(sS.h) * M_PER_U).toFixed(1), step: 1, min: 2, style: 'width:60px', onchange: e => { snap(); sS.h = Math.sign(sS.h) * Math.max(2, +e.target.value || 6) / M_PER_U; re(); } }), ' m'),
       geo ? h('p', { class: 'hint' }, 'Each ramp is ' + Math.round(geo.ramp * M_PER_U) + ' m long at the ' + (geo.g * 100).toFixed(1) + '% grade limit, so the road is level again ' + Math.round(geo.d2 * M_PER_U) + ' m from the middle.') : h('p', { class: 'hint' }, 'This pin is not on a road any more.'),
-      ...(geo ? geo.warns.map(w => h('p', { class: 'hint', style: 'color:#ff9f1a' }, '⚠ ' + w)) : []),
+      ...(geo ? geo.warns.map(w => h('p', { class: 'hint', style: 'color:' + (geo.bad ? '#ff6b6b;font-weight:600' : '#ff9f1a') }, (geo.bad ? '✖ ' : '⚠ ') + w)) : []),
       h('div', { class: 'row' }, h('button', { class: 'btn danger', onclick: () => { snap(); M().structs.splice(selStruct, 1); selStruct = -1; re(); } }, 'Delete')));
   }
   function renderSide() {

@@ -1,6 +1,7 @@
 // Turns a set of centre-lines (streets, arterials, the interstate, ramps) into the road graph the
 // game uses: nodes at every junction, edges between them, bridges where a street has to cross a
 // river or the interstate, and a tidy-up pass (tiny edges merged, dead ends removed).
+import { fitStruct } from '../structFit.js';
 import { dist, distToSeg, segInter, nearestOnPoly } from './geom.js';
 
 const HWC = new Set(['hwEnd', 'hwEnd2', 'hwMid']);      // the arterial-class ends of the interstate
@@ -83,12 +84,8 @@ export function buildNetwork(lines, barriers, opts = {}) {
     const extra = [], cut = [];
     events.forEach(ev => {
       if (ev.custom && !ev.prof.plat) {   // a bridge or tunnel from the city builder that is too long for its street (deck plus both ramps): shorten the deck, then the height, until it fits
-        const { d1, d2, h } = ev.prof, room = Math.min(ev.sc, total - ev.sc) - 26, g = Math.abs(h) / Math.max(0.001, d2 - d1);
-        if (d2 > room) {
-          let nd1 = room - Math.abs(h) / g, nh = h;
-          if (nd1 < 3) { nd1 = 3; nh = Math.sign(h) * Math.max(0, (room - 3) * g); }
-          if (Math.abs(nh) >= 1.2) { ev.prof = { d1: nd1, d2: nd1 + Math.abs(nh) / g, h: nh }; warn((h < 0 ? 'tunnel' : 'bridge') + ' shortened to fit its street: ' + L.id); }
-        }
+        const { d1, d2, h } = ev.prof, f = fitStruct({ d1, h, g: Math.abs(h) / Math.max(0.001, d2 - d1), along: ev.sc, total });
+        if (!f.fits && f.built) { ev.prof = { d1: f.d1, d2: f.d2, h: f.h }; warn((h < 0 ? 'tunnel' : 'bridge') + ' shortened to fit its street: ' + L.id); }
       }
       const { d1, d2, h } = ev.prof;
       if (ev.sc - d2 < 4 || ev.sc + d2 > total - 4) { warn('bridge zone leaves the line: ' + L.id + ' (' + ev.B.kind + ')'); L.pendingTrim = L.pendingTrim || []; L.pendingTrim.push(ev); return; }

@@ -1037,3 +1037,7 @@ The **City builder** is the first tab and the main way to change the city. **Ter
 - **Bridges and tunnels** show their height / depth, ramps and warnings; Alt+click one to edit it.
 
 Street fields the game reads (`gen_network.js` / `chicago.js`): `oneWay`, `ring` (roundabout ring: priority, 40 km/h, no traffic lights), `trees`, `tram`, `ped`.
+
+
+## Buildings along the roads
+Before the grid lots, a frontage pass (`chicago.js`) walks both sides of every surface road and stands buildings along it: close to the pavement, in rows of different shapes by district (houses, terraces, shop rows, apartment blocks, offices, towers on podiums, warehouses, pagoda-roofed Chinatown). Roads within about 6 degrees of the grid get axis-aligned buildings; diagonal roads get buildings turned to face them (`rot` on the parcel; shopfront glazing and awning are added in `parcels.js`). The grid lots then fill what is left. A bridge or tunnel too long for its street is fitted by `src/structFit.js`, which the studio uses to show what will really be built.

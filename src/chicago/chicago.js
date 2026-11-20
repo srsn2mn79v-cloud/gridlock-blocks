@@ -405,6 +405,87 @@ export function buildChicago() {
     resi: [0xb5654a, 0xc98b5d, 0xd8c3a0, 0x9fb7a6, 0xc7a58f, 0xa89cb5, 0xe0cfa8, 0x9b5a45]
   };
   const pick = a => a[Math.floor(rand() * a.length)];
+  // ---- frontage pass: buildings stand along the roads, turned to face them, close to the pavement, in rows of different shapes and heights.
+  // (The grid lots further down only fill what is left behind them.)
+  const front = [], FBK = 40, frontBk = new Map();
+  const FRONT_GAP = 4.2;                                                   // clear ground between the road surface and the facade (the pavement)
+  const polyHit = (A, B) => {                                              // do two convex polygons overlap? (separating axis test)
+    for (const P of [A, B]) for (let i = 0; i < P.length; i++) {
+      const a = P[i], b = P[(i + 1) % P.length], nx = a[1] - b[1], nz = b[0] - a[0];
+      let aMin = 1e9, aMax = -1e9, bMin = 1e9, bMax = -1e9;
+      for (const q of A) { const d = q[0] * nx + q[1] * nz; if (d < aMin) aMin = d; if (d > aMax) aMax = d; }
+      for (const q of B) { const d = q[0] * nx + q[1] * nz; if (d < bMin) bMin = d; if (d > bMax) bMax = d; }
+      if (aMax < bMin || bMax < aMin) return false;
+    }
+    return true;
+  };
+  const bbOf = f => { let x0 = 1e9, x1 = -1e9, z0 = 1e9, z1 = -1e9; f.forEach(q => { x0 = Math.min(x0, q[0]); x1 = Math.max(x1, q[0]); z0 = Math.min(z0, q[1]); z1 = Math.max(z1, q[1]); }); return [x0, z0, x1, z1]; };
+  const frontKeys = bb => { const k = []; for (let bx = Math.floor(bb[0] / FBK); bx <= Math.floor(bb[2] / FBK); bx++) for (let bz = Math.floor(bb[1] / FBK); bz <= Math.floor(bb[3] / FBK); bz++) k.push(bx + ',' + bz); return k; };
+  const hitFront = poly => { const bb = bbOf(poly), seen = new Set(); for (const k of frontKeys(bb)) for (const o of frontBk.get(k) || []) { if (seen.has(o)) continue; seen.add(o); if (o.bb[0] < bb[2] && o.bb[2] > bb[0] && o.bb[1] < bb[3] && o.bb[3] > bb[1] && polyHit(poly, o.fp)) return true; } return false; };
+  const standable = (x, z, clear) => roadClear(x, z) >= clear && !inWater(x, z, 2) && !parkAt(x, z) && !outsideHW(x, z, 10) && !blockedRects.some(r => inRect(x, z, r)) && !lmRects.some(r => inRect(x, z, r));
+  const rr = (a, b) => a + rand() * (b - a);
+  // what stands at a point on a street, by district style: the shape, size, roof and colours of one building
+  function archetype(dis, wide) {
+    const st = dis ? dis.style : 'mid', hr = dis ? dis.h : [14, 34], hk = Math.pow(rand(), st === 'tower' ? 0.8 : 1.5), H = () => Math.round(hr[0] + (hr[1] - hr[0]) * hk), r = rand();
+    if (st === 'low') {
+      if (r < 0.62) return { w: rr(7.5, 11), d: rr(8, 12), h: rr(7, 10.5), roof: 'gable', pal: PAL.resi, gap: rr(1.6, 5), pitchGap: true };
+      if (r < 0.88) return { w: rr(16, 28), d: rr(8, 11), h: rr(9, 13), roof: 'gable', pal: PAL.low, gap: rr(0.2, 0.7) };       // a terrace of houses
+      return { w: rr(8, 13), d: rr(9, 12), h: rr(6, 9), roof: 'flat', pal: PAL.mid, gap: rr(0.3, 1.5), awning: true };           // a corner shop
+    }
+    if (st === 'warehouse') return { w: rr(16, 32), d: rr(16, 28), h: Math.max(7, H()), roof: rand() < 0.45 ? 'tank' : 'flat', pal: PAL.warehouse, gap: rr(4, 11) };
+    if (st === 'china') return { w: rr(6, 11), d: rr(8, 12), h: Math.max(9, H()), roof: 'pagoda', pal: PAL.china, gap: rr(0.2, 1.2), awning: rand() < 0.6 };
+    if (st === 'tower') {
+      const h = Math.max(30, H());
+      return { w: rr(11, 19), d: rr(14, 22), h, roof: h > 55 ? 'tiers' : 'flat', pal: PAL.tower, gap: rr(2.5, 8), podium: h > 70 && rand() < 0.5 };
+    }
+    if (r < 0.30) return { w: rr(11, 17), d: rr(10, 14), h: rr(13, 27), roof: 'resi', pal: PAL.resi, gap: rr(0.5, 2.6) };             // an apartment block with balconies
+    if (r < 0.68) return { w: rr(14, 28), d: rr(10, 15), h: rr(10, 23), roof: 'flat', pal: PAL.mid, gap: rr(0.2, 0.8), awning: wide, shopRow: true };   // shops below, flats above, sharing walls
+    return { w: rr(10, 17), d: rr(12, 19), h: Math.max(16, H()), roof: hr[1] > 55 && H() > 55 ? 'tiers' : 'flat', pal: PAL.mid, gap: rr(1.5, 5) };         // an office
+  }
+  const AWN = [0xc0392b, 0x2e7d5b, 0x1f5fa8, 0xd68c1f, 0x7a3b8c, 0x2b2b2b];
+  const sideSeen = new Set();
+  edges.forEach(e => {
+    if (e.structure !== 'surface' || e.type === 'highway' || e.ramp || e.ring || e.loop || e.interstate) return;
+    const A = nodes[e.from], B = nodes[e.to], L = Math.hypot(B.x - A.x, B.z - A.z); if (L < 28) return;
+    const ux = (B.x - A.x) / L, uz = (B.z - A.z) / L;
+    for (const sd of [1, -1]) {
+      const rx = ux * sd, rz = uz * sd, ang = Math.atan2(rz, rx), kq = Math.round(ang / (Math.PI / 2)), axis = Math.abs(ang - kq * Math.PI / 2) < 0.1;
+      // a road within 6 degrees of the grid gets axis-aligned buildings (the neon signs and awnings added further down expect that); diagonal roads get turned buildings
+      const dx = axis ? Math.round(Math.cos(kq * Math.PI / 2)) : rx, dz = axis ? Math.round(Math.sin(kq * Math.PI / 2)) : rz, nx = -dz, nz = dx, rot = axis ? null : Math.atan2(-dz, dx), rnx = -rz, rnz = rx;   // along the road, and away from it
+      // walk the side from one end to the other (against the direction when sd < 0, so the local frame is always the same way round)
+      let t = 22 + rand() * 6; const tEnd = L - 22;
+      while (t < tEnd) {
+        const s1 = sd > 0 ? t : L - t, [X, Y] = fromWorld(A.x + ux * s1, A.z + uz * s1), dis = districtAt(X, Y);
+        const arch = archetype(dis, e.width >= 20); let w = arch.w, d = arch.d, ok = null;
+        const s0 = sd > 0 ? t : L - t;                                                           // distance from A along the edge
+        for (const shrink of [1, 0.8, 0.62, 0.48]) {
+          const ww = w * shrink, dd = d * (shrink > 0.7 ? 1 : 0.8), off = e.width / 2 + FRONT_GAP + (arch.pitchGap ? rr(0, 1.8) : 0);
+          const ox = A.x + ux * s0 + rnx * off, oz = A.z + uz * s0 + rnz * off;
+          // corners: the front edge lies along the road, the building runs 'dd' away from it
+          const poly = [[ox, oz], [ox + dx * ww, oz + dz * ww], [ox + dx * ww + nx * dd, oz + dz * ww + nz * dd], [ox + nx * dd, oz + nz * dd]];
+          let good = true;
+          for (const q of poly) if (!standable(q[0], q[1], FRONT_GAP - 0.1)) { good = false; break; }
+          if (good) for (const [fa, fb] of [[0.5, 0], [0.5, 1], [0, 0.5], [1, 0.5], [0.5, 0.5], [0.25, 0.25], [0.75, 0.75], [0.25, 0.75], [0.75, 0.25]]) if (!standable(ox + dx * ww * fa + nx * dd * fb, oz + dz * ww * fa + nz * dd * fb, 1.2)) { good = false; break; }
+          if (good && hitFront(poly)) good = false;
+          if (good) { ok = { poly, ww, dd }; break; }
+        }
+        if (!ok) { t += 4 + rand() * 3; continue; }
+        const f = ok.poly.map(q => [r2(q[0]), r2(q[1])]), bb = bbOf(f), rec = { fp: f, bb };
+        frontKeys(bb).forEach(k => { (frontBk.get(k) || frontBk.set(k, []).get(k)).push(rec); });
+        front.push(rec);
+        const col = pick(arch.pal), height = Math.round(arch.h);
+        parcels.push({ type: 'building', district: dis ? dis.name : 'Edge', height, color: col, roof: arch.roof, ...(rot != null ? { rot, awning: arch.awning ? pick(AWN) : undefined } : {}), front: true, footprint: f });
+        if (arch.podium) { const m = 1.12, cxp = (f[0][0] + f[2][0]) / 2, czp = (f[0][1] + f[2][1]) / 2, big = f.map(q => [r2(cxp + (q[0] - cxp) * m), r2(czp + (q[1] - czp) * m)]); if (big.every(q => standable(q[0], q[1], 2.2))) parcels.push({ type: 'building', district: dis ? dis.name : 'Edge', height: 7, color: 0xb8b2a6, roof: 'flat', ...(rot != null ? { rot } : {}), footprint: big }); }
+        t += ok.ww + arch.gap;
+      }
+    }
+  });
+  // the grid cells under a frontage building are not free for the lots below
+  for (let i = 0; i < NX; i++) for (let j = 0; j < NZ; j++) {
+    if (!free[i * NZ + j]) continue;
+    const x0 = gx0 + i * C, z0 = gz0 + j * C, cell = [[x0, z0], [x0 + C, z0], [x0 + C, z0 + C], [x0, z0 + C]];
+    if (hitFront(cell)) free[i * NZ + j] = 0;
+  }
   const lots = [];
   const taken = new Uint8Array(NX * NZ);
   for (let j = 0; j < NZ; j++) for (let i = 0; i < NX; i++) {
@@ -428,7 +509,7 @@ export function buildChicago() {
       if (o === self || seenL.has(o)) continue; seenL.add(o);
       if (a < o.x1 + 1.6 && c > o.x0 - 1.6 && b < o.z1 + 1.6 && d > o.z0 - 1.6) return false;
     }
-    const pt = (x, z) => roadClear(x, z) >= FACADE && !inWater(x, z, 3) && !parkAt(x, z) && !outsideHW(x, z, 14) && !blockedRects.some(r => inRect(x, z, r)) && !lmRects.some(r => inRect(x, z, r));
+    const pt = (x, z) => roadClear(x, z) >= FACADE && !hitFront([[x - 0.9, z - 0.9], [x + 0.9, z - 0.9], [x + 0.9, z + 0.9], [x - 0.9, z + 0.9]]) && !inWater(x, z, 3) && !parkAt(x, z) && !outsideHW(x, z, 14) && !blockedRects.some(r => inRect(x, z, r)) && !lmRects.some(r => inRect(x, z, r));
     const n = Math.max(2, Math.ceil(Math.max(c - a, d - b) / 3));
     for (let k = 0; k <= n; k++) {                // only the edge that just moved has to be clear (the others were placed already)
       const x = a + (c - a) * k / n, z = b + (d - b) * k / n;
@@ -618,7 +699,9 @@ export function buildChicago() {
   function parcelsHit(x, z, m) {
     for (const q of parcels) {
       if (q.type !== 'building') continue;
-      const f = q.footprint, x0 = f[0][0], x1 = f[2][0], z0 = f[0][1], z1 = f[2][1];
+      const f = q.footprint;
+      if (q.rot != null) { let hit = pointInPoly(x, z, f); for (let i = 0; !hit && i < f.length; i++) { const a = f[i], b = f[(i + 1) % f.length]; if (distToSeg(x, z, a[0], a[1], b[0], b[1]).d < m) hit = true; } if (hit) return true; continue; }
+      const x0 = f[0][0], x1 = f[2][0], z0 = f[0][1], z1 = f[2][1];
       if (x > Math.min(x0, x1) - m && x < Math.max(x0, x1) + m && z > Math.min(z0, z1) - m && z < Math.max(z0, z1) + m) return true;
     }
     return false;
@@ -824,7 +907,7 @@ export function buildChicago() {
   let nNeon = 0;
   parcels.forEach(q => {
     const NEON_P = { 'Neon Strip': 0.95, Chinatown: 0.6, 'River North': 0.4, Downtown: 0.3, 'Loop Edge': 0.3, 'Gold Coast': 0.25, 'Old Town': 0.3, Industrial: 0.05 };
-    if (q.type !== 'building' || q.height < (q.district === 'Neon Strip' ? 8 : 12) || q.landmark || rand() > (NEON_P[q.district] ?? 0.2) || nNeon > 1700) return;
+    if (q.type !== 'building' || q.rot != null || q.height < (q.district === 'Neon Strip' ? 8 : 12) || q.landmark || rand() > (NEON_P[q.district] ?? 0.2) || nNeon > 1700) return;
     const f = q.footprint, x0 = Math.min(f[0][0], f[2][0]), x1 = Math.max(f[0][0], f[2][0]), z0 = Math.min(f[0][1], f[2][1]), z1 = Math.max(f[0][1], f[2][1]);
     const sides = [[0, -1, z0, x0, x1, true], [0, 1, z1, x0, x1, true], [-1, 0, x0, z0, z1, false], [1, 0, x1, z0, z1, false]];
     let best = null, bd = 1e9;
@@ -845,7 +928,7 @@ export function buildChicago() {
   // storefront awnings: a striped canopy over the pavement on the street side of the lower buildings (decoration high above the traffic, drawn merged in props.js)
   { let nAw = 0; const AW_COLS = [0xc0392b, 0x2e6fa6, 0x2f8f5b, 0xd98b1e, 0x7a3b86, 0x222a35];
     parcels.forEach(q => {
-      if (q.type !== 'building' || q.landmark || q.district === 'Industrial' || q.height < 6 || rand() > 0.4 || nAw > 1500) return;
+      if (q.type !== 'building' || q.rot != null || q.landmark || q.district === 'Industrial' || q.height < 6 || rand() > 0.4 || nAw > 1500) return;
       const f = q.footprint, x0 = Math.min(f[0][0], f[2][0]), x1 = Math.max(f[0][0], f[2][0]), z0 = Math.min(f[0][1], f[2][1]), z1 = Math.max(f[0][1], f[2][1]);
       const sides = [[0, -1, z0, x0, x1, true], [0, 1, z1, x0, x1, true], [-1, 0, x0, z0, z1, false], [1, 0, x1, z0, z1, false]];
       let best = null, bd = 1e9;

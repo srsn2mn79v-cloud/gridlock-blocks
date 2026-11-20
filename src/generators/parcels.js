@@ -60,7 +60,22 @@ function scaled(fp, cx, cz, k) { return fp.map(([x, z]) => [cx + (x - cx) * k, c
 
 // Builds the geometry pieces for one building: walls plus its roof style.
 function buildingGeos(p) {
-  const fp = p.footprint, h = p.height || 12, col = p.color == null ? parcelColor.building : p.color;
+  if (p.rot == null) return buildingGeosAxis(p, p.footprint);
+  // a building turned to face its road: build it axis-aligned around its centre, then turn the pieces (local x runs along the road, local z away from it)
+  const f = p.footprint; let sx = 0, sz = 0; f.forEach(q => { sx += q[0]; sz += q[1]; }); sx /= f.length; sz /= f.length;
+  const c = Math.cos(-p.rot), s = Math.sin(-p.rot), lf = f.map(q => { const x = q[0] - sx, z = q[1] - sz; return [sx + x * c + z * s, sz - x * s + z * c]; });
+  const geos = buildingGeosAxis(p, lf);
+  if (p.awning != null) {          // a shopfront: glazing on the ground floor and a coloured awning over the pavement side
+    let x0 = 1e9, x1 = -1e9, z0 = 1e9; lf.forEach(q => { x0 = Math.min(x0, q[0]); x1 = Math.max(x1, q[0]); z0 = Math.min(z0, q[1]); });
+    const w = x1 - x0, cx = (x0 + x1) / 2;
+    geos.push(colored(new THREE.BoxGeometry(w * 0.9, 2.5, 0.2).translate(cx, 1.45, z0 - 0.08), 0x22313d));
+    geos.push(colored(new THREE.BoxGeometry(w * 0.94, 0.22, 1.5).translate(cx, 3.2, z0 - 0.7), p.awning));
+  }
+  geos.forEach(g => { g.translate(-sx, 0, -sz); g.rotateY(p.rot); g.translate(sx, 0, sz); });
+  return geos;
+}
+function buildingGeosAxis(p, fp) {
+  const h = p.height || 12, col = p.color == null ? parcelColor.building : p.color;
   let x0 = 1e9, x1 = -1e9, z0 = 1e9, z1 = -1e9;
   fp.forEach(([x, z]) => { x0 = Math.min(x0, x); x1 = Math.max(x1, x); z0 = Math.min(z0, z); z1 = Math.max(z1, z); });
   const cx = (x0 + x1) / 2, cz = (z0 + z1) / 2, w = x1 - x0, d = z1 - z0;

@@ -219,11 +219,11 @@ export function gridStreets(a, b, blockM = 90, cls = 'two') {
 
 // Zones: fill a rectangle with buildings between the streets. Returns landmark rows [name, x0, y0, x1, y1, height].
 export const ZONES = {
-  residential: { name: 'Residential zone', color: '#7bd36a', blurb: 'Houses, terraces and low flats.', kinds: [['house', .45], ['terrace', .2], ['flats', .25], ['shopfront', .1]] },
-  dense: { name: 'High-rise residential', color: '#a9d36a', blurb: 'Apartment towers and mid-rise flats.', kinds: [['highrise', .5], ['flats', .5]] },
-  commercial: { name: 'Commercial zone', color: '#4aa3ff', blurb: 'Shop rows, offices and towers with shops at street level.', kinds: [['shopfront', .35], ['office', .3], ['towershops', .15], ['flats', .2]] },
-  downtown: { name: 'Downtown (skyscrapers)', color: '#7a8cff', blurb: 'Skyscrapers on shop podiums, plus offices.', kinds: [['towershops', .45], ['tower', .3], ['office', .25]] },
-  industrial: { name: 'Industrial zone', color: '#e0b030', blurb: 'Warehouses, factories, halls and tanks.', kinds: [['warehouse', .3], ['factory', .25], ['hall', .25], ['silo', .2]] },
+  residential: { name: 'Residential zone', gap: 1.0, color: '#7bd36a', blurb: 'Houses, terraces and low flats.', kinds: [['house', .45], ['terrace', .2], ['flats', .25], ['shopfront', .1]] },
+  dense: { name: 'High-rise residential', gap: 0.7, color: '#a9d36a', blurb: 'Apartment towers and mid-rise flats.', kinds: [['highrise', .5], ['flats', .5]] },
+  commercial: { name: 'Commercial zone', gap: 0.4, color: '#4aa3ff', blurb: 'Shop rows, offices and towers with shops at street level.', kinds: [['shopfront', .35], ['office', .3], ['towershops', .15], ['flats', .2]] },
+  downtown: { name: 'Downtown (skyscrapers)', gap: 0.8, color: '#7a8cff', blurb: 'Skyscrapers on shop podiums, plus offices.', kinds: [['towershops', .45], ['tower', .3], ['office', .25]] },
+  industrial: { name: 'Industrial zone', gap: 1.6, color: '#e0b030', blurb: 'Warehouses, factories, halls and tanks.', kinds: [['warehouse', .3], ['factory', .25], ['hall', .25], ['silo', .2]] },
   farmstead: { name: 'Farmstead', color: '#c98a4a', blurb: 'A few farm buildings spread out: farmhouse, barns, silos.', gap: 10, kinds: [['farmhouse', .25], ['barn', .45], ['silo', .3]] }
 };
 export function zoneFill(rect, kind, streets, seed = 1) {
