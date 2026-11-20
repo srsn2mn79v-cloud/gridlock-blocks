@@ -37,7 +37,7 @@ export function createWeather({ env, settings, save, onApply, dayMinutes = 60 })
   if (settings.day == null) settings.day = 0;
   const el = document.createElement('div'); el.id = 'wx';
   const st = document.createElement('style');
-  st.textContent = '#wx{position:fixed;top:10px;right:10px;z-index:6;font:600 13px system-ui,sans-serif;color:#fff;background:rgba(14,18,26,.55);padding:4px 10px;border-radius:12px;border:1px solid rgba(255,255,255,.14);pointer-events:none;text-shadow:0 1px 2px #000}html.touch #wx{top:6px;font-size:12px}';
+  st.textContent = '#wx{position:fixed;top:10px;right:68px;z-index:6;font:600 13px system-ui,sans-serif;color:#fff;background:rgba(14,18,26,.55);padding:4px 10px;border-radius:12px;border:1px solid rgba(255,255,255,.14);pointer-events:none;text-shadow:0 1px 2px #000}html.touch #wx{top:6px;font-size:12px}';
   document.head.appendChild(st); document.body.appendChild(el);
   let cur = weatherAt(settings.day * 24 + settings.hour), saveT = 0, txtT = 0;
 

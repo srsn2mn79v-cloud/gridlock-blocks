@@ -38,7 +38,7 @@ export const UPGRADE_DEFAULTS = {
   carPrice: { van: 5000, wagon: 8000, bus: 9000, pickup: 12000, suv: 18000, muscle: 24000, sport: 28000, rally: 32000, roadster: 40000, supercar: 95000, hyper: 180000 }
 };
 const merge = (base, over) => {
-  if (Array.isArray(base)) return Array.isArray(over) && over.length === base.length ? over.map(Number) : base;
+  if (Array.isArray(base)) return Array.isArray(over) && over.length === base.length ? (typeof base[0] === 'string' ? over.map((v, i) => (typeof v === 'string' ? v : base[i])) : over.map(Number)) : base;   // name lists stay text (they used to turn into NaN)
   if (base && typeof base === 'object') { const o = {}; for (const k in base) o[k] = merge(base[k], over && over[k]); return o; }
   return typeof base === 'number' ? (Number.isFinite(+over) && over != null ? +over : base) : (typeof over === 'string' ? over : base);
 };

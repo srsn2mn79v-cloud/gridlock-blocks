@@ -7,7 +7,7 @@ export function createCruise({ car, input, world, toast, kmh }) {
   let on = false, target = 0, pressing = false, trim = 0.15;
   const el = document.createElement('button'); el.id = 'cruise'; el.type = 'button'; el.tabIndex = -1;
   const css = document.createElement('style');
-  css.textContent = '#cruise{position:fixed;top:68px;right:10px;z-index:6;font:600 12px system-ui,sans-serif;color:#fff;background:rgba(14,18,26,.55);padding:4px 10px;border-radius:12px;border:1px solid rgba(255,255,255,.14);cursor:pointer;touch-action:manipulation}' +
+  css.textContent = '#cruise{position:fixed;top:68px;right:68px;z-index:6;font:600 12px system-ui,sans-serif;color:#fff;background:rgba(14,18,26,.55);padding:4px 10px;border-radius:12px;border:1px solid rgba(255,255,255,.14);cursor:pointer;touch-action:manipulation}' +
     '#cruise.on{background:rgba(40,150,90,.75);border-color:rgba(160,255,200,.5)}html.touch #cruise{top:auto;bottom:max(96px,calc(env(safe-area-inset-bottom) + 74px));right:50%;transform:translateX(50%);padding:8px 16px;font-size:13px}body.cam-inside #cruise{opacity:.6}';
   document.head.appendChild(css); document.body.appendChild(el);
   const refresh = () => { el.classList.toggle('on', on); el.textContent = on ? 'CRUISE ' + Math.round(kmh(target)) + ' km/h' : 'CRUISE  (C)'; };

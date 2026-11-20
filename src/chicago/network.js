@@ -83,7 +83,7 @@ export function buildNetwork(lines, barriers, opts = {}) {
     const extra = [], cut = [];
     events.forEach(ev => {
       if (ev.custom && !ev.prof.plat) {   // a bridge or tunnel from the city builder that is too long for its street (deck plus both ramps): shorten the deck, then the height, until it fits
-        const { d1, d2, h } = ev.prof, room = Math.min(ev.sc, total - ev.sc) - 5, g = Math.abs(h) / Math.max(0.001, d2 - d1);
+        const { d1, d2, h } = ev.prof, room = Math.min(ev.sc, total - ev.sc) - 26, g = Math.abs(h) / Math.max(0.001, d2 - d1);
         if (d2 > room) {
           let nd1 = room - Math.abs(h) / g, nh = h;
           if (nd1 < 3) { nd1 = 3; nh = Math.sign(h) * Math.max(0, (room - 3) * g); }

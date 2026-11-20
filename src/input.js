@@ -85,8 +85,11 @@ export function createInput() {
       #touch .wheel.down .knob { background: rgba(110,170,240,.9); }
       #touch .hand { left: max(18px, env(safe-area-inset-left)); bottom: calc(max(22px, env(safe-area-inset-bottom)) + 76px); width: 88px; height: 44px; font-size: 14px; letter-spacing: .5px; }
       #touch .hand.down { background: rgba(255,150,40,.75); }
-      #touch .gas { right: max(14px, env(safe-area-inset-right)); bottom: calc(max(22px, env(safe-area-inset-bottom)) + 62px); width: 68px; height: min(26vh, 120px); overflow: hidden; align-items: flex-start; justify-content: center; }
-      #touch .gas .fill { position: absolute; left: 0; right: 0; bottom: 0; height: 0; background: rgba(80,200,120,.55); pointer-events: none; }
+      #touch .gas { right: max(14px, env(safe-area-inset-right)); bottom: calc(max(22px, env(safe-area-inset-bottom)) + 62px); width: 68px; height: min(26vh, 120px); overflow: visible; align-items: flex-start; justify-content: center; }
+      #touch .gas .fill { position: absolute; left: 0; right: 0; bottom: 0; height: 0; background: rgba(80,200,120,.55); border-radius: 0 0 16px 16px; pointer-events: none; }
+      /* the touch area is bigger than the drawn button: an invisible margin (the ::before) takes presses just outside it, so a thumb that drifts still counts */
+      #touch .gas::before { content: ''; position: absolute; top: -48px; left: -30px; right: -30px; bottom: -4px; }
+      #touch .wheel::before { content: ''; position: absolute; top: -14px; left: -30px; right: -8px; bottom: -30px; }
       #touch .gas .lbl { position: relative; margin-top: 8px; font-size: 14px; text-align: center; pointer-events: none; }
       html.touch #hud small { display: none; }
       #touch .ft { display: none; }
