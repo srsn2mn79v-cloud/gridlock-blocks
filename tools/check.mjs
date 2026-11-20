@@ -980,6 +980,45 @@ async function checkStops(cars = +process.argv[3] || 90, minutes = +process.argv
   if (stuckAtStop) bad.push(stuckAtStop + ' cars waited >45 s at a stop sign');
   return { name: 'stops', count: summary, bad };
 }
+
+// ---- congestion: traffic simulated at three densities; per road class (highway, 3-lane arterial, small street) a 0-100 score from how close
+// cars run to the speed limit, how many sit jammed (stopped > 30 s), and the average wait at junction approaches. Scores are saved in
+// tools/congestion-last.json and each run prints the change against the previous run.
+async function checkCongestion() {
+  { let a = (+process.env.SEED || 1) >>> 0; Math.random = () => { a = (a + 0x6D2B79F5) >>> 0; let t = Math.imul(a ^ (a >>> 15), 1 | a); t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t; return ((t ^ (t >>> 14)) >>> 0) / 4294967296; }; }
+  const { createTrafficSystem } = await imp('src/traffic.js');
+  const fs = await import('fs');
+  const DENS = (process.env.DENS || '100,250,450').split(',').map(Number), MIN = +process.env.MINUTES || 3, dt = 1 / 15;
+  const clsOf = e => (e.type === 'highway' || e.ramp || e.interstate) ? 'highway' : (e.lanes || 1) >= 3 ? 'arterial' : 'small';
+  const player = { x: 9999, z: 9999, y: 0, heading: 0, speed: 0 }, res = {};
+  for (const n of DENS) {
+    const tr = createTrafficSystem(city, new THREE.Scene(), heightAt, n, n, null);
+    const acc = { highway: { r: 0, k: 0, stop: 0, jam: 0, wait: 0, wk: 0 }, arterial: { r: 0, k: 0, stop: 0, jam: 0, wait: 0, wk: 0 }, small: { r: 0, k: 0, stop: 0, jam: 0, wait: 0, wk: 0 } };
+    const still = new Map(); let warm = 15 * 30;
+    for (let k = 0; k < 15 * 60 * MIN + warm; k++) {
+      T += dt * 1000; tr.update(dt, player); if (k < warm) continue;
+      tr.cars.forEach((c, i) => {
+        if (!c.active || !c.edge || c.ghost > 0 || c.crashTimer > 0 || c.siren) return;
+        const A = acc[clsOf(c.edge)], vmax = (c.edge.speedLimit || 50) / 3.6 / 1.25;
+        A.r += Math.min(1, c.speed / vmax); A.k++;
+        const toNode = c.path ? c.path.length - c.s : 99;
+        if (c.speed < 0.5) { A.stop++; const s0 = (still.get(i) || 0) + dt; still.set(i, s0); if (s0 > 30) A.jam++; if (toNode < 40 && !c.conn) { A.wait += dt; } } else still.set(i, 0);
+        if (toNode < 40 && !c.conn) A.wk += dt;
+      });
+    }
+    res[n] = {};
+    for (const cl in acc) { const A = acc[cl]; if (!A.k) continue; const flow = A.r / A.k, jam = A.jam / A.k, waitShare = A.wk ? A.wait / A.wk : 0;
+      res[n][cl] = { score: Math.round(100 * flow * (1 - jam) * (1 - 0.5 * waitShare)), flow: +(flow * 100).toFixed(1), stopped: +(A.stop / A.k * 100).toFixed(1), jammed: +(jam * 100).toFixed(2), waitAtJunction: +(waitShare * 100).toFixed(1) }; }
+  }
+  const out = {}; ['highway', 'arterial', 'small'].forEach(cl => { const v = DENS.map(n => res[n][cl]?.score).filter(x => x != null); out[cl] = v.length ? Math.round(v.reduce((a, b) => a + b, 0) / v.length) : null; });
+  const file = 'tools/congestion-last.json'; let prev = null; try { prev = JSON.parse(fs.readFileSync(file, 'utf8')); } catch (e) { /* first run */ }
+  const lines = [];
+  for (const n of DENS) lines.push('  ' + n + ' cars: ' + ['highway', 'arterial', 'small'].map(cl => { const r = res[n][cl]; if (!r) return cl + ' -'; const p = prev && prev.detail && prev.detail[n] && prev.detail[n][cl]; return cl + ' ' + r.score + (p ? ' (' + (r.score - p.score >= 0 ? '+' : '') + (r.score - p.score) + ')' : '') + ' [flow ' + r.flow + '%, stopped ' + r.stopped + '%, jammed ' + r.jammed + '%, waiting at junctions ' + r.waitAtJunction + '%]'; }).join(' | '));
+  const sum = ['highway', 'arterial', 'small'].map(cl => cl + ' ' + out[cl] + (prev && prev.score && prev.score[cl] != null ? ' (' + (out[cl] - prev.score[cl] >= 0 ? '+' : '') + (out[cl] - prev.score[cl]) + ')' : '')).join(', ');
+  if (!process.env.NO_SAVE) fs.writeFileSync(file, JSON.stringify({ when: new Date().toISOString(), label: process.env.LABEL || '', score: out, detail: res }, null, 1));
+  console.log(lines.join('\n'));
+  return { name: 'congestion', count: 'score ' + sum, bad: [] };
+}
 // ---- the radio songs (songs.js): every song builds, runs 2.5-5 minutes, keeps its melody in range and mostly by step, has a bass register --------
 async function checkSongs() {
   const { SONGS, buildPlan, noteName } = await imp('src/songs.js'), bad = [], names = new Set();
@@ -1002,7 +1041,7 @@ async function checkSongs() {
   return { name: 'songs', count: SONGS.length + ' songs (' + styles.join('/') + ' per station), ' + SONGS.filter(s => !s.melody).length + ' instrumental grooves', bad };
 }
 
-const CHECKS = { songs: checkSongs,  stops: checkStops,  outroad: checkOutroad, transit: checkTransit, rivals: checkRivals, sidewalks: checkSidewalks, gas: checkGas, races: checkRaces, drift: checkDrift, covered: checkCovered,  signs: checkSigns, signfacing: checkSignFacing, lamps: checkLamps, buildings: checkBuildings, traffic: () => checkTraffic(+process.argv[3] || 40, +process.argv[4] || 5), markings: checkMarkings, bridges: checkBridges, solid: checkSolid, water: checkWater, rules: checkRules, driveways: checkDriveways, smooth: checkSmooth, mesh: checkMesh, pavement: checkPavement, connected: checkConnected, lots: checkLots, doors: checkDoors, pavementgaps: checkPavementGaps, riverbanks: checkRiverBanks, bridgewalls: checkBridgeWalls, obstacles: checkObstacles, hwflow: () => checkHwFlow(+process.argv[3] || 500, +process.argv[4] || 4), lotgeo: checkLotGeo, metro: checkMetro };
+const CHECKS = { congestion: checkCongestion, songs: checkSongs,  stops: checkStops,  outroad: checkOutroad, transit: checkTransit, rivals: checkRivals, sidewalks: checkSidewalks, gas: checkGas, races: checkRaces, drift: checkDrift, covered: checkCovered,  signs: checkSigns, signfacing: checkSignFacing, lamps: checkLamps, buildings: checkBuildings, traffic: () => checkTraffic(+process.argv[3] || 40, +process.argv[4] || 5), markings: checkMarkings, bridges: checkBridges, solid: checkSolid, water: checkWater, rules: checkRules, driveways: checkDriveways, smooth: checkSmooth, mesh: checkMesh, pavement: checkPavement, connected: checkConnected, lots: checkLots, doors: checkDoors, pavementgaps: checkPavementGaps, riverbanks: checkRiverBanks, bridgewalls: checkBridgeWalls, obstacles: checkObstacles, hwflow: () => checkHwFlow(+process.argv[3] || 500, +process.argv[4] || 4), lotgeo: checkLotGeo, metro: checkMetro };
 // groups: run several related checks at once
 const GROUPS = {
   placement: ['signs', 'signfacing', 'lamps', 'driveways', 'buildings', 'pavement', 'sidewalks', 'pavementgaps', 'lotgeo'],   // nothing stands where it shouldn't
