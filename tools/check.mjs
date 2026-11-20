@@ -1002,7 +1002,7 @@ async function checkCongestion() {
         const A = acc[clsOf(c.edge)], vmax = (c.edge.speedLimit || 50) / 3.6 / 1.25;
         A.r += Math.min(1, c.speed / vmax); A.k++;
         const toNode = c.path ? c.path.length - c.s : 99;
-        if (c.speed < 0.5) { A.stop++; hot.set(c.to, (hot.get(c.to) || 0) + dt); const s0 = (still.get(i) || 0) + dt; still.set(i, s0); if (s0 > 30) A.jam++; if (toNode < 40 && !c.conn) { A.wait += dt; } } else still.set(i, 0);
+        if (c.speed < 0.5) { A.stop++; hot.set(c.to, (hot.get(c.to) || 0) + dt); if (process.env.WHY && c.to === process.env.WHY) { const w = (c.why || '?') + (c.nextEdge ? '->' + c.nextEdge.id : ''); globalThis.__why = globalThis.__why || {}; __why[w] = (__why[w] || 0) + dt; } const s0 = (still.get(i) || 0) + dt; still.set(i, s0); if (s0 > 30) A.jam++; if (toNode < 40 && !c.conn) { A.wait += dt; } } else still.set(i, 0);
         if (toNode < 40 && !c.conn) A.wk += dt;
       });
     }
@@ -1016,6 +1016,7 @@ async function checkCongestion() {
   for (const n of DENS) lines.push('  ' + n + ' cars: ' + ['highway', 'arterial', 'small'].map(cl => { const r = res[n][cl]; if (!r) return cl + ' -'; const p = prev && prev.detail && prev.detail[n] && prev.detail[n][cl]; return cl + ' ' + r.score + (p ? ' (' + (r.score - p.score >= 0 ? '+' : '') + (r.score - p.score) + ')' : '') + ' [flow ' + r.flow + '%, stopped ' + r.stopped + '%, jammed ' + r.jammed + '%, waiting at junctions ' + r.waitAtJunction + '%]'; }).join(' | '));
   const sum = ['highway', 'arterial', 'small'].map(cl => cl + ' ' + out[cl] + (prev && prev.score && prev.score[cl] != null ? ' (' + (out[cl] - prev.score[cl] >= 0 ? '+' : '') + (out[cl] - prev.score[cl]) + ')' : '')).join(', ');
   if (!process.env.NO_SAVE) fs.writeFileSync(file, JSON.stringify({ when: new Date().toISOString(), label: process.env.LABEL || '', score: out, detail: res }, null, 1));
+  if (globalThis.__why) console.log('why stopped at ' + process.env.WHY + ':', JSON.stringify(Object.entries(__why).sort((a, b) => b[1] - a[1]).slice(0, 12).map(([k, v]) => k + ' ' + Math.round(v))));
   console.log(lines.join('\n'));
   return { name: 'congestion', count: 'score ' + sum, bad: [] };
 }
