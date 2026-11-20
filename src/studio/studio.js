@@ -63,7 +63,7 @@ Object.keys(NAMES).forEach(k => nav.append(h('button', { 'data-k': k, class: 'ta
 const fileIn = h('input', { type: 'file', accept: 'application/json', style: 'display:none', onchange: e => e.target.files[0] && importJson(e.target.files[0]) });
 const bar = h('header', {}, h('b', { class: 'logo' }, 'Gridlock Studio'), nav, statusEl, h('span', { class: 'sp' }),
   h('button', { class: 'btn', onclick: () => fileIn.click() }, 'Import'), h('button', { class: 'btn', onclick: exportJson }, 'Export'), h('button', { class: 'btn danger', onclick: resetAll }, 'Reset all'), saveBtn,
-  h('button', { class: 'btn go', onclick: () => { save(); location.href = typeof __GAME_FILE__ === 'string' ? './' + __GAME_FILE__ : './index.html'; } }, 'Save & play ▶'));
+  h('button', { class: 'btn go', onclick: () => { save(); try { localStorage.setItem('gridlock-city', 'chicago'); } catch (e) { /* ignore */ } location.href = typeof __GAME_FILE__ === 'string' ? './' + __GAME_FILE__ : './index.html'; } }, 'Save & play ▶'));
 document.body.append(bar, h('main', {}, maps.el, buildTab.el, races.el, transitTab.el, cars.el, upg.el), fileIn);
 go('build');
 addEventListener('beforeunload', e => { if (flags.size) { e.preventDefault(); e.returnValue = ''; } });
