@@ -967,6 +967,7 @@ function animate() {
     // whole-city map: the world holds still
     const fx = world.focus();
     minimap.drawFull(fx, [], mapExtras(true));
+    audio.update(dt, { car, input, onFoot: true, paused: true });   // the world is still, so the sound pauses too (the engine used to keep droning)
     requestAnimationFrame(animate);
     return;
   }
