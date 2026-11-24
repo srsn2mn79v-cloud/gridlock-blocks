@@ -1,4 +1,5 @@
 import { createPerfHud } from './perfHud.js';
+import { dedupe, freeAfterUpload } from './dedupe.js';
 import { createSprays } from './spray.js';
 import { KMH_PER_U } from './units.js';
 import * as THREE from 'three';
@@ -146,6 +147,8 @@ await tick('Planting trees and lamps...', 0.7);
 const transit = buildTransit(city, loadCustom().transit); clearTransitSpots(city, transit);     // (bus stops and cab stands keep their kerb free of parked cars)
 const { group: propGroup, instances: propInstances } = buildProps(city);
 scene.add(propGroup);
+const propShare = dedupe(propGroup);   // thousands of props each had their own copy of the same geometry and material
+if (/[?&]perf\b/.test(location.search)) console.log('props shared', propShare);
 
 // Time of day / weather live in environment.js; it calls back with how "night" it is (0..1)
 // so the lamps, their ground pools and the reflectors can follow.
@@ -1120,10 +1123,13 @@ try {
     const m = new THREE.Mesh(new THREE.BoxGeometry(0.1, 0.1, 0.1), new THREE.MeshStandardMaterial({ color: 0x888888, ...o })); m.position.set(0, -900, 0); m.castShadow = m.receiveShadow = true; scene.add(m); dummies.push(m);
   });
   if (hills.on) { const t0 = performance.now(), n = tessellateScene(scene); console.info('hills: ' + n + ' triangles added in ' + Math.round(performance.now() - t0) + ' ms'); }
+  const freedMB = freeAfterUpload([roadsGroup, parcelGroup, ground]);   // static city: drop the JavaScript copy of its vertices once the GPU has it
+  if (/[?&]perf\b/.test(location.search)) console.log('static geometry freed after upload: ' + freedMB + ' MB');
   renderer.compile(scene, camera);
   dummies.forEach(m => { scene.remove(m); m.geometry.dispose(); m.material.dispose(); });
   hid.forEach(o => { o.visible = false; });
 } catch (e) { console.warn('shader warm-up skipped', e); }
+renderer.domElement.addEventListener('webglcontextlost', e => { e.preventDefault(); setTimeout(() => location.reload(), 300); });   // the freed city geometry cannot be re-uploaded
 loadingDone();
 let arrivalFrames = 0;
 animate();
