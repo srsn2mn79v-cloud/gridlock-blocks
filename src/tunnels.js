@@ -52,7 +52,7 @@ export function metroPath(st, loop = false) {
   return { pts: out, R: best.R, fits: best.ok, loop: cyc };
 }
 
-export function createTunnels({ city, scene, transit, collisionWorld, parcels = [], props = [], cityHeight, toast = () => {} }) {
+export function createTunnels({ city, scene, transit, collisionWorld, parcels = [], props = [], cityHeight, stream = null, toast = () => {} }) {
   const lines = (transit && transit.metro && transit.metro.lines) || [];
   const none = { active: false, height: () => null, constrain() {}, update() {}, holes: [], portals: [], segs: [] };
   if (!lines.length) return none;
@@ -342,6 +342,7 @@ export function createTunnels({ city, scene, transit, collisionWorld, parcels = 
       mine.forEach((a, k) => { mat.compose(p3.set(a[0], a[1], a[2]), qt.setFromEuler(eu.set(0, a[3], 0)), s3.set(a[4], a[5], 1)); im.setMatrixAt(k, mat); }); im.frustumCulled = false; g.add(im);
     });
   }
+  if (stream) stream.adopt(g, { near: true });   // the city-wide tunnel boxes, lamps, light pools and posters: only what is in view is drawn
   // station signs: a coloured light bar and a hanging name board over the lane at each station
   stationsAt.forEach(s => {
     const FLOOR = FL0 + s.dy, TOP = FLOOR + CEIL;

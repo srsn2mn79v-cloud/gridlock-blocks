@@ -74,5 +74,28 @@ export function createInstanceStream() {
     }
   }
 
-  return { addSet, update, sets };
+  // Hand every InstancedMesh found under `root` to the stream: its copies are then drawn only while they are inside the
+  // view and within range, instead of the whole city's worth every frame. The meshes keep their materials and geometry.
+  const _m = new THREE.Matrix4(), _c = new THREE.Vector3(), _p = new THREE.Vector3(), _q = new THREE.Quaternion(), _s = new THREE.Vector3();
+  function adopt(root, opts = {}) {
+    let n = 0;
+    root.children.slice().forEach(im => {
+      if (!im.isInstancedMesh || im.userData.noStream) return;
+      im.geometry.computeBoundingSphere();
+      const bs = im.geometry.boundingSphere, count = im.count, arr = im.instanceMatrix.array, items = [];
+      for (let i = 0; i < count; i++) {
+        _m.fromArray(arr, i * 16); _m.decompose(_p, _q, _s);
+        _c.copy(bs.center).applyMatrix4(_m);
+        items.push({ x: _c.x, y: _c.y, z: _c.z, radius: bs.radius * Math.max(_s.x, _s.y, _s.z), matrix: _m.clone(), hidden: false });
+      }
+      const capacity = items.length;
+      if (!capacity) return;
+      addSet([im], items, null, { near: !!opts.near });
+      items.forEach(it => { it.matrix = null; });   // addSet has copied them into its own buffer
+      n++;
+    });
+    return n;
+  }
+
+  return { addSet, update, adopt, sets };
 }
